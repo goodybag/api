@@ -124,6 +124,8 @@ Deal = new Schema {
   image           : {type: Url, required: true}
   tipped          : {type: Boolean, required: true, default: true}
   
+  votes           : {type: Number, default: 0}
+  voters          : {}
   like            : [] #userids that like this deal
   dislike         : [] #userids that disliked this deal
   #available      : {type: Boolean, required: true, default: false}

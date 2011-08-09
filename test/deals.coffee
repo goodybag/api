@@ -1,7 +1,7 @@
 vows = require 'vows'
 assert = require 'assert'
 api = require '../lib/api'
-groupon = require('groupon').client '9e1a051bc2b97495dc2601bf45c892bdd19695d5'
+groupon = require('groupon').client '9e1a051bc2b97495dc2601bf45c892bdd19695d5' #THIS GOT CHECKED IN!
 
 globals = require 'globals'
 utils = globals.utils
