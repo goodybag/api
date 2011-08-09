@@ -1,0 +1,29 @@
+{
+  "author": "Lalit Kapoor <lalitkapoor@gmail.com> (http://www.lalitkapoor.com)",
+  "name": "goodybag-api",
+  "description": "goodybag api",
+  "version": "0.0.1",
+  "homepage": "http://www.github.com/goodybag/api",
+  "repository": {
+    "type": "git",
+    "url": "git://github.com/goodybag/api.git"
+  },
+  "main": "lib/api",
+  "engines": {
+    "node": "~v0.4.8"
+  },
+  "dependencies": {
+    "mongoose": "https://github.com/LearnBoost/mongoose/tarball/master",
+    "mongoose-types": "",
+    "vows": "",
+    "globals": "https://github.com/goodybag/globals/tarball/master",
+    "groupon": "0.0.1"
+  },
+  "devDependencies": {
+    "mongoose": "https://github.com/LearnBoost/mongoose/tarball/master",
+    "mongoose-types": "",
+    "vows": "",
+    "globals": "https://github.com/goodybag/globals/tarball/master",
+    "groupon": "0.0.1"
+  }
+}
