@@ -51,7 +51,7 @@ exports.getGoodies = (email, type, limit, skip, callback)->
 
 class Deals
   constructor: ()->
-      ['like', 'dislike', 'unLike', 'unDislike'].forEach (method)->
+      ['like', 'dislike', 'neutral'].forEach (method)->
         Deals.prototype[method] = (dealID, user, callback)->
           Deal[method].call Deal, dealID, user, callback
   

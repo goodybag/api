@@ -88,15 +88,9 @@ suite.addBatch {
           'successfully': (err, deal)->
             assert.isNull(err)
         }
-        'is unLiked': {
+        'is neutral': {
           topic: (d)->
-            Deals.unLike deal._id, 'lalit', this.callback
-          'successfully': (err, deal)->
-            assert.isNull(err)
-        }
-        'is unDisliked': {
-          topic: (d)->
-            Deals.unDislike deal._id, 'lalit', this.callback
+            Deals.neutral deal._id, 'lalit', this.callback
           'successfully': (err, deal)->
             assert.isNull(err)
         }

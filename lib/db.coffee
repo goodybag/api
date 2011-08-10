@@ -124,10 +124,10 @@ Deal = new Schema {
   image           : {type: Url, required: true}
   tipped          : {type: Boolean, required: true, default: true}
   
-  votes           : {type: Number, default: 0}
   voters          : {}
   like            : [] #userids that like this deal
   dislike         : [] #userids that disliked this deal
+    
   #available      : {type: Boolean, required: true, default: false}
   
   created         : {type: Date, required: true, default: new Date( (new Date()).toUTCString() )}
@@ -160,16 +160,19 @@ Deal.namedScope 'range', (start, end)->
 #static functions
 Deal.static {
   like: (id, user, callback)->
-    this.collection.update  {_id:id}, {$addToSet:{like: user}}, callback
+    voters = {}
+    voters['voters.'+user] = 1
+    this.collection.update  {_id:id}, {$addToSet:{like: user}, $pull:{dislike: user}, $set:voters}, callback
       
   dislike: (id, user, callback)->
-    this.collection.update  {_id:id}, {$addToSet:{dislike: user}}, callback
+    voters = {}
+    voters['voters.'+user] = -1
+    this.collection.update  {_id:id}, {$addToSet:{dislike: user}, $pull:{like: user}, $set:voters}, callback
         
-  unLike: (id, user, callback)->
-    this.collection.update  {_id:id}, {$pull:{like: user}}, callback
-        
-  unDislike: (id, user, callback)->
-    this.collection.update  {_id:id}, {$pull:{dislike: user}}, callback
+  neutral: (id, user, callback)->
+    voters = {}
+    voters['voters.'+user] = 1 #for unsetting
+    this.collection.update  {_id:id}, {$pull:{dislike: user, like: user}, $unset:voters}, callback
 }
 
 
