@@ -2,6 +2,7 @@ mongoose = require 'mongoose'
 mongooseTypes = require 'mongoose-types'
 
 utils = require('globals').utils
+util = require 'util'
 countries = require('globals').countries
 
 exports = module.exports
@@ -16,8 +17,8 @@ Url = mongoose.SchemaTypes.Url
 db = mongoose.connect '127.0.0.1', 'goodybag', 1337, (err, conn)->
 	if err?
 		console.log 'error connecting to db'
-	else
-		console.log 'successfully connected to db'
+	#else
+	#	console.log 'successfully connected to db'
 
 # This is my fix for a bug that exists in mongoose that doesn't
 # expose these methods if using a named scope
@@ -29,6 +30,25 @@ db = mongoose.connect '127.0.0.1', 'goodybag', 1337, (err, conn)->
     if (cQuery = this._cumulativeQuery)
       cQuery.options[method] = v
     this
+
+# mongoose.Model.select = (fields)->
+#   query = new mongoose.Query().bind(this, 'findOne')
+#   query.select(fields)
+#   query._fields = fields
+#   util.log JSON.stringify(query)
+#   cQuery = null
+#   if cQuery = this._cumulativeQuery
+#     cQuery._fields = query._fields
+#   if !query.model
+#     query.bind(this, 'findOne')
+#   util.log JSON.stringify(query)
+#   return this
+
+# ['select','fields','only','exclude'].forEach (method)->
+#   mongoose.Model[method] = ()->
+#     q = this.where()
+#     q[method].call(q, arguments)
+#     return this
 
 ####################
 # Goody ############
@@ -151,29 +171,72 @@ Deal.namedScope('available').where('dates.end').gt(new Date( (new Date()).toUTCS
 Deal.namedScope 'city', (city)->
   return this.where('city', city)
 
-Deal.namedScope 'tip', ()->
-  return this.tip=true
+Deal.namedScope 'deal', (id)->
+  return this.where('_id', id)
 
 Deal.namedScope 'range', (start, end)->
-  return this.where('dates.start').gte(start).where('dates.end').lte(end)
+  if start?
+    this.where('dates.start').gte(start)
+  if end?
+    this.where('dates.end').lte(end)
+  return query
 
-#static functions
-Deal.static {
-  like: (id, user, callback)->
-    voters = {}
-    voters['voters.'+user] = 1
-    this.collection.update  {_id:id}, {$addToSet:{like: user}, $pull:{dislike: user}, $set:voters}, callback
-      
-  dislike: (id, user, callback)->
-    voters = {}
-    voters['voters.'+user] = -1
-    this.collection.update  {_id:id}, {$addToSet:{dislike: user}, $pull:{like: user}, $set:voters}, callback
-        
-  neutral: (id, user, callback)->
-    voters = {}
-    voters['voters.'+user] = 1 #for unsetting
-    this.collection.update  {_id:id}, {$pull:{dislike: user, like: user}, $unset:voters}, callback
-}
+# #static functions
+# Deal.static {
+#   like: (id, user, callback)->
+#     voters = {}
+#     voters['voters.'+user] = 1
+#     this.collection.update  {_id:id}, {$addToSet:{like: user}, $pull:{dislike: user}, $set:voters}, callback
+# 
+#   dislike: (id, user, callback)->
+#     voters = {}
+#     voters['voters.'+user] = -1
+#     this.collection.update  {_id:id}, {$addToSet:{dislike: user}, $pull:{like: user}, $set:voters}, callback
+# 
+#   neutral: (id, user, callback)->
+#     voters = {}
+#     voters['voters.'+user] = 1 #for unsetting
+#     this.collection.update  {_id:id}, {$pull:{dislike: user, like: user}, $unset:voters}, callback
+#   #currently only supports groupon, more abstraction needed to support more deals
+#   add: (data, callback)->
+#     deal = new(this)
+#     for own k,v of data
+#       deal[k] = v
+#     deal.save callback
+#   
+#   del: (id, callback)->
+#     this.remove {'_id': id}, callback
+#     
+#   getDeal: (id, callback)->
+#     this.deal(id).findOne {}, {data: 0, dislike: 0}, callback
+#   
+#   #options: city, start, end, limit, skip
+#   getDeals: (options, callback)->
+#     query = this.find()
+#             
+#     if typeof(options) == 'function'
+#       callback = options
+#     else
+#       if options.city?
+#         query.where('city', options.city)
+#   
+#       if options.start? and options.end?
+#         query.range options.start, options.end
+#       else if options.start?
+#         query.where('dates.start').gte(options.start)
+#       else if options.end?
+#         query.where('dates.end').lte(options.end)
+#       else
+#         query.where('dates.end').gt(new Date( (new Date()).toUTCString() ))
+#   
+#       if options.limit?
+#         query.limit(options.limit)
+#   
+#       if options.skip?
+#         query.skip(options.skip)
+#     query.select({data: 0, dislike: 0}).exec callback
+#   
+# }
 
 
 ####################
@@ -236,10 +299,6 @@ User.static {
 				callback err, user
 		return
 }
-
-# mongoose.model 'User', User
-# mongoose.model 'Goody', Goody
-# mongoose.model 'Deal', Deal
 
 exports.User  = mongoose.model 'User', User
 exports.Goody = mongoose.model 'Goody', Goody

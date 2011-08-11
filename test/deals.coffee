@@ -2,15 +2,24 @@ vows = require 'vows'
 assert = require 'assert'
 api = require '../lib/api'
 groupon = require('groupon').client '9e1a051bc2b97495dc2601bf45c892bdd19695d5' #THIS GOT CHECKED IN!
+util = require 'util'
 
 globals = require 'globals'
 utils = globals.utils
 
-Deals = new api.Deals
+db = require '../lib/db'
+#Deals = db.Deal
+
+Deals = api.Deals
+
+
 
 deal = null
 
 suite = vows.describe 'Testing Deals'
+
+#add a deal (using groupon api, consider not doing this and just inserting data)
+#it should not be dependant on the api for this test (this is a good test for the dealer project)
 suite.addBatch {
   'A deal': {
     'was added': {
@@ -19,9 +28,8 @@ suite.addBatch {
         groupon.getDeals {'division_id': 'austin'}, (err, data)->
           #for deal in data.deals #insert many
           #console.log data.deals.length
-          
           deal = data.deals[0] #insert only one
-                    
+          
           #if there are multiple options in this deal, find cheapest
           #and save that for the costs key
           lowestPrice = 0
@@ -68,69 +76,83 @@ suite.addBatch {
             url             : deal['dealUrl']
             data            : deal
           }
-
           Deals.add obj, self.callback
+      
       'successfully': (err, data)->
         deal = data
-        assert.isNull(err)
-      'A deal': {
-        topic: ()->
-          return deal
-        'is liked': {
-          topic: (d)->
-            Deals.like deal._id, 'lalit', this.callback
-          'successfully': (err, deal)->
-            assert.isNull(err)
-        }
-        'is disliked': {
-          topic: (d)->
-            Deals.dislike deal._id, 'lalit', this.callback
-          'successfully': (err, deal)->
-            assert.isNull(err)
-        }
-        'is neutral': {
-          topic: (d)->
-            Deals.neutral deal._id, 'lalit', this.callback
-          'successfully': (err, deal)->
-            assert.isNull(err)
-        }
-      }
+        assert.isNotNull(data)
     }
   }
 }
 
-###suite.addBatch {
+#liking and disliking deals
+suite.addBatch {
   'A deal': {
     topic: ()->
-      console.log deal
       return deal
     'is liked': {
       topic: (d)->
-        #console.log deal
-        #Deals.like deal._id, this.callback
-      'successfully': (error, deal)->
+        Deals.like deal._id, 'lalit', this.callback
+      'successfully': (err, data)->
         assert.isNull(err)
     }
     'is disliked': {
       topic: (d)->
-        Deals.dislike deal._id, this.callback
-      'successfully': (error, deal)->
+        Deals.dislike deal._id, 'lalit', this.callback
+      'successfully': (err, data)->
         assert.isNull(err)
     }
-    'is unLiked': {
+    'is neutral': {
       topic: (d)->
-        Deals.unlike deal._id, this.callback
-      'successfully': (error, deal)->
-        assert.isNull(err)
-    }
-    'is unDisliked': {
-      topic: (d)->
-        Deals.undislike deal._id, this.callback
-      'successfully': (error, deal)->
+        Deals.neutral deal._id, 'lalit', this.callback
+      'successfully': (err, data)->
         assert.isNull(err)
     }
   }
-}###
+}
+
+#get single deal
+suite.addBatch {
+  'A deal': {
+    topic: ()->
+      return deal
+    'is gotten':{
+      topic: (d)->
+        Deals.getDeal d._id, this.callback
+      'successfully': (err, data)->
+        assert.isNotNull(data)
+    }  
+  }
+}
+
+#get many deals
+suite.addBatch {
+  'Many deals': {
+    topic: ()->
+      return deal
+    'are gotten':{
+      topic: (d)->
+        Deals.getDeals {city:'austin'}, this.callback
+      'successfully': (err, data)->
+        assert.isNotNull(data)
+    }  
+  }
+}
+
+#remove the deal
+suite.addBatch {
+  'A deal': {
+    topic: ()->
+      return deal
+    'is removed':{
+      topic: (d)->
+        Deals.remove d._id, this.callback
+      'successfully': (err, data)->
+        assert.isNull(err)
+    }  
+  }
+}
+
 
 suite.export module 
 suite.run

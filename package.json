@@ -13,14 +13,14 @@
     "node": "~v0.4.8"
   },
   "dependencies": {
-    "mongoose": "https://github.com/LearnBoost/mongoose/tarball/master",
+    "mongoose": "1.8.0",
     "mongoose-types": "",
     "vows": "",
     "globals": "https://github.com/goodybag/globals/tarball/master",
     "groupon": "0.0.1"
   },
   "devDependencies": {
-    "mongoose": "https://github.com/LearnBoost/mongoose/tarball/master",
+    "mongoose": "1.8.0",
     "mongoose-types": "",
     "vows": "",
     "globals": "https://github.com/goodybag/globals/tarball/master",

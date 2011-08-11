@@ -1,10 +1,12 @@
 exports = module.exports
 
 db = require './db'
-utils = 'globals'
+util = require 'util'
 
 Goody = db.Goody
 Deal = db.Deal
+
+#util.log util.inspect Deal, true, 2
 
 exports.getGoodies = (email, type, limit, skip, callback)->
 	#valid types include: inbox, activated, credited, expired
@@ -31,50 +33,69 @@ exports.getGoodies = (email, type, limit, skip, callback)->
     
 	query.find (err, data)->
 		callback err, data
-	
-	#WE COULD DO IT LIKE THIS, BUT WE WANT TO CONTROL IT ANYWAY
-	#if Goody.hasOwnProperty(req.params.type)
-	#	query = Goody[req.params.type].email(req.session.user.email)
-	#
-	#	if req.params.limit?
-	#		query.limit(req.params.limit)
-	#	else
-	#		query.limit(10)
-	#
-	#	if req.params.skip?
-	#		query.skip(req.params.skip)
-    #
-	#	query.find (err, data)->
-	#		return utils.sendJSON res, data
-	#else
-	#	return utils.sendJSON res, {}
 
-class Deals
+class API
+  @model = null
   constructor: ()->
-      ['like', 'dislike', 'neutral'].forEach (method)->
-        Deals.prototype[method] = (dealID, user, callback)->
-          Deal[method].call Deal, dealID, user, callback
+    #nothing to say
+  @query: ()->
+    return @model.find() #instance of query object
+
+class Deals extends API
+  @model = Deal
+  
+  @like: (id, user, callback)->
+    voters = {}
+    voters['voters.'+user] = 1
+    @model.collection.update  {_id:id}, {$addToSet:{like: user}, $pull:{dislike: user}, $set:voters}, callback
+
+  @dislike: (id, user, callback)->
+    voters = {}
+    voters['voters.'+user] = -1
+    @model.collection.update  {_id:id}, {$addToSet:{dislike: user}, $pull:{like: user}, $set:voters}, callback
+
+  @neutral: (id, user, callback)->
+    voters = {}
+    voters['voters.'+user] = 1 #for unsetting
+    @model.collection.update  {_id:id}, {$pull:{dislike: user, like: user}, $unset:voters}, callback
   
   #currently only supports groupon, more abstraction needed to support more deals
-  add: (data, callback)->
+  @add: (data, callback)->
     deal = new Deal();
     for own k,v of data
       deal[k] = v
     deal.save callback
   
-  remove: (id, callback)->
-    deal = Deals.findById id
-    deal.remove callback
+  @remove: (id, callback)->
+    @model.remove {'_id': id}, callback
     
-  getDeal: (id, callback)->
-    Deals.findById id, callback
-    
-  getDeals: (city, start, end, callback)->
-    query = Deal.city city
-    if start? and end?
-      query.range start, end
+  @getDeal: (id, callback)->
+    @model.findOne {_id: id}, {data: 0, dislike: 0}, callback
+  
+  #options: city, start, end, limit, skip
+  @getDeals: (options, callback)->
+    query = Deal.find()
+
+    if typeof(options) == 'function'
+      callback = options
     else
-      query.available
-    query.find callback
+      if options.city?
+        query.where('city', options.city)
+
+      if options.start? and options.end?
+        query.range options.start, options.end
+      else if options.start?
+        query.where('dates.start').gte(options.start)
+      else if options.end?
+        query.where('dates.end').lte(options.end)
+      else
+        query.where('dates.end').gt(new Date( (new Date()).toUTCString() ))
+
+      if options.limit?
+        query.limit(options.limit)
+
+      if options.skip?
+        query.skip(options.skip)
+    query.select({data: 0, dislike: 0}).exec callback
 
 exports.Deals = Deals
