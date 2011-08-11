@@ -40,6 +40,9 @@ class API
     #nothing to say
   @query: ()->
     return @model.find() #instance of query object
+  
+  @bulkInsert: (docs, options, callback)->
+    @model.collection.insert(docs, options, callback)
 
 class Deals extends API
   @model = Deal
@@ -76,7 +79,7 @@ class Deals extends API
   @getDeals: (options, callback)->
     query = Deal.find()
 
-    if typeof(options) == 'function'
+    if typeof(options) === 'function'
       callback = options
     else
       if options.city?
