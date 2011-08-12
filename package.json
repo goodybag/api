@@ -17,13 +17,13 @@
     "mongoose-types": "",
     "vows": "",
     "globals": "https://github.com/goodybag/globals/tarball/master",
-    "groupon": "0.0.1"
+    "groupon": ">=0.0.3"
   },
   "devDependencies": {
     "mongoose": "1.8.0",
     "mongoose-types": "",
     "vows": "",
     "globals": "https://github.com/goodybag/globals/tarball/master",
-    "groupon": "0.0.1"
+    "groupon": ">=0.0.3"
   }
 }

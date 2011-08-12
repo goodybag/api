@@ -67,7 +67,9 @@ class Deals extends API
     deal = new Deal();
     for own k,v of data
       deal[k] = v
-    deal.save callback
+    # @model.collection.update 
+    delete deal.doc._id #need to delete otherwise: Mod on _id not allowed
+    @model.update {did:deal['did']}, deal.doc, {upsert: true}, callback #upsert
   
   @remove: (id, callback)->
     @model.remove {'_id': id}, callback
@@ -79,7 +81,7 @@ class Deals extends API
   @getDeals: (options, callback)->
     query = Deal.find()
 
-    if typeof(options) === 'function'
+    if typeof(options) == 'function'
       callback = options
     else
       if options.city?
