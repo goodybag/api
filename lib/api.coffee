@@ -2,9 +2,13 @@ exports = module.exports
 
 db = require './db'
 util = require 'util'
+globals = require 'globals'
+
+utils = globals.utils
 
 Goody = db.Goody
 Deal = db.Deal
+Media = db.Media
 
 #util.log util.inspect Deal, true, 2
 
@@ -38,29 +42,35 @@ class API
   @model = null
   constructor: ()->
     #nothing to say
-  @query: ()->
+  
+  @_query: ()->
     return @model.find() #instance of query object
   
+  @_optionParser = (options, q)->
+    query = q || @_query()
+    return query
+  
+  @add = (data, callback)->
+    instance = new @model()
+    for own k,v of data
+      instance[k] =v
+    instance.save callback
+    return
+
+  @remove = (id, callback)->
+    @model.remove {'_id': id}, callback
+    return
+
+  @get = (id, callback)->
+    @model.findOne {_id: id}, callback
+    return
+    
   @bulkInsert: (docs, options, callback)->
     @model.collection.insert(docs, options, callback)
+    return
 
 class Deals extends API
   @model = Deal
-  
-  @like: (id, user, callback)->
-    voters = {}
-    voters['voters.'+user] = 1
-    @model.collection.update  {_id:id}, {$addToSet:{like: user}, $pull:{dislike: user}, $set:voters}, callback
-
-  @dislike: (id, user, callback)->
-    voters = {}
-    voters['voters.'+user] = -1
-    @model.collection.update  {_id:id}, {$addToSet:{dislike: user}, $pull:{like: user}, $set:voters}, callback
-
-  @neutral: (id, user, callback)->
-    voters = {}
-    voters['voters.'+user] = 1 #for unsetting
-    @model.collection.update  {_id:id}, {$pull:{dislike: user, like: user}, $unset:voters}, callback
   
   #currently only supports groupon, more abstraction needed to support more deals
   @add: (data, callback)->
@@ -69,17 +79,15 @@ class Deals extends API
       deal[k] = v
     # @model.collection.update 
     delete deal.doc._id #need to delete otherwise: Mod on _id not allowed
+    console.log 'did:' + deal['did']
     @model.update {did:deal['did']}, deal.doc, {upsert: true}, callback #upsert
-  
-  @remove: (id, callback)->
-    @model.remove {'_id': id}, callback
     
   @getDeal: (id, callback)->
     @model.findOne {_id: id}, {data: 0, dislike: 0}, callback
   
   #options: city, start, end, limit, skip
   @getDeals: (options, callback)->
-    query = Deal.find()
+    query = @_query()
 
     if typeof(options) == 'function'
       callback = options
@@ -103,4 +111,59 @@ class Deals extends API
         query.skip(options.skip)
     query.select({data: 0, dislike: 0}).exec callback
 
+  @like: (id, user, callback)->
+    voters = {}
+    voters['voters.'+user] = 1
+    @model.collection.update  {_id:id}, {$addToSet:{like: user}, $pull:{dislike: user}, $set:voters}, callback
+
+  @dislike: (id, user, callback)->
+    voters = {}
+    voters['voters.'+user] = -1
+    @model.collection.update  {_id:id}, {$addToSet:{dislike: user}, $pull:{like: user}, $set:voters}, callback
+
+  @neutral: (id, user, callback)->
+    voters = {}
+    voters['voters.'+user] = 1 #for unsetting
+    @model.collection.update  {_id:id}, {$pull:{dislike: user, like: user}, $unset:voters}, callback
+
+class Medias extends API
+  @model = Media
+  
+  #options: clientid, type, tags, start, end, limit, skip
+  @_optionParser = (options, q)->
+    query = q || @_query()
+    
+    if options.clientid?
+      query.where('clientid', options.clientid)
+    
+    if options.type?
+      query.where('type', options.type)
+    
+    if options.tags?
+      query.in('tags', options.tags)
+    
+    if options.start?
+      query.where('uploaddate').gte(options.start)
+    
+    if options.end?
+      query.where('uploaddate').lte(options.end)
+      
+    if options.limit?
+      query.limit(options.limit)
+
+    if options.skip?
+      query.skip(options.skip)
+    
+    return query
+  
+  @getFiles = (options, callback)->
+    #THIS SHOULD HAPPEN IN THE WEB ROUTES END, MAKING SURE THE PARAMETERS REQUIRED EXIST
+    #if !utils.mustContain(options, 'clientid')
+    #  callback(new Error('required field(s) were missing. required fileds are: clientid'), null)
+    
+    query = @_optionParser(options)
+    query.exec callback
+    return
+    
 exports.Deals = Deals
+exports.Medias = Medias

@@ -31,24 +31,10 @@ db = mongoose.connect '127.0.0.1', 'goodybag', 1337, (err, conn)->
       cQuery.options[method] = v
     this
 
-# mongoose.Model.select = (fields)->
-#   query = new mongoose.Query().bind(this, 'findOne')
-#   query.select(fields)
-#   query._fields = fields
-#   util.log JSON.stringify(query)
-#   cQuery = null
-#   if cQuery = this._cumulativeQuery
-#     cQuery._fields = query._fields
-#   if !query.model
-#     query.bind(this, 'findOne')
-#   util.log JSON.stringify(query)
-#   return this
 
-# ['select','fields','only','exclude'].forEach (method)->
-#   mongoose.Model[method] = ()->
-#     q = this.where()
-#     q[method].call(q, arguments)
-#     return this
+exports.disconnect = ()->
+  db.disconnect()
+
 
 ####################
 # Goody ############
@@ -110,6 +96,32 @@ Goody.namedScope 'email', (email)->
 
 
 ####################
+# Media ############
+####################
+Media = new Schema {
+  clientid    : {type: String, required: true}
+  type        : {type: String, required: true, enum: ['image','video']}
+  uploaddate  : {type: Date, required: true, default: new Date( (new Date()).toUTCString() )}
+  name        : {type: String, required: true}
+  url         : {type: Url, required: true}
+  duration    : {type: Number}
+  thumbs      : [] #only populated if video
+  sizes: { #only for images, not yet implemented in transloaded's template, or api
+    small     : {type: Url}
+    medium    : {type: Url}
+    large     : {type: Url}
+  }
+  tags        : []
+}
+
+#indexes
+Media.index {clientid:1, type: 1}
+Media.index {clientid:1, tags: 1} #use tags instead of folders
+Media.index {clientid:1, name:1} #for searching by name
+Media.index {clientid:1, uploaddate: 1} #for ordering by date
+Media.index {url:1} #for when we want to find out which client a url belongs to
+
+####################
 # Deal #############
 ####################
 Deal = new Schema {
@@ -158,6 +170,7 @@ Deal = new Schema {
 #indexes
 #all together, so we can do real-time queries ocross all these values (instead of map/reducing on ones which are not indexed)
 #more expensive, but this index isn't really modified that often, so no real worry at the moment
+Deal.index {city:1}
 Deal.index {provider:1, city:1, state: 1, 'dates.start': 1, 'dates.end': 1, 'cost.actual': 1, 'cost.discounted': 1, created: 1}
 Deal.index {like: 1}
 Deal.index {dislike: 1}
@@ -180,63 +193,6 @@ Deal.namedScope 'range', (start, end)->
   if end?
     this.where('dates.end').lte(end)
   return query
-
-# #static functions
-# Deal.static {
-#   like: (id, user, callback)->
-#     voters = {}
-#     voters['voters.'+user] = 1
-#     this.collection.update  {_id:id}, {$addToSet:{like: user}, $pull:{dislike: user}, $set:voters}, callback
-# 
-#   dislike: (id, user, callback)->
-#     voters = {}
-#     voters['voters.'+user] = -1
-#     this.collection.update  {_id:id}, {$addToSet:{dislike: user}, $pull:{like: user}, $set:voters}, callback
-# 
-#   neutral: (id, user, callback)->
-#     voters = {}
-#     voters['voters.'+user] = 1 #for unsetting
-#     this.collection.update  {_id:id}, {$pull:{dislike: user, like: user}, $unset:voters}, callback
-#   #currently only supports groupon, more abstraction needed to support more deals
-#   add: (data, callback)->
-#     deal = new(this)
-#     for own k,v of data
-#       deal[k] = v
-#     deal.save callback
-#   
-#   del: (id, callback)->
-#     this.remove {'_id': id}, callback
-#     
-#   getDeal: (id, callback)->
-#     this.deal(id).findOne {}, {data: 0, dislike: 0}, callback
-#   
-#   #options: city, start, end, limit, skip
-#   getDeals: (options, callback)->
-#     query = this.find()
-#             
-#     if typeof(options) == 'function'
-#       callback = options
-#     else
-#       if options.city?
-#         query.where('city', options.city)
-#   
-#       if options.start? and options.end?
-#         query.range options.start, options.end
-#       else if options.start?
-#         query.where('dates.start').gte(options.start)
-#       else if options.end?
-#         query.where('dates.end').lte(options.end)
-#       else
-#         query.where('dates.end').gt(new Date( (new Date()).toUTCString() ))
-#   
-#       if options.limit?
-#         query.limit(options.limit)
-#   
-#       if options.skip?
-#         query.skip(options.skip)
-#     query.select({data: 0, dislike: 0}).exec callback
-#   
-# }
 
 
 ####################
@@ -300,12 +256,14 @@ User.static {
 		return
 }
 
-exports.User  = mongoose.model 'User', User
-exports.Goody = mongoose.model 'Goody', Goody
-exports.Deal  = mongoose.model 'Deal', Deal
+exports.User    = mongoose.model 'User', User
+exports.Goody   = mongoose.model 'Goody', Goody
+exports.Deal    = mongoose.model 'Deal', Deal
+exports.Media   = mongoose.model 'Media', Media
 
 exports.models = {
   User: User
 	Goody: Goody
 	Deal: Deal
+	Media: Media
 }

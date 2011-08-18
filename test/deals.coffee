@@ -12,8 +12,6 @@ db = require '../lib/db'
 
 Deals = api.Deals
 
-
-
 deal = null
 
 suite = vows.describe 'Testing Deals'

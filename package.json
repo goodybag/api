@@ -8,7 +8,7 @@
     "type": "git",
     "url": "git://github.com/goodybag/api.git"
   },
-  "main": "lib/api",
+  "main": "index",
   "engines": {
     "node": "~v0.4.8"
   },
