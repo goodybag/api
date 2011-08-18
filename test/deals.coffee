@@ -12,7 +12,7 @@ db = require '../lib/db'
 
 Deals = api.Deals
 
-deal = null
+did = null
 
 suite = vows.describe 'Testing Deals'
 
@@ -74,37 +74,13 @@ suite.addBatch {
             url             : deal['dealUrl']
             data            : deal
           }
+          did = obj.did
           Deals.add obj, self.callback
+          return
       
       'successfully': (err, data)->
-        deal = data
-        assert.isNotNull(data)
-    }
-  }
-}
-
-#liking and disliking deals
-suite.addBatch {
-  'A deal': {
-    topic: ()->
-      return deal
-    'is liked': {
-      topic: (d)->
-        Deals.like deal._id, 'lalit', this.callback
-      'successfully': (err, data)->
         assert.isNull(err)
-    }
-    'is disliked': {
-      topic: (d)->
-        Deals.dislike deal._id, 'lalit', this.callback
-      'successfully': (err, data)->
-        assert.isNull(err)
-    }
-    'is neutral': {
-      topic: (d)->
-        Deals.neutral deal._id, 'lalit', this.callback
-      'successfully': (err, data)->
-        assert.isNull(err)
+        assert.equal(data, 1)
     }
   }
 }
@@ -113,10 +89,11 @@ suite.addBatch {
 suite.addBatch {
   'A deal': {
     topic: ()->
-      return deal
-    'is gotten':{
+      return did
+    'was gotten':{
       topic: (d)->
-        Deals.getDeal d._id, this.callback
+        Deals.getDeal d, this.callback
+        return
       'successfully': (err, data)->
         assert.isNotNull(data)
     }  
@@ -127,13 +104,43 @@ suite.addBatch {
 suite.addBatch {
   'Many deals': {
     topic: ()->
-      return deal
-    'are gotten':{
+      return did
+    'were gotten':{
       topic: (d)->
         Deals.getDeals {city:'austin'}, this.callback
+        return
       'successfully': (err, data)->
         assert.isNotNull(data)
     }  
+  }
+}
+
+#liking and disliking deals
+suite.addBatch {
+  'A deal': {
+    topic: ()->
+      return did
+    'was liked': {
+      topic: (d)->
+        Deals.like d, 'lalit', this.callback
+        return
+      'successfully': (err, data)->
+        assert.isNull(err)
+    }
+    'was disliked': {
+      topic: (d)->
+        Deals.dislike d, 'lalit', this.callback
+        return
+      'successfully': (err, data)->
+        assert.isNull(err)
+    }
+    'was neutral': {
+      topic: (d)->
+        Deals.neutral d, 'lalit', this.callback
+        return
+      'successfully': (err, data)->
+        assert.isNull(err)
+    }
   }
 }
 
@@ -141,10 +148,11 @@ suite.addBatch {
 suite.addBatch {
   'A deal': {
     topic: ()->
-      return deal
-    'is removed':{
+      return did
+    'was removed':{
       topic: (d)->
-        Deals.remove d._id, this.callback
+        Deals.remove d, this.callback
+        return
       'successfully': (err, data)->
         assert.isNull(err)
     }  
@@ -157,13 +165,11 @@ suite.addBatch {
     'from database': {
       topic: ()->
         db.disconnect(this.callback)
-      
+        return
       'successfully': (err, data)->
         assert.isNull(err)
     }
   }
 }
 
-
-suite.export module 
-suite.run
+suite.export module

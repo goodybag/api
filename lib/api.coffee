@@ -37,6 +37,7 @@ exports.getGoodies = (email, type, limit, skip, callback)->
     
 	query.find (err, data)->
 		callback err, data
+	return
 
 class API
   @model = null
@@ -79,11 +80,16 @@ class Deals extends API
       deal[k] = v
     # @model.collection.update 
     delete deal.doc._id #need to delete otherwise: Mod on _id not allowed
-    console.log 'did:' + deal['did']
     @model.update {did:deal['did']}, deal.doc, {upsert: true}, callback #upsert
+    return
     
-  @getDeal: (id, callback)->
-    @model.findOne {_id: id}, {data: 0, dislike: 0}, callback
+  @remove = (did, callback)->
+    @model.remove {'did': did}, callback
+    return
+    
+  @getDeal: (did, callback)->
+    @model.findOne {did: did}, {data: 0, dislike: 0}, callback
+    return
   
   #options: city, start, end, limit, skip
   @getDeals: (options, callback)->
@@ -110,21 +116,25 @@ class Deals extends API
       if options.skip?
         query.skip(options.skip)
     query.select({data: 0, dislike: 0}).exec callback
+    return
 
-  @like: (id, user, callback)->
+  @like: (did, user, callback)->
     voters = {}
     voters['voters.'+user] = 1
-    @model.collection.update  {_id:id}, {$addToSet:{like: user}, $pull:{dislike: user}, $set:voters}, callback
+    @model.collection.update  {did: did}, {$addToSet:{like: user}, $pull:{dislike: user}, $set:voters}, callback
+    return
 
-  @dislike: (id, user, callback)->
+  @dislike: (did, user, callback)->
     voters = {}
     voters['voters.'+user] = -1
-    @model.collection.update  {_id:id}, {$addToSet:{dislike: user}, $pull:{like: user}, $set:voters}, callback
+    @model.collection.update  {did: did}, {$addToSet:{dislike: user}, $pull:{like: user}, $set:voters}, callback
+    return
 
-  @neutral: (id, user, callback)->
+  @neutral: (did, user, callback)->
     voters = {}
     voters['voters.'+user] = 1 #for unsetting
-    @model.collection.update  {_id:id}, {$pull:{dislike: user, like: user}, $unset:voters}, callback
+    @model.collection.update  {did: did}, {$pull:{dislike: user, like: user}, $unset:voters}, callback
+    return
 
 class Medias extends API
   @model = Media

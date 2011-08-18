@@ -32,8 +32,8 @@ db = mongoose.connect '127.0.0.1', 'goodybag', 1337, (err, conn)->
     this
 
 
-exports.disconnect = ()->
-  db.disconnect()
+exports.disconnect = (callback)->
+  db.disconnect(callback)
 
 
 ####################
@@ -170,6 +170,7 @@ Deal = new Schema {
 #indexes
 #all together, so we can do real-time queries ocross all these values (instead of map/reducing on ones which are not indexed)
 #more expensive, but this index isn't really modified that often, so no real worry at the moment
+Deal.index {did:1}
 Deal.index {city:1}
 Deal.index {provider:1, city:1, state: 1, 'dates.start': 1, 'dates.end': 1, 'cost.actual': 1, 'cost.discounted': 1, created: 1}
 Deal.index {like: 1}
