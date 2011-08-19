@@ -21,6 +21,8 @@ suite.addBatch {
       topic: ()->
         obj = {
           businessid      : "4e4af2c8a022988a14000006"
+          title           : "Title"
+          description     : "Not needed"
           type            : "image"
           url             : "http://www.google.com/logo.png"
           thumb           : "http://www.google.com/thumb.png"

@@ -312,6 +312,8 @@ Business.index({publicname: 1})
 ####################
 FlipAd = new Schema {
   businessid  : {type: ObjectId, required: true}
+  title       : {type: String, required: true}
+  description : {type: String}
   type        : {type: String, required: true, enum: ['image','video']}
   url         : {type: Url, require: true}
   thumb       : {type: Url}
