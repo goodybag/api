@@ -99,7 +99,7 @@ Goody.namedScope 'email', (email)->
 # Media ############
 ####################
 Media = new Schema {
-  clientid    : {type: String, required: true}
+  businessid  : {type: ObjectId, required: true}
   type        : {type: String, required: true, enum: ['image','video']}
   uploaddate  : {type: Date, required: true, default: new Date( (new Date()).toUTCString() )}
   name        : {type: String, required: true}
@@ -115,11 +115,12 @@ Media = new Schema {
 }
 
 #indexes
-Media.index {clientid:1, type: 1}
-Media.index {clientid:1, tags: 1} #use tags instead of folders
-Media.index {clientid:1, name:1} #for searching by name
-Media.index {clientid:1, uploaddate: 1} #for ordering by date
+Media.index {businessid:1, type: 1}
+Media.index {businessid:1, tags: 1} #use tags instead of folders
+Media.index {businessid:1, name:1} #for searching by name
+Media.index {businessid:1, uploaddate: 1} #for ordering by date
 Media.index {url:1} #for when we want to find out which client a url belongs to
+
 
 ####################
 # Deal #############
@@ -200,21 +201,21 @@ Deal.namedScope 'range', (start, end)->
 # User #############
 ####################
 User = new Schema {
-	email               : {type: String, index: true, unique: true, set: utils.toLower, validate: /^(([^<>()[\]\\.,;:\s@\"]+(\.[^<>()[\]\\.,;:\s@\"]+)*)|(\".+\"))@((\[[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\])|(([a-zA-Z\-0-9]+\.)+[a-zA-Z]{2,}))$/}
-	password            : {type: String, validate:/.{5,}/}
-	fb: {
-		access_token      : String
-		base_domain       : String
-		expires           : Number
-		secret            : String
-		session_key       : String
-		sig               : String
-		uid               : {type: String, index: true, unique: true}
-		perms             : []
-	}
-	created             : {type: Date, default: Date.now, index: true}
-	logins              : []
-	charities           : {}
+	email           : {type: String, index: true, unique: true, set: utils.toLower, validate: /^(([^<>()[\]\\.,;:\s@\"]+(\.[^<>()[\]\\.,;:\s@\"]+)*)|(\".+\"))@((\[[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\])|(([a-zA-Z\-0-9]+\.)+[a-zA-Z]{2,}))$/}
+	password        : {type: String, validate:/.{5,}/}
+	fb: {           
+		access_token  : String
+		base_domain   : String
+		expires       : Number
+		secret        : String
+		session_key   : String
+		sig           : String
+		uid           : {type: String, index: true, unique: true}
+		perms         : []
+	}               
+	created         : {type: Date, default: new Date( (new Date()).toUTCString() ), index: true}
+	logins          : []
+	charities       : {}
 }
 
 #compound indexes
@@ -257,14 +258,117 @@ User.static {
 		return
 }
 
-exports.User    = mongoose.model 'User', User
-exports.Goody   = mongoose.model 'Goody', Goody
-exports.Deal    = mongoose.model 'Deal', Deal
-exports.Media   = mongoose.model 'Media', Media
 
-exports.models = {
+####################
+# Client ###########
+####################
+Client = new Schema {
+  firstname     : {type: String, required: true}                                                                                                                                                                                                                                
+  lastname      : {type: String, required: true}                                                                                                                                                                                                                                
+  phone         : {type: String}                                                                                                                                                                                                                                                
+  email         : {type: String, required: true, unique: true, set: utils.toLower, validate: /^(([^<>()[\]\\.,;:\s@\"]+(\.[^<>()[\]\\.,;:\s@\"]+)*)|(\".+\"))@((\[[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\])|(([a-zA-Z\-0-9]+\.)+[a-zA-Z]{2,}))$/}                       
+  password      : {type: String, validate:/.{5,}/, required: true}                                                                                                                                                                                                              
+  created       : {type: Date, default: new Date( (new Date()).toUTCString() ), index: true}
+  permissions: { #consider putting this into it's own collection and then cache this entire thing in memory, otherwise cache each logged in user in memory and have this available
+    businesses: {                                                                                                                                                                                                                                                               
+      admin     : [ObjectId]
+      manage    : [ObjectId] 
+    }
+  }
+}
+
+#indexes
+Client.index({email: 1, password: 1})
+Client.index({'permissions.businesses.admin': 1})
+Client.index({'permissions.businesses.manage': 1})
+Client.index({phone: 1})
+
+
+####################
+# Location #########
+####################
+Location = new Schema {
+  
+}
+
+
+####################
+# Business #########
+####################
+#STORE THIS ENTIRE DB IS MEMCACHE OR REDIS, SHOULD BE SMALL
+Business = new Schema {
+  name          : {type: String, required: true}
+  publicname    : {type: String, required: true}
+  locations     : [Location]
+}
+
+#indexes
+Business.index({name: 1})
+Business.index({publicname: 1})
+
+
+####################
+# FipAd ############
+####################
+FlipAd = new Schema {
+  businessid  : {type: ObjectId, required: true}
+  type        : {type: String, required: true, enum: ['image','video']}
+  url         : {type: Url, require: true}
+  thumb       : {type: Url}
+  dates: {
+    created   : {type: Date, required: true, default: new Date( (new Date()).toUTCString() )}
+    start     : {type: Date, required: true}
+    end       : {type: Date}
+  }
+  metadata: {
+    duration  : {type: Number} #useful for videos, in number of seconds (e.g. 48.42)
+  }
+  views: {
+    unique    : {type: Number, required: true, default: 0} #this gets incremented only if it was the first time
+    overall   : {type: Number, required: true, default: 0} #this gets incremented on every view
+  }
+  viewers     : [ObjectId] #the users who have viewed this video
+  funds: {
+    allocated : {type: Number, required: true}
+    remaining : {type: Number, required: true}
+  }
+}
+
+#indexes
+FlipAd.index('businessid':1, 'dates.created':1) #for listing in the client interface, to show most recently created
+FlipAd.index('funds.remainging':1, 'dates.start':1, 'dates.end':1) #for showing the flips ads that are still viewable
+
+
+####################
+# Stream ###########
+####################
+Stream = new Schema {
+  entity       : {type: String, required: true, enum: ['user', 'business']}
+  id           : {type: ObjectId, required: true}
+  type         : {type: String, required: true, enum: ['']}
+  action       : {type: String, required: true, enum: ['']}
+  datetime     : {type: Date, default: Date.now}
+  data         : {}
+}
+
+#indexes
+Stream.index('entity': 1, 'id': 1, 'datetime': 1, 'type':1)
+Stream.index('datetime': 1)
+
+exports.User      = mongoose.model 'User', User
+exports.Client    = mongoose.model 'Client', Client
+exports.Business  = mongoose.model 'Business', Business
+exports.Goody     = mongoose.model 'Goody', Goody
+exports.Deal      = mongoose.model 'Deal', Deal
+exports.Media     = mongoose.model 'Media', Media
+exports.FlipAd    = mongoose.model 'FlipAd', FlipAd
+
+exports.schemas = {
   User: User
+  Client: Client
+  Business: Business
 	Goody: Goody
 	Deal: Deal
 	Media: Media
+	FlipAd: FlipAd
 }

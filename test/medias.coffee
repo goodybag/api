@@ -22,7 +22,7 @@ suite.addBatch {
     'was added': {
       topic: ()->
         obj = {
-          clientid    : 'test'
+          businessid  : '4e4af2c8a022988a14000006'
           type        : 'video'
           name        : 'video-1'
           url         : 'http://www.test.com'
@@ -32,8 +32,8 @@ suite.addBatch {
         }
         Medias.add obj, this.callback
         return
-      'successfully': (err, data)->
-        assert.isNull(err)
+      'successfully': (error, data)->
+        assert.isNull(error)
         assert.isObject(data)
         video = data
     }
@@ -42,7 +42,7 @@ suite.addBatch {
     'was added': {
       topic: ()->
         obj = {
-          clientid    : 'test'
+          businessid  : '4e4af2c8a022988a14000006'
           type        : 'image'
           name        : 'image-1'
           url         : 'http://www.test.com'
@@ -51,8 +51,8 @@ suite.addBatch {
         }
         Medias.add obj, this.callback
         return
-      'successfully': (err, data)->
-        assert.isNull(err)
+      'successfully': (error, data)->
+        assert.isNull(error)
         assert.isObject(data)
         image = data
     }
@@ -64,20 +64,20 @@ suite.addBatch {
   'New video': {
     'was found': {
       topic: ()->
-        Medias.get video._id, this.callback
+        Medias.one video._id, this.callback
         return
-      'successfully': (err, data)->
-        assert.isNull(err)
+      'successfully': (error, data)->
+        assert.isNull(error)
         assert.isObject(data)
     }
   }
   'New image': {
     'was found': {
       topic: ()->
-        Medias.get image._id, this.callback
+        Medias.one image._id, this.callback
         return
-      'successfully': (err, data)->
-        assert.isNull(err)
+      'successfully': (error, data)->
+        assert.isNull(error)
         assert.isObject(data)
     }
   }
@@ -90,8 +90,8 @@ suite.addBatch {
       topic: ()->
         Medias.getFiles {'clientid': 'test', 'type':'video'}, this.callback
         return
-      'successfully': (err, data)->
-        assert.isNull(err)
+      'successfully': (error, data)->
+        assert.isNull(error)
         assert.equal(data.length, 1)
     }
   }
@@ -100,8 +100,8 @@ suite.addBatch {
       topic: ()->
         Medias.getFiles {'clientid': 'fake', 'type': 'video'}, this.callback
         return
-      'successfully': (err, data)->
-        assert.isNull(err)
+      'successfully': (error, data)->
+        assert.isNull(error)
         assert.equal(data.length, 0)
     }
   }
@@ -110,8 +110,8 @@ suite.addBatch {
       topic: ()->
         Medias.getFiles {'clientid': 'test', 'type':'image'}, this.callback
         return
-      'successfully': (err, data)->
-        assert.isNull(err)
+      'successfully': (error, data)->
+        assert.isNull(error)
         assert.equal(data.length, 1)
     }
   }
@@ -120,8 +120,8 @@ suite.addBatch {
       topic: ()->
         Medias.getFiles {'clientid': 'fake', 'type': 'image'}, this.callback
         return
-      'successfully': (err, data)->
-        assert.isNull(err)
+      'successfully': (error, data)->
+        assert.isNull(error)
         assert.equal(data.length, 0)
     }
   }
@@ -135,8 +135,8 @@ suite.addBatch {
       topic: ()->
         Medias.getFiles {'tags': 'summer'}, this.callback
         return
-      'successfully': (err, data)->
-        assert.isNull(err)
+      'successfully': (error, data)->
+        assert.isNull(error)
         assert.equal(data.length, 2)
     }
   }
@@ -145,8 +145,8 @@ suite.addBatch {
       topic: ()->
         Medias.getFiles {'tags': 'winter'}, this.callback
         return
-      'successfully': (err, data)->
-        assert.isNull(err)
+      'successfully': (error, data)->
+        assert.isNull(error)
         assert.equal(data.length, 1)
     }
   }
@@ -155,8 +155,8 @@ suite.addBatch {
       topic: ()->
         Medias.getFiles {'tags': ['winter', 'summer']}, this.callback
         return
-      'successfully': (err, data)->
-        assert.isNull(err)
+      'successfully': (error, data)->
+        assert.isNull(error)
         assert.equal(data.length, 2)
     }
   }
@@ -165,11 +165,11 @@ suite.addBatch {
       topic: ()->
         query = Medias._query()
         #TODO: consider making this the default when calling getFiles
-        query.where('clientid','test').all('tags', ['summer','winter'])
+        query.all('tags', ['summer','winter'])
         query.exec this.callback
         return
-      'successfully': (err, data)->
-        assert.isNull(err)
+      'successfully': (error, data)->
+        assert.isNull(error)
         assert.equal(data.length, 1)
     }
   }
@@ -183,8 +183,8 @@ suite.addBatch {
       topic: ()->
         Medias.remove video._id, this.callback
         return
-      'successfully': (err, data)->
-        assert.isNull(err)
+      'successfully': (error, data)->
+        assert.isNull(error)
     }
   }
   'New image': {
@@ -192,8 +192,8 @@ suite.addBatch {
       topic: ()->
         Medias.remove image._id, this.callback
         return
-      'successfully': (err, data)->
-        assert.isNull(err)
+      'successfully': (error, data)->
+        assert.isNull(error)
     }
   }
 }
@@ -205,8 +205,8 @@ suite.addBatch {
       topic: ()->
         db.disconnect(this.callback)
         return
-      'successfully': (err, data)->
-        assert.isNull(err)
+      'successfully': (error, data)->
+        assert.isNull(error)
     }
   }
 }

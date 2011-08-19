@@ -9,35 +9,37 @@ utils = globals.utils
 Goody = db.Goody
 Deal = db.Deal
 Media = db.Media
+Client = db.Client
+FlipAd = db.FlipAd
 
 #util.log util.inspect Deal, true, 2
 
 exports.getGoodies = (email, type, limit, skip, callback)->
-	#valid types include: inbox, activated, credited, expired
-	query = null
-	switch type
-		when 'inbox'
-			query = Goody.inbox.email(email)
-		when 'activated'
-			query = Goody.activated.email(email)
-		when 'credited'
-			query = Goody.credited.email(email)
-		when 'expired'
-			query = Goody.expired.email(email)
-		else
-			return callback 'invalidType: '+type
+  #valid types include: inbox, activated, credited, expired
+  query = null
+  switch type
+    when 'inbox'
+      query = Goody.inbox.email(email)
+    when 'activated'
+      query = Goody.activated.email(email)
+    when 'credited'
+      query = Goody.credited.email(email)
+    when 'expired'
+      query = Goody.expired.email(email)
+    else
+      return callback 'invalidType: '+type
 
-	if limit?
-		query.limit(limit)
-	else
-		query.limit(10)
-	
-	if skip?
-		query.skip(skip)
+  if limit?
+    query.limit(limit)
+  else
+    query.limit(10)
+  
+  if skip?
+    query.skip(skip)
     
-	query.find (err, data)->
-		callback err, data
-	return
+  query.find (err, data)->
+    callback err, data
+  return
 
 class API
   @model = null
@@ -55,20 +57,55 @@ class API
     instance = new @model()
     for own k,v of data
       instance[k] =v
-    instance.save callback
+    instance.save callback #does not return instance back
     return
+  
+  @update: (id, data, callback)->
+    query = @query()
+    query.findOne _id: id, (err, obj)->
+      for own k,v of data
+        obj[k] = v
+      return obj.save callback
 
   @remove = (id, callback)->
     @model.remove {'_id': id}, callback
     return
 
-  @get = (id, callback)->
+  @one = (id, callback)->
     @model.findOne {_id: id}, callback
     return
     
   @bulkInsert: (docs, options, callback)->
     @model.collection.insert(docs, options, callback)
     return
+
+class Clients extends API
+  @model = Client
+  
+  @register: (data, callback)->
+    #if !utils.mustContain(data, ['email','firstname', 'lastname', 'password'])
+    #  return callback(new Error("at least one required field is missing."))
+    query = @_query()
+    query.where('email', data.email)
+    self = this
+    query.findOne (error, client)->
+      if error?
+        return callback err, user
+      else if !client?
+        return self.add(data, callback)
+      else if client?
+        return callback(new Error('Client already exists'))
+        
+  @login: (email, password, callback)->
+    query = @_query()
+    query.where('email', email).where('password', password)
+    query.findOne (error, client)->
+      if(error)
+        return callback error, client
+      else if client?
+        return callback error, client
+      else
+        return callback new Error("invalid username password")
 
 class Deals extends API
   @model = Deal
@@ -160,7 +197,7 @@ class Medias extends API
       
     if options.limit?
       query.limit(options.limit)
-
+      
     if options.skip?
       query.skip(options.skip)
     
@@ -174,6 +211,46 @@ class Medias extends API
     query = @_optionParser(options)
     query.exec callback
     return
+
+    
+class FlipAds extends API
+  @model = FlipAd
+
+  #options: businessid, type, start, end, limit, skip
+  @_optionParser = (options, q)->
+    query = q || @_query()
+
+    if options.businessid?
+      query.where('businessid', options.businessid)
+    
+    if options.type?
+      query.where('type', type)
+      
+    if options.start?
+      query.where('dates.start').gte(options.start)
+    
+    if options.end?
+      query.where('dates.end').lte(options.end)
+
+    if options.limit?
+      query.limit(options.limit)
+      
+    if options.skip?
+      query.skip(options.skip)
+    
+    return query
+    
+  @get = (options, callback)->
+    query = @_optionParser(options)
+    query.sort('dates.created', -1)
+    query.exec callback
+  
+  @getByDateReversed = (options, callback)->
+    query = @_optionParser(options)
+    query.sort('dates.created', -1)
+    query.exec callback
     
 exports.Deals = Deals
 exports.Medias = Medias
+exports.Clients = Clients
+exports.FlipAds = FlipAds
