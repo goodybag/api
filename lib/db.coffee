@@ -263,18 +263,17 @@ User.static {
 # Client ###########
 ####################
 Client = new Schema {
-  firstname     : {type: String, required: true}                                                                                                                                                                                                                                
-  lastname      : {type: String, required: true}                                                                                                                                                                                                                                
-  phone         : {type: String}                                                                                                                                                                                                                                                
-  email         : {type: String, required: true, unique: true, set: utils.toLower, validate: /^(([^<>()[\]\\.,;:\s@\"]+(\.[^<>()[\]\\.,;:\s@\"]+)*)|(\".+\"))@((\[[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\])|(([a-zA-Z\-0-9]+\.)+[a-zA-Z]{2,}))$/}                       
-  password      : {type: String, validate:/.{5,}/, required: true}                                                                                                                                                                                                              
+  firstname     : {type: String, required: true}
+  lastname      : {type: String, required: true}
+  phone         : {type: String}
+  email         : {type: String, required: true, unique: true, set: utils.toLower, validate: /^(([^<>()[\]\\.,;:\s@\"]+(\.[^<>()[\]\\.,;:\s@\"]+)*)|(\".+\"))@((\[[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\])|(([a-zA-Z\-0-9]+\.)+[a-zA-Z]{2,}))$/}
+  password      : {type: String, validate:/.{5,}/, required: true}
   created       : {type: Date, default: new Date( (new Date()).toUTCString() ), index: true}
+  ###
   permissions: { #consider putting this into it's own collection and then cache this entire thing in memory, otherwise cache each logged in user in memory and have this available
-    businesses: {                                                                                                                                                                                                                                                               
-      admin     : [ObjectId]
-      manage    : [ObjectId] 
-    }
   }
+  ###
+  #We are moving permissions(roles) into each object so that it is faster for querying and inserting purposes (double the speed because we now only have to do something to a single collection instead of two collections, right now the benefits outway separating it out into its own collection or even keeping it in the user collection)
 }
 
 #indexes
@@ -288,23 +287,37 @@ Client.index({phone: 1})
 # Location #########
 ####################
 Location = new Schema {
-  
+    name          : {type: String}
+    street1       : {type: String, required: true}
+    street2       : {type: String}
+    city          : {type: String, required: true}
+    state         : {type: String, required: true}
+    zip           : {type: Number, required: true}
+    country       : {type: String, enum: countries.codes, required: true}
+    phone         : {type: String, required: true}
+    fax           : {type: String}
+    lat           : {type: Number}
+    lng           : {type: Number}
 }
 
 
 ####################
 # Business #########
 ####################
-#STORE THIS ENTIRE DB IS MEMCACHE OR REDIS, SHOULD BE SMALL
+#STORE THIS ENTIRE DB IN MEMCACHE OR REDIS, SHOULD BE SMALL
 Business = new Schema {
   name          : {type: String, required: true}
   publicname    : {type: String, required: true}
+  logo          : {type: Url, required: true} 
   locations     : [Location]
+  users         : [ObjectId] #client ids
+  permissions   : {}
 }
 
 #indexes
 Business.index({name: 1})
 Business.index({publicname: 1})
+Business.index({users: 1})
 
 
 ####################

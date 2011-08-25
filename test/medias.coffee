@@ -83,12 +83,12 @@ suite.addBatch {
   }
 }
 
-#getFiles
+#get
 suite.addBatch {
   'New video': {
     'was found': {
       topic: ()->
-        Medias.getFiles {'clientid': 'test', 'type':'video'}, this.callback
+        Medias.get {'businessid': 'test', 'type':'video'}, this.callback
         return
       'successfully': (error, data)->
         assert.isNull(error)
@@ -98,7 +98,7 @@ suite.addBatch {
   'New video': {
     'was not found': {
       topic: ()->
-        Medias.getFiles {'clientid': 'fake', 'type': 'video'}, this.callback
+        Medias.get {'businessid': 'fake', 'type': 'video'}, this.callback
         return
       'successfully': (error, data)->
         assert.isNull(error)
@@ -108,7 +108,7 @@ suite.addBatch {
   'New image': {
     'was found': {
       topic: ()->
-        Medias.getFiles {'clientid': 'test', 'type':'image'}, this.callback
+        Medias.get {'businessid': 'test', 'type':'image'}, this.callback
         return
       'successfully': (error, data)->
         assert.isNull(error)
@@ -118,7 +118,7 @@ suite.addBatch {
   'New image': {
     'was not found': {
       topic: ()->
-        Medias.getFiles {'clientid': 'fake', 'type': 'image'}, this.callback
+        Medias.get {'businessid': 'fake', 'type': 'image'}, this.callback
         return
       'successfully': (error, data)->
         assert.isNull(error)
@@ -133,7 +133,7 @@ suite.addBatch {
   '2 videos': {
     'have summer tag': {
       topic: ()->
-        Medias.getFiles {'tags': 'summer'}, this.callback
+        Medias.get {'tags': 'summer'}, this.callback
         return
       'successfully': (error, data)->
         assert.isNull(error)
@@ -143,7 +143,7 @@ suite.addBatch {
   '1 video': {
     'has winter tag': {
       topic: ()->
-        Medias.getFiles {'tags': 'winter'}, this.callback
+        Medias.get {'tags': 'winter'}, this.callback
         return
       'successfully': (error, data)->
         assert.isNull(error)
@@ -153,7 +153,7 @@ suite.addBatch {
   '2 videos': {
     'have winter OR summer tags': {
       topic: ()->
-        Medias.getFiles {'tags': ['winter', 'summer']}, this.callback
+        Medias.get {'tags': ['winter', 'summer']}, this.callback
         return
       'successfully': (error, data)->
         assert.isNull(error)
@@ -164,7 +164,7 @@ suite.addBatch {
     'has winter AND summer tags': {
       topic: ()->
         query = Medias._query()
-        #TODO: consider making this the default when calling getFiles
+        #TODO: consider making this the default when calling get
         query.all('tags', ['summer','winter'])
         query.exec this.callback
         return

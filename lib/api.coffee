@@ -5,11 +5,13 @@ util = require 'util'
 globals = require 'globals'
 
 utils = globals.utils
+roles = globals.roles
 
 Goody = db.Goody
+Client = db.Client
+Business = db.Business
 Deal = db.Deal
 Media = db.Media
-Client = db.Client
 FlipAd = db.FlipAd
 
 #util.log util.inspect Deal, true, 2
@@ -51,6 +53,13 @@ class API
   
   @_optionParser = (options, q)->
     query = q || @_query()
+
+    if options.limit?
+      query.limit(options.limit)
+      
+    if options.skip?
+      query.skip(options.skip)
+    
     return query
   
   @add = (data, callback)->
@@ -105,7 +114,74 @@ class Clients extends API
       else if client?
         return callback error, client
       else
-        return callback new Error("invalid username password")
+        return callback new Error("invalid username/password")
+  
+
+class Businesses extends API
+  @model = Business
+  
+  #clientid, limit, skip
+  @_optionParser = (options, q)->
+    query = q || @_query()
+    
+    if options.clientid?
+      query.in('users', options.clientid)
+
+    return query
+    
+  @add = (clientid, data, callback)->
+    instance = new @model()
+    for own k,v of data
+      instance[k] = v
+    if data['locations']? and data['locations'] != []
+        instance.markModified('locations')
+
+    #add user to the list of users for this business and add the admin role
+    instance['users'] = [clientid] #only one user now
+    instance['permissions'] = {}
+    instance['permissions'][clientid] = [roles.business.ADMIN]
+
+    instance.save callback #does not return instance back...or does it?
+    return
+
+  @get = (options, callback)->
+    query = @_optionParser(options)
+    query.exec callback
+  
+  @addPermissions: (clientid, id, perms, callback)->
+    #clientid is the user wanting to remove this permission
+    #make sure user has permissions to add permission (where should this happen)
+
+    #perms: {clientid: [roles]}
+    #e.g. perms: {'4ab21ad39ae20001': ['admin']}
+    for own user, rls in perms
+      obj = {}
+      for role in rls
+        #make sure all the roles exist otherwise die!
+        if !roles.business.hasOwnProperty(role)
+          callback(new Error('role: ' + role + ' is not a valid role. clientid: '+ user))
+          return
+      obj[user] = {$each: roles}
+    @model.collection.update  {id: id}, {$addToSet: obj}, callback
+    return
+
+  @removePermission: (clientid, id, perms, callback)->
+    #clientid is the user wanting to remove this permission
+    #make sure user has permissions to remove permissions permission (where should this happen)
+
+    #perms: {clientid: [roles]}
+    #e.g. perms: {'4ab21ad39ae20001': ['admin']}
+    for own user, rls in perms
+      obj = {}
+      obj[user] = rls
+    @model.collection.update  {id: id}, {$pullAll:obj}, callback 
+
+  ###
+  #this should probably be here, for now it's in the media class
+  @getMedias(businessid, callback)->
+    Medias.get {'businessid': businessid}, callback
+  ###
+
 
 class Deals extends API
   @model = Deal
@@ -176,12 +252,12 @@ class Deals extends API
 class Medias extends API
   @model = Media
   
-  #options: clientid, type, tags, start, end, limit, skip
+  #options: businessid, type, tags, start, end, limit, skip
   @_optionParser = (options, q)->
     query = q || @_query()
     
-    if options.clientid?
-      query.where('clientid', options.clientid)
+    if options.businessid?
+      query.where('businessid', options.clientid)
     
     if options.type?
       query.where('type', options.type)
@@ -202,11 +278,15 @@ class Medias extends API
       query.skip(options.skip)
     
     return query
+
+  @getByBusiness = (businessid, callback)->
+    @get {businessid: businessid}, callback
+    return
   
-  @getFiles = (options, callback)->
+  @get = (options, callback)->
     #THIS SHOULD HAPPEN IN THE WEB ROUTES END, MAKING SURE THE PARAMETERS REQUIRED EXIST
-    #if !utils.mustContain(options, 'clientid')
-    #  callback(new Error('required field(s) were missing. required fileds are: clientid'), null)
+    #if !utils.mustContain(options, 'businessid')
+    #  callback(new Error('required field(s) were missing. required fileds are: businessid'), null)
     
     query = @_optionParser(options)
     query.exec callback
@@ -250,7 +330,8 @@ class FlipAds extends API
     query.sort('dates.created', -1)
     query.exec callback
     
+exports.Clients = Clients
+exports.Businesses = Businesses
 exports.Deals = Deals
 exports.Medias = Medias
-exports.Clients = Clients
 exports.FlipAds = FlipAds

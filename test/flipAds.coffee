@@ -9,10 +9,9 @@ utils = globals.utils
 
 FlipAds = api.FlipAds
 
+flipad = null
 
 suite = vows.describe 'Testing FlipAds'
-
-flipad = null
 
 #add
 suite.addBatch {
