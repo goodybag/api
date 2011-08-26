@@ -105,6 +105,7 @@ Media = new Schema {
   name        : {type: String, required: true}
   url         : {type: Url, required: true}
   duration    : {type: Number}
+  filesize    : {type: Number}
   thumbs      : [] #only populated if video
   sizes: { #only for images, not yet implemented in transloaded's template, or api
     small     : {type: Url}

@@ -60,6 +60,9 @@ class API
     if options.skip?
       query.skip(options.skip)
     
+    if options.sort?
+      query.sort(options.sort)
+
     return query
   
   @add = (data, callback)->
@@ -83,6 +86,12 @@ class API
   @one = (id, callback)->
     @model.findOne {_id: id}, callback
     return
+
+  @get = (options, callback)->
+    query = @_optionParser(options)
+    query.exec callback
+    return
+
     
   @bulkInsert: (docs, options, callback)->
     @model.collection.insert(docs, options, callback)
@@ -257,7 +266,7 @@ class Medias extends API
     query = q || @_query()
     
     if options.businessid?
-      query.where('businessid', options.clientid)
+      query.where('businessid', options.businessid)
     
     if options.type?
       query.where('type', options.type)
@@ -281,15 +290,6 @@ class Medias extends API
 
   @getByBusiness = (businessid, callback)->
     @get {businessid: businessid}, callback
-    return
-  
-  @get = (options, callback)->
-    #THIS SHOULD HAPPEN IN THE WEB ROUTES END, MAKING SURE THE PARAMETERS REQUIRED EXIST
-    #if !utils.mustContain(options, 'businessid')
-    #  callback(new Error('required field(s) were missing. required fileds are: businessid'), null)
-    
-    query = @_optionParser(options)
-    query.exec callback
     return
 
     
