@@ -106,6 +106,7 @@ Media = new Schema {
   url         : {type: Url, required: true}
   duration    : {type: Number}
   filesize    : {type: Number}
+  thumb       : {type: Url, required: true}
   thumbs      : [] #only populated if video
   sizes: { #only for images, not yet implemented in transloaded's template, or api
     small     : {type: Url}
@@ -270,10 +271,7 @@ Client = new Schema {
   email         : {type: String, required: true, unique: true, set: utils.toLower, validate: /^(([^<>()[\]\\.,;:\s@\"]+(\.[^<>()[\]\\.,;:\s@\"]+)*)|(\".+\"))@((\[[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\])|(([a-zA-Z\-0-9]+\.)+[a-zA-Z]{2,}))$/}
   password      : {type: String, validate:/.{5,}/, required: true}
   created       : {type: Date, default: new Date( (new Date()).toUTCString() ), index: true}
-  ###
-  permissions: { #consider putting this into it's own collection and then cache this entire thing in memory, otherwise cache each logged in user in memory and have this available
-  }
-  ###
+  #permissions   : {} #consider putting this into it's own collection and then cache this entire thing in memory, otherwise cache each logged in user in memory and have this available
   #We are moving permissions(roles) into each object so that it is faster for querying and inserting purposes (double the speed because we now only have to do something to a single collection instead of two collections, right now the benefits outway separating it out into its own collection or even keeping it in the user collection)
 }
 
@@ -353,6 +351,32 @@ FlipAd = new Schema {
 #indexes
 FlipAd.index('businessid':1, 'dates.created':1) #for listing in the client interface, to show most recently created
 FlipAd.index('funds.remainging':1, 'dates.start':1, 'dates.end':1) #for showing the flips ads that are still viewable
+
+
+####################
+# Poll #############
+####################
+
+Poll = new Schema {
+  businessid    : {type: ObjectId, required: true}
+  type          : {type: String, require: true, enum: ['single', 'multiple']}
+  question      : {type: String, required: true}
+  choices       : {}
+  image         : {type: Url, required: true}
+  businessname  : {type: String, required: true}
+  stats         : {type: Boolean, default: true, required: true} #whether to display the stats to the user or not
+  answered      : {type: Number, default: 0}
+  dates: {
+    created     : {type: Date, required: true, default: new Date( (new Date()).toUTCString() )}
+    start       : {type: Date, required: true}
+    end         : {type: Date}
+  }
+  funds: {
+    allocated   : {type: Number, required: true}
+    remaining   : {type: Number, required: true}
+  }
+
+}
 
 
 ####################
