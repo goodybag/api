@@ -9,59 +9,54 @@ utils = globals.utils
 
 Polls = api.Polls
 
-suite = vows.describe 'Testing Polls'
+suite = vows.describe 'Polls'
 
-poll = null
+dbCallback = (assertCallback) ->
+  (err, poll) ->
+    assertCallback(err, poll)
+    return if !poll?
+    Polls.remove poll._id, (error, data) ->
+
+pollData = (data) ->
+  obj =
+    name        : 'single selection poll'
+    businessid  : '4e4af2c8a022988a14000006'
+    type        : 'single'
+    question    : 'Are you in a relationship'
+    choices     : ['yes', 'no', "it's complicated"]
+    funds       :
+      allocated   : 500
+      remaining   : 500
+
+  for own property, value of data
+    obj[property] = value
+
+  return obj
+
+disconnectDB =
+  'Disconnect':
+    'from database':
+      topic: ->
+        db.disconnect(this.callback)
+      'should be successfull': (error, data)->
+        assert.isNull(error)
 
 #add
-suite.addBatch {
-  'New Poll': {
-    'was added when all required fields have values': {
-      topic: ()->
-        obj = {
-          name        : 'single selection poll'
-          businessid  : '4e4af2c8a022988a14000006'
-          type        : 'single'
-          question    : 'Are you in a relationship'
-          choices     : ['yes', 'no', "it's complicated"]
-          funds       :
-            allocated   : 500
-            remaining   : 500
-        }
-        Polls.add obj, this.callback
-        return
-      'successfully': (error, data)->
+suite.addBatch(
+  '#add':
+    'with all required values':
+      topic: -> Polls.add pollData(), this.callback
+      'should be successful': dbCallback (error, data)->
         assert.isNull(error)
         assert.isObject(data)
-        poll = data
-    }
-  }
-}
 
-#remove
-suite.addBatch {
-  'New Poll': {
-    'was deleted': {
-      topic: ()->
-        Polls.remove poll._id, this.callback
-        return
-      'successfully': (error, data)->
-        assert.isNull(error)
-    }
-  }
-}
+    'with missing required field name':
+      topic: ->
+        Polls.add pollData({name: null}), this.callback
+      'should fail validation': dbCallback (error, data)->
+        assert.isNotNull error
+        assert.equal(error.name, 'ValidationError')
 
-#disconnect from database
-suite.addBatch {
-  'Disconnect': {
-    'from database': {
-      topic: ()->
-        db.disconnect(this.callback)
-        return
-      'successfully': (error, data)->
-        assert.isNull(error)
-    }
-  }
-}
+).addBatch(disconnectDB)
 
 suite.export module
