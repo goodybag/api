@@ -54,8 +54,7 @@ suite.addBatch(
       topic: ->
         Polls.add pollData({name: null}), this.callback
       'should fail validation': dbCallback (error, data)->
-        assert.isNotNull error
-        assert.equal(error.name, 'ValidationError')
+        assert.equal(error?.name, 'ValidationError')
 
 ).addBatch(disconnectDB)
 
