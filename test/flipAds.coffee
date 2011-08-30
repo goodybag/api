@@ -74,17 +74,4 @@ suite.addBatch {
   }
 }
 
-#disconnect from database
-suite.addBatch {
-  'Disconnect': {
-    'from database': {
-      topic: ()->
-        db.disconnect(this.callback)
-        return
-      'successfully': (error, data)->
-        assert.isNull(error)
-    }
-  }
-}
-
 suite.export module
