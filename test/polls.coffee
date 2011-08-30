@@ -51,8 +51,7 @@ suite.addBatch(
         assert.isObject(data)
 
     'with missing required field name':
-      topic: ->
-        Polls.add pollData({name: null}), this.callback
+      topic: -> Polls.add pollData({name: null}), this.callback
       'should fail validation': dbCallback (error, data)->
         assert.equal(error?.name, 'ValidationError')
 
