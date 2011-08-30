@@ -22,7 +22,7 @@ suite.addBatch {
   'A deal': {
     'was added': {
       topic: ()->
-        self = this
+        assertCallback = this.callback
         groupon.getDeals {'division_id': 'austin'}, (err, data)->
           #for deal in data.deals #insert many
           #console.log data.deals.length
@@ -75,7 +75,7 @@ suite.addBatch {
             data            : deal
           }
           did = obj.did
-          Deals.add obj, self.callback
+          Deals.add obj, assertCallback
           return
       
       'successfully': (err, data)->

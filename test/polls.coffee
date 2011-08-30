@@ -3,19 +3,19 @@ assert = require 'assert'
 api = require '../lib/api'
 db = require '../lib/db'
 util = require 'util'
-
 globals = require 'globals'
 utils = globals.utils
-
 Polls = api.Polls
-
-suite = vows.describe 'Polls'
 
 dbCallback = (assertCallback) ->
   (err, poll) ->
-    assertCallback(err, poll)
-    return if !poll?
-    Polls.remove poll._id, (error, data) ->
+    try
+      assertCallback(err, poll)
+    finally
+      return if !poll?
+      Polls.remove poll._id, (error, data) ->
+
+addPoll = (poll, callback) -> Polls.add poll, callback
 
 pollData = (data) ->
   obj =
@@ -33,28 +33,35 @@ pollData = (data) ->
 
   return obj
 
-disconnectDB =
+vows.describe('Polls').addBatch(
+  '#add':
+    'with all required values':
+      topic: -> Polls.add pollData(), this.callback
+      'should be successful': dbCallback (error, data)->
+        assert.isNull error
+        assert.isObject data
+
+    'with missing required field name':
+      topic: -> Polls.add pollData({name: null}), this.callback
+      'should fail validation': dbCallback (error, data)->
+        assert.equal error?.name, 'ValidationError'
+
+  '#update':
+    'with choices':
+      topic: ->
+        assertCallback = this.callback
+        addPoll pollData(), (error, poll) ->
+          poll.choices.push 'new choice'
+          Polls.update poll._id, poll, assertCallback
+      'should add choice': dbCallback (error, poll) ->
+        console.log 'asserting update'
+        assert.length poll?.choices, 4
+
+).addBatch(
   'Disconnect':
     'from database':
       topic: ->
         db.disconnect(this.callback)
       'should be successfull': (error, data)->
         assert.isNull(error)
-
-#add
-suite.addBatch(
-  '#add':
-    'with all required values':
-      topic: -> Polls.add pollData(), this.callback
-      'should be successful': dbCallback (error, data)->
-        assert.isNull(error)
-        assert.isObject(data)
-
-    'with missing required field name':
-      topic: -> Polls.add pollData({name: null}), this.callback
-      'should fail validation': dbCallback (error, data)->
-        assert.equal(error?.name, 'ValidationError')
-
-).addBatch(disconnectDB)
-
-suite.export module
+).export module

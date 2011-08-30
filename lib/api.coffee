@@ -74,11 +74,10 @@ class API
     return
   
   @update: (id, data, callback)->
-    query = @query()
-    query.findOne _id: id, (err, obj)->
+    @model.findOne {'_id': id}, (err, obj)->
       for own k,v of data
         obj[k] = v
-      return obj.save callback
+      obj.save callback
 
   @remove = (id, callback)->
     @model.remove {'_id': id}, callback
