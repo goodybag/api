@@ -33,14 +33,6 @@ pollData = (data) ->
 
   return obj
 
-disconnectDB =
-  'Disconnect':
-    'from database':
-      topic: ->
-        db.disconnect(this.callback)
-      'should be successfull': (error, data)->
-        assert.isNull(error)
-
 #add
 suite.addBatch(
   '#add':
@@ -55,6 +47,6 @@ suite.addBatch(
       'should fail validation': dbCallback (error, data)->
         assert.equal(error?.name, 'ValidationError')
 
-).addBatch(disconnectDB)
+)
 
 suite.export module
