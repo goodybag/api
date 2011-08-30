@@ -38,4 +38,30 @@ suite.addBatch {
   }
 }
 
+#remove
+suite.addBatch {
+  'New Poll': {
+    'was deleted': {
+      topic: ()->
+        Polls.remove poll._id, this.callback
+        return
+      'successfully': (error, data)->
+        assert.isNull(error)
+    }
+  }
+}
+
+#disconnect from database
+suite.addBatch {
+  'Disconnect': {
+    'from database': {
+      topic: ()->
+        db.disconnect(this.callback)
+        return
+      'successfully': (error, data)->
+        assert.isNull(error)
+    }
+  }
+}
+
 suite.export module
