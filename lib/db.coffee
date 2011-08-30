@@ -1,24 +1,23 @@
-mongoose = require 'mongoose'
-mongooseTypes = require 'mongoose-types'
-
-utils = require('globals').utils
-util = require 'util'
-countries = require('globals').countries
-
 exports = module.exports
 
+mongoose = require 'mongoose'
+mongooseTypes = require 'mongoose-types'
 mongooseTypes.loadTypes(mongoose)
 Schema = mongoose.Schema
 ObjectId = mongoose.SchemaTypes.ObjectId
 Email = mongoose.SchemaTypes.Email
 Url = mongoose.SchemaTypes.Url
 
+globals = require 'globals'
+utils = globals.utils
+countries = globals.countries
+
 # connect to database
 db = mongoose.connect '127.0.0.1', 'goodybag', 1337, (err, conn)->
-	if err?
-		console.log 'error connecting to db'
-	#else
-	#	console.log 'successfully connected to db'
+  if err?
+    console.log 'error connecting to db'
+  #else
+  # console.log 'successfully connected to db'
 
 # This is my fix for a bug that exists in mongoose that doesn't
 # expose these methods if using a named scope
@@ -40,33 +39,33 @@ exports.disconnect = (callback)->
 # Goody ############
 ####################
 Goody = new Schema {
-	email             : {type: String, index:true, required:true}
-	id                : {type: String, index:true, required:true}
-	title             : {type: String, required: true}
-	desc              : {type: String}
-	image             : {type: String}
-	url               : {type: Url}
-	share: {
-		facebook: {
-			allowed       : {type: Boolean, default:false}
-			url           : {type: Url}
-		}
-		twitter: {
-			allowed       : {type: Boolean, default:false}
-			url           : {type: Url}
-		}
-	}
-	
-	company           : {type: String, index:true}
-	category          : {type: Array, index: true}
-	type              : {type: String, enum: ['freebie', 'discount', 'printable'], index: true}
-	state             : {type: String, enum: ['received', 'activated', 'credited'], default: 'received', index: true}
-	dates: {
-		received        : {type: Date, index: true}
-		activated       : {type: Date, index: true}
-		credited        : {type: Date, index: true}
-		expiration      : {type: Date, index: true}
-	}
+  email             : {type: String, index:true, required:true}
+  id                : {type: String, index:true, required:true}
+  title             : {type: String, required: true}
+  desc              : {type: String}
+  image             : {type: String}
+  url               : {type: Url}
+  share: {
+    facebook: {
+      allowed       : {type: Boolean, default:false}
+      url           : {type: Url}
+    }
+    twitter: {
+      allowed       : {type: Boolean, default:false}
+      url           : {type: Url}
+    }
+  }
+  
+  company           : {type: String, index:true}
+  category          : {type: Array, index: true}
+  type              : {type: String, enum: ['freebie', 'discount', 'printable'], index: true}
+  state             : {type: String, enum: ['received', 'activated', 'credited'], default: 'received', index: true}
+  dates: {
+    received        : {type: Date, index: true}
+    activated       : {type: Date, index: true}
+    credited        : {type: Date, index: true}
+    expiration      : {type: Date, index: true}
+  }
 }
 
 #compound indexes
@@ -89,10 +88,10 @@ Goody.namedScope('expired').where('state').ne('credited').where('dates.expiratio
 
 #dynamic named scopes
 Goody.namedScope 'email', (email)->
-	return this.where('email', email)
+  return this.where('email', email)
 # 
 # Goody.namedScope 'limit', (size)->
-# 	this.limit size
+#   this.limit size
 
 
 ####################
@@ -203,21 +202,21 @@ Deal.namedScope 'range', (start, end)->
 # User #############
 ####################
 User = new Schema {
-	email           : {type: String, index: true, unique: true, set: utils.toLower, validate: /^(([^<>()[\]\\.,;:\s@\"]+(\.[^<>()[\]\\.,;:\s@\"]+)*)|(\".+\"))@((\[[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\])|(([a-zA-Z\-0-9]+\.)+[a-zA-Z]{2,}))$/}
-	password        : {type: String, validate:/.{5,}/}
-	fb: {           
-		access_token  : String
-		base_domain   : String
-		expires       : Number
-		secret        : String
-		session_key   : String
-		sig           : String
-		uid           : {type: String, index: true, unique: true}
-		perms         : []
-	}               
-	created         : {type: Date, default: new Date( (new Date()).toUTCString() ), index: true}
-	logins          : []
-	charities       : {}
+  email           : {type: String, index: true, unique: true, set: utils.toLower, validate: /^(([^<>()[\]\\.,;:\s@\"]+(\.[^<>()[\]\\.,;:\s@\"]+)*)|(\".+\"))@((\[[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\])|(([a-zA-Z\-0-9]+\.)+[a-zA-Z]{2,}))$/}
+  password        : {type: String, validate:/.{5,}/}
+  fb: {           
+    access_token  : String
+    base_domain   : String
+    expires       : Number
+    secret        : String
+    session_key   : String
+    sig           : String
+    uid           : {type: String, index: true, unique: true}
+    perms         : []
+  }               
+  created         : {type: Date, default: new Date( (new Date()).toUTCString() ), index: true}
+  logins          : []
+  charities       : {}
 }
 
 #compound indexes
@@ -225,40 +224,42 @@ User.index {email:1, password:1}
 
 #static functions
 User.static {
-	authenticate: (email, password, callback)->
-		this.findOne {email: email, password: password}, (err, user)->
-			if(err)
-				return callback err, user
-			if user?
-				return callback err, user
-			else
-				return callback "invalid username password"
-		return
-		
-	getByFBID: (uid, callback)->
-		this.findOne {'fb.uid': uid}, (err, user)->
-			return callback err, user
-		
-	register: (fbid, email, password, callback)->
-		if fbid == null or fbid == undefined
-			callback 'No facebook id specified'
-			return
-		this.findOne {"fb.uid": fbid}, (err, user)->
-			if(err)
-				return callback err, user
-			if user == null
-				return callback "User not authenticated with facebook"
-			if user.email != undefined
-				return callback "User already registered"
-			
-			#everything is ok, update user object and save
-			user.email = email
-			user.password = password
-			user.date = new Date()
-			user.save (err)->
-				callback err, user
-		return
+  authenticate: (email, password, callback)->
+    this.findOne {email: email, password: password}, (err, user)->
+      if(err)
+        return callback err, user
+      if user?
+        return callback err, user
+      else
+        return callback "invalid username password"
+    return
+    
+  getByFBID: (uid, callback)->
+    this.findOne {'fb.uid': uid}, (err, user)->
+      return callback err, user
+    
+  register: (fbid, email, password, callback)->
+    if fbid == null or fbid == undefined
+      callback 'No facebook id specified'
+      return
+    this.findOne {"fb.uid": fbid}, (err, user)->
+      if(err)
+        return callback err, user
+      if user == null
+        return callback "User not authenticated with facebook"
+      if user.email != undefined
+        return callback "User already registered"
+      
+      #everything is ok, update user object and save
+      user.email = email
+      user.password = password
+      user.date = new Date()
+      user.save (err)->
+        callback err, user
+    return
 }
+
+
 
 
 ####################
@@ -268,7 +269,7 @@ Client = new Schema {
   firstname     : {type: String, required: true}
   lastname      : {type: String, required: true}
   phone         : {type: String}
-  email         : {type: String, required: true, unique: true, set: utils.toLower, validate: /^(([^<>()[\]\\.,;:\s@\"]+(\.[^<>()[\]\\.,;:\s@\"]+)*)|(\".+\"))@((\[[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\])|(([a-zA-Z\-0-9]+\.)+[a-zA-Z]{2,}))$/}
+  email         : {type: String, index: true, unique: true, set: utils.toLower, validate: /^(([^<>()[\]\\.,;:\s@\"]+(\.[^<>()[\]\\.,;:\s@\"]+)*)|(\".+\"))@((\[[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\])|(([a-zA-Z\-0-9]+\.)+[a-zA-Z]{2,}))$/}
   password      : {type: String, validate:/.{5,}/, required: true}
   created       : {type: Date, default: new Date( (new Date()).toUTCString() ), index: true}
   #permissions   : {} #consider putting this into it's own collection and then cache this entire thing in memory, otherwise cache each logged in user in memory and have this available
@@ -280,6 +281,24 @@ Client.index({email: 1, password: 1})
 Client.index({'permissions.businesses.admin': 1})
 Client.index({'permissions.businesses.manage': 1})
 Client.index({phone: 1})
+
+
+####################
+# Location #########
+####################
+Location = new Schema {
+    name          : {type: String}
+    street1       : {type: String, required: true}
+    street2       : {type: String}
+    city          : {type: String, required: true}
+    state         : {type: String, required: true}
+    zip           : {type: Number, required: true}
+    country       : {type: String, enum: countries.codes, required: true}
+    phone         : {type: String, required: true}
+    fax           : {type: String}
+    lat           : {type: Number}
+    lng           : {type: Number}
+}
 
 
 ####################
@@ -299,24 +318,6 @@ Business = new Schema {
 Business.index({name: 1})
 Business.index({publicname: 1})
 Business.index({users: 1})
-
-
-####################
-# Location #########
-####################
-Location = new Schema {
-    name          : {type: String}
-    street1       : {type: String, required: true}
-    street2       : {type: String}
-    city          : {type: String, required: true}
-    state         : {type: String, required: true}
-    zip           : {type: Number, required: true}
-    country       : {type: String, enum: countries.codes, required: true}
-    phone         : {type: String, required: true}
-    fax           : {type: String}
-    lat           : {type: Number}
-    lng           : {type: Number}
-}
 
 
 ####################
@@ -386,22 +387,33 @@ Poll = new Schema {
 Discussion = new Schema {
   businessid      : {type: ObjectId, required: true}
   question        : {type: String, required: true}
+  image           : {type: String}
+  responses       : {type: Number, required: true, default: 0} #count of the number of responses (not including sub comments)
   bestresponses   : [] #a copy of the responses that were selected as the best response (without sub comments) #up to two
+  dates: {
+    created       : {type: Date, required: true, default: new Date( (new Date()).toUTCString() )}
+    start         : {type: Date, required: true, default: new Date( (new Date()).toUTCString() )}
+    end           : {type: Date, required: true, default: new Date( (new Date()).toUTCString() )}
+    
+    #end           : {type: Date, required: true, default: new Date( (new Date().addWeeks(3)).toUTCString() )} #three week later
+  }
   funds: {
     allocated     : {type: Number, required: true}
     remaining     : {type: Number, required: true}
   }
 }
 
+#index
+Discussion.index('businessid': 1, 'dates.start': 1, 'dates.end': 1)
 
+
+####################
+# Response #########
+####################
 #Responses happen on the consumer end, so no need to worry about specing this out right now
 #Responses are in their own collection for two reasons: 
 #   They need to be pulled in a limit/skip fashion
 #   We want to section them off in groups of either 25/50/100. This way will result in less requests to the database
-#   
-####################
-# Response #########
-####################
 Response = new Schema {
   discussionid    : {type: ObjectId, required: true}
   ###responses: [{
@@ -427,21 +439,24 @@ Stream = new Schema {
 Stream.index('entity': 1, 'id': 1, 'datetime': 1, 'type':1)
 Stream.index('datetime': 1)
 
-exports.User      = mongoose.model 'User', User
-exports.Client    = mongoose.model 'Client', Client
-exports.Business  = mongoose.model 'Business', Business
-exports.Goody     = mongoose.model 'Goody', Goody
-exports.Deal      = mongoose.model 'Deal', Deal
-exports.Media     = mongoose.model 'Media', Media
-exports.FlipAd    = mongoose.model 'FlipAd', FlipAd
-exports.Poll      = mongoose.model 'Poll', Poll
+exports.User        = mongoose.model 'User', User
+exports.Client      = mongoose.model 'Client', Client
+exports.Business    = mongoose.model 'Business', Business
+exports.Goody       = mongoose.model 'Goody', Goody
+exports.Deal        = mongoose.model 'Deal', Deal
+exports.Media       = mongoose.model 'Media', Media
+exports.FlipAd      = mongoose.model 'FlipAd', FlipAd
+exports.Poll        = mongoose.model 'Poll', Poll
+exports.Discussion  = mongoose.model 'Discussion', Discussion
 
 exports.schemas = {
   User: User
   Client: Client
   Business: Business
-	Goody: Goody
-	Deal: Deal
-	Media: Media
-	FlipAd: FlipAd
+  Goody: Goody
+  Deal: Deal
+  Media: Media
+  FlipAd: FlipAd
+  Poll: Poll
+  Discussion: Discussion
 }
