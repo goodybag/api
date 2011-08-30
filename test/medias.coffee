@@ -26,6 +26,7 @@ suite.addBatch {
           type        : 'video'
           name        : 'video-1'
           url         : 'http://www.test.com'
+          thumb       : 'http://www.test.com'
           duration    : 425.45
           thumbs      : ['http://www.test.com/thumb1.jpg', 'http://www.test.com/thumb2.jpg']
           tags        : ['summer', 'winter']
@@ -46,6 +47,7 @@ suite.addBatch {
           type        : 'image'
           name        : 'image-1'
           url         : 'http://www.test.com'
+          thumb       : 'http://www.test.com'
           duration    : 425.45
           tags        : ['summer']
         }
@@ -98,7 +100,7 @@ suite.addBatch {
   'New video': {
     'was not found': {
       topic: ()->
-        Medias.get {'businessid': 'fake', 'type': 'video'}, this.callback
+        Medias.get {'businessid': '4e55d8e21aae4ed14d000001', 'type': 'video'}, this.callback
         return
       'successfully': (error, data)->
         assert.isNull(error)
@@ -118,7 +120,7 @@ suite.addBatch {
   'New image': {
     'was not found': {
       topic: ()->
-        Medias.get {'businessid': 'fake', 'type': 'image'}, this.callback
+        Medias.get {'businessid': '4e55d8e21aae4ed14d000001', 'type': 'image'}, this.callback
         return
       'successfully': (error, data)->
         assert.isNull(error)
