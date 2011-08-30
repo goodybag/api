@@ -1,7 +1,6 @@
 exports = module.exports
 
 db = require './db'
-util = require 'util'
 globals = require 'globals'
 
 utils = globals.utils
@@ -14,8 +13,8 @@ Deal = db.Deal
 Media = db.Media
 FlipAd = db.FlipAd
 Poll = db.Poll
+Discussion = db.Discussion
 
-#util.log util.inspect Deal, true, 2
 
 exports.getGoodies = (email, type, limit, skip, callback)->
   #valid types include: inbox, activated, credited, expired
@@ -44,6 +43,10 @@ exports.getGoodies = (email, type, limit, skip, callback)->
     callback err, data
   return
 
+
+#TODO:
+#Make sure that all necessary fields exist for each function before sending the query to the db
+
 class API
   @model = null
   constructor: ()->
@@ -52,6 +55,9 @@ class API
   @_query: ()->
     return @model.find() #instance of query object
   
+  @optionParser = (options, q)->
+    return @_optionParser(options, q)
+
   @_optionParser = (options, q)->
     query = q || @_query()
 
@@ -70,7 +76,7 @@ class API
     instance = new @model()
     for own k,v of data
       instance[k] =v
-    instance.save callback #does not return instance back
+    instance.save callback
     return
   
   @update: (id, data, callback)->
@@ -89,7 +95,7 @@ class API
     return
 
   @get = (options, callback)->
-    query = @_optionParser(options)
+    query = @optionParser(options)
     query.exec callback
     return
 
@@ -104,9 +110,9 @@ class Clients extends API
   @register: (data, callback)->
     #if !utils.mustContain(data, ['email','firstname', 'lastname', 'password'])
     #  return callback(new Error("at least one required field is missing."))
+    self = this
     query = @_query()
     query.where('email', data.email)
-    self = this
     query.findOne (error, client)->
       if error?
         return callback err, user
@@ -131,8 +137,8 @@ class Businesses extends API
   @model = Business
   
   #clientid, limit, skip
-  @_optionParser = (options, q)->
-    query = q || @_query()
+  @optionParser = (options, q)->
+    query = @_optionParser(options, q)
     
     if options.clientid?
       query.in('users', options.clientid)
@@ -151,13 +157,9 @@ class Businesses extends API
     instance['permissions'] = {}
     instance['permissions'][clientid] = [roles.business.ADMIN]
 
-    instance.save callback #does not return instance back...or does it?
+    instance.save callback 
     return
 
-  @get = (options, callback)->
-    query = @_optionParser(options)
-    query.exec callback
-  
   @addPermissions: (clientid, id, perms, callback)->
     #clientid is the user wanting to remove this permission
     #make sure user has permissions to add permission (where should this happen)
@@ -263,8 +265,8 @@ class Medias extends API
   @model = Media
   
   #options: businessid, type, tags, start, end, limit, skip
-  @_optionParser = (options, q)->
-    query = q || @_query()
+  @optionParser = (options, q)->
+    query = @_optionParser(options, q)
     
     if options.businessid?
       query.where('businessid', options.businessid)
@@ -298,8 +300,8 @@ class FlipAds extends API
   @model = FlipAd
 
   #options: businessid, type, start, end, limit, skip
-  @_optionParser = (options, q)->
-    query = q || @_query()
+  @optionParser = (options, q)->
+    query = @_optionParser(options, q)
 
     if options.businessid?
       query.where('businessid', options.businessid)
@@ -322,12 +324,12 @@ class FlipAds extends API
     return query
     
   @get = (options, callback)->
-    query = @_optionParser(options)
+    query = @optionParser(options)
     query.sort('dates.created', -1)
     query.exec callback
   
   @getByDateReversed = (options, callback)->
-    query = @_optionParser(options)
+    query = @optionParser(options)
     query.sort('dates.created', -1)
     query.exec callback
     
@@ -335,7 +337,7 @@ class Polls extends API
   @model = Poll
 
   #options: name, businessid, type, businessname,showstats, answered, start, end, outoffunds
-  # @_optionParser = (options, q) ->
+  # @optionParser = (options, q) ->
   #   query = q || @_query()
     # query.where('name', options.name) if options.name?
     # query.where('businessid', options.businessid) if options.businessid?
@@ -343,9 +345,38 @@ class Polls extends API
     # query.where('businessname', options.businessname) if options.businessname?
     # return query
   
+class Discussions extends API
+  @model = Discussion
+
+  @optionParser = (options, q)->
+    query = @_optionParser(options, q)
+
+    query.where('businessid', options.businessid) if options.businessid?
+    query.where('dates.start').gte(options.start) if options.start?
+    query.where('dates.end').gte(options.start) if options.end?
+    
+  @getPending: (options, callback)->
+    query = @optionParser(options)
+    query.sort('dates.start', 1)
+    query.exec callback
+    return
+
+  @getActive: (options, callback)->
+    query = @optionParser(options)
+    query.sort('dates.start', 1)
+    query.exec callback
+    return
+    
+  @getCompleted: (options, callback)->
+    query = @optionParser(options)
+    query.sort('dates.start', -1)
+    query.exec callback
+    return
+
 exports.Clients = Clients
 exports.Businesses = Businesses
 exports.Deals = Deals
 exports.Medias = Medias
 exports.FlipAds = FlipAds
 exports.Polls = Polls
+exports.Discussions = Discussions
