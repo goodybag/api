@@ -283,24 +283,6 @@ Client.index({phone: 1})
 
 
 ####################
-# Location #########
-####################
-Location = new Schema {
-    name          : {type: String}
-    street1       : {type: String, required: true}
-    street2       : {type: String}
-    city          : {type: String, required: true}
-    state         : {type: String, required: true}
-    zip           : {type: Number, required: true}
-    country       : {type: String, enum: countries.codes, required: true}
-    phone         : {type: String, required: true}
-    fax           : {type: String}
-    lat           : {type: Number}
-    lng           : {type: Number}
-}
-
-
-####################
 # Business #########
 ####################
 #STORE THIS ENTIRE DB IN MEMCACHE OR REDIS, SHOULD BE SMALL
@@ -317,6 +299,24 @@ Business = new Schema {
 Business.index({name: 1})
 Business.index({publicname: 1})
 Business.index({users: 1})
+
+
+####################
+# Location #########
+####################
+Location = new Schema {
+    name          : {type: String}
+    street1       : {type: String, required: true}
+    street2       : {type: String}
+    city          : {type: String, required: true}
+    state         : {type: String, required: true}
+    zip           : {type: Number, required: true}
+    country       : {type: String, enum: countries.codes, required: true}
+    phone         : {type: String, required: true}
+    fax           : {type: String}
+    lat           : {type: Number}
+    lng           : {type: Number}
+}
 
 
 ####################
@@ -363,8 +363,8 @@ Poll = new Schema {
   type          : {type: String, require: true, enum: ['single', 'multiple']}
   question      : {type: String, required: true}
   choices       : []
-  image         : {type: Url, required: false}
-  businessname  : {type: String, required: false}
+  image         : {type: Url}
+  businessname  : {type: String}
   stats         : {type: Boolean, default: true, required: true} #whether to display the stats to the user or not
   answered      : {type: Number, default: 0}
   dates: {
@@ -377,6 +377,37 @@ Poll = new Schema {
     remaining   : {type: Number, required: true}
   }
 
+}
+
+
+####################
+# Discussion #######
+####################
+Discussion = new Schema {
+  businessid      : {type: ObjectId, required: true}
+  question        : {type: String, required: true}
+  bestresponses   : [] #a copy of the responses that were selected as the best response (without sub comments) #up to two
+  funds: {
+    allocated     : {type: Number, required: true}
+    remaining     : {type: Number, required: true}
+  }
+}
+
+
+#Responses happen on the consumer end, so no need to worry about specing this out right now
+#Responses are in their own collection for two reasons: 
+#   They need to be pulled in a limit/skip fashion
+#   We want to section them off in groups of either 25/50/100. This way will result in less requests to the database
+#   
+####################
+# Response #########
+####################
+Response = new Schema {
+  discussionid    : {type: ObjectId, required: true}
+  ###responses: [{
+    userid: ObjectId, required
+    response: String, required
+  }]###
 }
 
 
