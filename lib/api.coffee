@@ -13,6 +13,7 @@ Business = db.Business
 Deal = db.Deal
 Media = db.Media
 FlipAd = db.FlipAd
+Poll = db.Poll
 
 #util.log util.inspect Deal, true, 2
 
@@ -330,8 +331,21 @@ class FlipAds extends API
     query.sort('dates.created', -1)
     query.exec callback
     
+class Polls extends API
+  @model = Poll
+
+  #options: name, businessid, type, businessname,showstats, answered, start, end, outoffunds
+  # @_optionParser = (options, q) ->
+  #   query = q || @_query()
+    # query.where('name', options.name) if options.name?
+    # query.where('businessid', options.businessid) if options.businessid?
+    # query.where('type', options.type) if options.type?
+    # query.where('businessname', options.businessname) if options.businessname?
+    # return query
+  
 exports.Clients = Clients
 exports.Businesses = Businesses
 exports.Deals = Deals
 exports.Medias = Medias
 exports.FlipAds = FlipAds
+exports.Polls = Polls

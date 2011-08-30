@@ -307,7 +307,7 @@ Location = new Schema {
 Business = new Schema {
   name          : {type: String, required: true}
   publicname    : {type: String, required: true}
-  logo          : {type: Url, required: true} 
+  logo          : {type: Url} 
   locations     : [Location]
   users         : [ObjectId] #client ids
   permissions   : {}
@@ -358,17 +358,18 @@ FlipAd.index('funds.remainging':1, 'dates.start':1, 'dates.end':1) #for showing 
 ####################
 
 Poll = new Schema {
+  name          : {type:String, required: true}
   businessid    : {type: ObjectId, required: true}
   type          : {type: String, require: true, enum: ['single', 'multiple']}
   question      : {type: String, required: true}
-  choices       : {}
-  image         : {type: Url, required: true}
-  businessname  : {type: String, required: true}
+  choices       : []
+  image         : {type: Url, required: false}
+  businessname  : {type: String, required: false}
   stats         : {type: Boolean, default: true, required: true} #whether to display the stats to the user or not
   answered      : {type: Number, default: 0}
   dates: {
     created     : {type: Date, required: true, default: new Date( (new Date()).toUTCString() )}
-    start       : {type: Date, required: true}
+    start       : {type: Date, required: true, default: new Date( (new Date()).toUTCString() )}
     end         : {type: Date}
   }
   funds: {
@@ -402,6 +403,7 @@ exports.Goody     = mongoose.model 'Goody', Goody
 exports.Deal      = mongoose.model 'Deal', Deal
 exports.Media     = mongoose.model 'Media', Media
 exports.FlipAd    = mongoose.model 'FlipAd', FlipAd
+exports.Poll      = mongoose.model 'Poll', Poll
 
 exports.schemas = {
   User: User
