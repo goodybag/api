@@ -3,19 +3,22 @@ assert = require 'assert'
 api = require '../lib/api'
 db = require '../lib/db'
 util = require 'util'
-
 globals = require 'globals'
 utils = globals.utils
-
 Polls = api.Polls
-
-suite = vows.describe 'Polls'
 
 dbCallback = (assertCallback) ->
   (err, poll) ->
-    assertCallback(err, poll)
-    return if !poll?
-    Polls.remove poll._id, (error, data) ->
+    try
+      assertCallback(err, poll)
+    finally
+      console.log 'starting cleanup for: ' + util.inspect(poll)
+      return if !poll?
+      console.log 'cleaning up'
+      Polls.remove poll._id, (error, data) ->
+        console.log('error remvoing: ' + error) if error?
+
+addPoll = (poll, callback) -> Polls.add poll, callback
 
 pollData = (data) ->
   obj =
@@ -33,20 +36,43 @@ pollData = (data) ->
 
   return obj
 
-#add
-suite.addBatch(
+vows.describe('Polls').addBatch(
   '#add':
     'with all required values':
       topic: -> Polls.add pollData(), this.callback
       'should be successful': dbCallback (error, data)->
-        assert.isNull(error)
-        assert.isObject(data)
+        assert.isNull error
+        assert.isObject data
 
     'with missing required field name':
       topic: -> Polls.add pollData({name: null}), this.callback
       'should fail validation': dbCallback (error, data)->
-        assert.equal(error?.name, 'ValidationError')
+        assert.equal error?.name, 'ValidationError'
 
-)
+  '#update':
+    'with choices':
+      topic: ->
+        assertCallback = this.callback
+        addPoll pollData(), (error, poll) ->
+          poll.choices.push 'new choice'
+          Polls.update poll._id, poll, assertCallback
+      'should add choice': dbCallback (error, poll) ->
+        assert.length poll?.choices, 4
 
-suite.export module
+  'get':
+    'by name':
+      topic: ->
+        assertCallback = this.callback
+        name = 'get by name'
+        addPoll pollData({name: name}), (error, poll) ->
+          Polls.get {name: name}, assertCallback
+      'should find existing Poll': dbCallback (error, poll) ->
+        assert.equal poll?.name, 'get by name'
+
+).addBatch(
+  'Disconnect':
+    'from database':
+      topic: -> db.disconnect(this.callback)
+      'should be successfull': (error, data)->
+        assert.isNull(error)
+).export module

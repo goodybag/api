@@ -80,11 +80,10 @@ class API
     return
   
   @update: (id, data, callback)->
-    query = @query()
-    query.findOne _id: id, (err, obj)->
+    @model.findById id, (err, obj)->
       for own k,v of data
         obj[k] = v
-      return obj.save callback
+      obj.save callback
 
   @remove = (id, callback)->
     @model.remove {'_id': id}, callback
@@ -337,13 +336,17 @@ class Polls extends API
   @model = Poll
 
   #options: name, businessid, type, businessname,showstats, answered, start, end, outoffunds
-  # @optionParser = (options, q) ->
-  #   query = q || @_query()
-    # query.where('name', options.name) if options.name?
+  @optionParser = (options, q) ->
+    query = q || @_query()
+    query.where('name', options.name) if options.name?
     # query.where('businessid', options.businessid) if options.businessid?
     # query.where('type', options.type) if options.type?
     # query.where('businessname', options.businessname) if options.businessname?
-    # return query
+    console.log 'query: ' + JSON.stringify(query) + ' for options ' + JSON.stringify(options)
+    return query
+
+  @get = (options, callback) ->
+    @model.findOne options, callback
   
 class Discussions extends API
   @model = Discussion
