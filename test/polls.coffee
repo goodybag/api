@@ -12,9 +12,7 @@ dbCallback = (assertCallback) ->
     try
       assertCallback(err, poll)
     finally
-      console.log 'starting cleanup for: ' + util.inspect(poll)
       return if !poll?
-      console.log 'cleaning up'
       Polls.remove poll._id, (error, data) ->
         console.log('error remvoing: ' + error) if error?
 
