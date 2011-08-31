@@ -342,11 +342,7 @@ class Polls extends API
     # query.where('businessid', options.businessid) if options.businessid?
     # query.where('type', options.type) if options.type?
     # query.where('businessname', options.businessname) if options.businessname?
-    console.log 'query: ' + JSON.stringify(query) + ' for options ' + JSON.stringify(options)
     return query
-
-  @get = (options, callback) ->
-    @model.findOne options, callback
   
 class Discussions extends API
   @model = Discussion

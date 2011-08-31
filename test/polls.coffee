@@ -7,14 +7,20 @@ globals = require 'globals'
 utils = globals.utils
 Polls = api.Polls
 
+removePoll = (poll) ->
+  Polls.remove poll._id, (error, data) ->
+    console.log('error remvoing: ' + error) if error?
+  
 dbCallback = (assertCallback) ->
   (err, poll) ->
     try
       assertCallback(err, poll)
     finally
       return if !poll?
-      Polls.remove poll._id, (error, data) ->
-        console.log('error remvoing: ' + error) if error?
+      if Array.isArray poll
+        removePoll p for p in poll
+      else
+        removePoll poll
 
 addPoll = (poll, callback) -> Polls.add poll, callback
 
@@ -64,8 +70,8 @@ vows.describe('Polls').addBatch(
         name = 'get by name'
         addPoll pollData({name: name}), (error, poll) ->
           Polls.get {name: name}, assertCallback
-      'should find existing Poll': dbCallback (error, poll) ->
-        assert.equal poll?.name, 'get by name'
+      'should find existing Poll': dbCallback (error, polls) ->
+        assert.equal polls[0]?.name, 'get by name'
 
 ).addBatch(
   'Disconnect':
