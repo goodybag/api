@@ -12,8 +12,11 @@ dbCallback = (assertCallback) ->
     try
       assertCallback(err, poll)
     finally
+      console.log 'starting cleanup for: ' + util.inspect(poll)
       return if !poll?
+      console.log 'cleaning up'
       Polls.remove poll._id, (error, data) ->
+        console.log('error remvoing: ' + error) if error?
 
 addPoll = (poll, callback) -> Polls.add poll, callback
 
@@ -54,14 +57,22 @@ vows.describe('Polls').addBatch(
           poll.choices.push 'new choice'
           Polls.update poll._id, poll, assertCallback
       'should add choice': dbCallback (error, poll) ->
-        console.log 'asserting update'
         assert.length poll?.choices, 4
+
+  'get':
+    'by name':
+      topic: ->
+        assertCallback = this.callback
+        name = 'get by name'
+        addPoll pollData({name: name}), (error, poll) ->
+          Polls.get {name: name}, assertCallback
+      'should find existing Poll': dbCallback (error, poll) ->
+        assert.equal poll?.name, 'get by name'
 
 ).addBatch(
   'Disconnect':
     'from database':
-      topic: ->
-        db.disconnect(this.callback)
+      topic: -> db.disconnect(this.callback)
       'should be successfull': (error, data)->
         assert.isNull(error)
 ).export module
