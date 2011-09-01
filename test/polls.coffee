@@ -73,6 +73,12 @@ vows.describe('Polls').addBatch(
       'should find existing Poll': dbCallback (error, polls) ->
         assert.equal polls[0]?.name, 'get by name'
 
+    # 'add for test data (does not delete)':
+    #   topic: -> Polls.add pollData({name: 'Example Poll', businessid: '4e5aaa5076cefcb922000002'}), this.callback
+    #   'should be successful': (error, data)->
+    #     assert.isNull error
+    #     assert.isObject data
+
 ).addBatch(
   'Disconnect':
     'from database':
