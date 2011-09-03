@@ -365,7 +365,7 @@ Poll = new Schema {
   question      : {type: String, required: true}
   choices       : []
   image         : {type: Url}
-  businessname  : {type: String}
+  businessName  : {type: String}
   stats         : {type: Boolean, default: true, required: true} #whether to display the stats to the user or not
   answered      : {type: Number, default: 0}
   dates: {
@@ -386,6 +386,7 @@ Poll = new Schema {
 ####################
 Discussion = new Schema {
   businessid      : {type: ObjectId, required: true}
+  name            : {type: String, required: true}
   question        : {type: String, required: true}
   image           : {type: String}
   responses       : {type: Number, required: true, default: 0} #count of the number of responses (not including sub comments)
@@ -401,10 +402,17 @@ Discussion = new Schema {
     allocated     : {type: Number, required: true}
     remaining     : {type: Number, required: true}
   }
+  transaction: {
+    state         : {type: String, required: true, enum: globals.states.transactions}
+    error         : {type: String} #only populated if there is an error in the transaction i.e. insufficient funds
+    created       : {type: Date, required: true, default: new Date( (new Date()).toUTCString() )}
+    lastmodified  : {type: Date, required: true, default: new Date( (new Date()).toUTCString() )}
+  }
 }
 
 #index
 Discussion.index('businessid': 1, 'dates.start': 1, 'dates.end': 1)
+Discussion.index('transaction.state': 1)
 
 
 ####################
