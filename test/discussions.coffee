@@ -19,6 +19,7 @@ suite.addBatch {
     'was added': {
       topic: ()->
         obj = {
+          name          : 'Startup Question'
           businessid    : '4e4af2c8a022988a14000006'
           question      : 'How is it working in a startup'
           funds         :

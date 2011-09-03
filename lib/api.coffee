@@ -353,22 +353,45 @@ class Discussions extends API
     query.where('businessid', options.businessid) if options.businessid?
     query.where('dates.start').gte(options.start) if options.start?
     query.where('dates.end').gte(options.start) if options.end?
+    query.where('transaction.state', state) if options.state?
     
-  @getPending: (options, callback)->
+    return query
+    
+  @pending: (businessid, skip, limit, callback)->
+    options = {
+      businessid: businessid, 
+      skip: skip, 
+      limit: limit
+    }
     query = @optionParser(options)
-    query.sort('dates.start', 1)
+    query.where('dates.start').gt(new Date())
+    query.sort('dates.start', -1)
     query.exec callback
     return
 
-  @getActive: (options, callback)->
+  @active: (businessid, skip, limit, callback)->
+    options = {
+      businessid: businessid, 
+      skip: skip, 
+      limit: limit
+    }
     query = @optionParser(options)
-    query.sort('dates.start', 1)
+    query.where('dates.start').lte(new Date())
+    query.where('dates.end').gt(new Date())
+    query.sort('dates.start', -1)
     query.exec callback
     return
     
-  @getCompleted: (options, callback)->
+  @completed: (businessid, skip, limit, callback)->
+    options = {
+      businessid: businessid, 
+      skip: skip, 
+      limit: limit
+    }
     query = @optionParser(options)
+    query.where('dates.end').lte(new Date())
     query.sort('dates.start', -1)
+    console.log query
     query.exec callback
     return
 
