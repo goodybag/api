@@ -10,6 +10,7 @@ Url = mongoose.SchemaTypes.Url
 
 globals = require 'globals'
 utils = globals.utils
+choices = globals.choices
 countries = globals.countries
 
 # connect to database
@@ -99,7 +100,7 @@ Goody.namedScope 'email', (email)->
 ####################
 Media = new Schema {
   businessid  : {type: ObjectId, required: true}
-  type        : {type: String, required: true, enum: ['image','video']}
+  type        : {type: String, required: true, enum: choices.media.type._enum}
   uploaddate  : {type: Date, required: true, default: new Date( (new Date()).toUTCString() )}
   name        : {type: String, required: true}
   url         : {type: Url, required: true}
@@ -327,7 +328,7 @@ FlipAd = new Schema {
   businessid  : {type: ObjectId, required: true}
   title       : {type: String, required: true}
   description : {type: String}
-  type        : {type: String, required: true, enum: ['image','video']}
+  type        : {type: String, required: true, enum: choices.media.type._enum}
   url         : {type: Url, require: true}
   thumb       : {type: Url}
   dates: {
@@ -361,7 +362,7 @@ FlipAd.index('funds.remainging':1, 'dates.start':1, 'dates.end':1) #for showing 
 Poll = new Schema {
   name          : {type:String, required: true}
   businessid    : {type: ObjectId, required: true}
-  type          : {type: String, require: true, enum: ['single', 'multiple']}
+  type          : {type: String, require: true, enum: choices.polls.type._enum}
   question      : {type: String, required: true}
   choices       : []
   image         : {type: Url}
@@ -403,7 +404,7 @@ Discussion = new Schema {
     remaining     : {type: Number, required: true}
   }
   transaction: {
-    state         : {type: String, required: true, enum: globals.states.transactions}
+    state         : {type: String, required: true, enum: choices.transactions.state._enum, default: choices.transactions.state.PENDING}
     error         : {type: String} #only populated if there is an error in the transaction i.e. insufficient funds
     created       : {type: Date, required: true, default: new Date( (new Date()).toUTCString() )}
     lastmodified  : {type: Date, required: true, default: new Date( (new Date()).toUTCString() )}

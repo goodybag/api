@@ -4,7 +4,8 @@ db = require './db'
 globals = require 'globals'
 
 utils = globals.utils
-roles = globals.roles
+choices = globals.choices
+defaults = globals.defaults
 
 Goody = db.Goody
 Client = db.Client
@@ -73,9 +74,10 @@ class API
     return query
   
   @add = (data, callback)->
-    instance = new @model()
-    for own k,v of data
-      instance[k] =v
+    return @_add(data, callback)
+  
+  @_add = (data, callback)->
+    instance = new @model(data)
     instance.save callback
     return
   
@@ -154,7 +156,7 @@ class Businesses extends API
     #add user to the list of users for this business and add the admin role
     instance['users'] = [clientid] #only one user now
     instance['permissions'] = {}
-    instance['permissions'][clientid] = [roles.business.ADMIN]
+    instance['permissions'][clientid] = [choices.roles.business.ADMIN]
 
     instance.save callback 
     return
@@ -356,6 +358,14 @@ class Discussions extends API
     query.where('transaction.state', state) if options.state?
     
     return query
+
+  @add = (data, callback)->
+    instance = new @model(data)
+    
+    #load default transaction stuff (maybe create a separate function to do transaction setup)
+    #instance.transaction.state = choices.transactions.state.PENDING #This is the default setting
+    instance.save callback
+    return
     
   @pending: (businessid, skip, limit, callback)->
     options = {
@@ -391,7 +401,6 @@ class Discussions extends API
     query = @optionParser(options)
     query.where('dates.end').lte(new Date())
     query.sort('dates.start', -1)
-    console.log query
     query.exec callback
     return
 
