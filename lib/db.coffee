@@ -334,7 +334,7 @@ FlipAd = new Schema {
   title           : {type: String, required: true}
   description     : {type: String}
   type            : {type: String, required: true, enum: choices.media.type._enum}
-  url             : {type: Url, require: true} #video or image
+  url             : {type: Url, required: true} #video or image
   thumb           : {type: Url}
   dates: {
     created       : {type: Date, required: true, default: new Date( (new Date()).toUTCString() )}
