@@ -325,28 +325,39 @@ Business.index({users: 1})
 # FipAd ############
 ####################
 FlipAd = new Schema {
-  businessid  : {type: ObjectId, required: true}
-  title       : {type: String, required: true}
-  description : {type: String}
-  type        : {type: String, required: true, enum: choices.media.type._enum}
-  url         : {type: Url, require: true}
-  thumb       : {type: Url}
-  dates: {
-    created   : {type: Date, required: true, default: new Date( (new Date()).toUTCString() )}
-    start     : {type: Date, required: true}
-    end       : {type: Date}
+  entity: { #We support multile users creating content (right now, we don't allow users to create flipAds, but we may)
+    type          : {type: String, required: true, enum: choices.entities._enum}
+    id            : {type: ObjectId, required: true}
+    name          : {type: String}
   }
-  metadata: {
-    duration  : {type: Number} #useful for videos, in number of seconds (e.g. 48.42)
+  campaignName    : {type: String, required: true}
+  title           : {type: String, required: true}
+  description     : {type: String}
+  type            : {type: String, required: true, enum: choices.media.type._enum}
+  url             : {type: Url, require: true} #video or image
+  thumb           : {type: Url}
+  dates: {
+    created       : {type: Date, required: true, default: new Date( (new Date()).toUTCString() )}
+    start         : {type: Date, required: true}
+    end           : {type: Date}
+  }
+  metaData: {
+    duration      : {type: Number} #useful for videos, in number of seconds (e.g. 48.42)
   }
   views: {
-    unique    : {type: Number, required: true, default: 0} #this gets incremented only if it was the first time
-    overall   : {type: Number, required: true, default: 0} #this gets incremented on every view
+    unique        : {type: Number, required: true, default: 0} #this gets incremented only if it was the first time
+    overall       : {type: Number, required: true, default: 0} #this gets incremented on every view
   }
-  viewers     : [ObjectId] #the users who have viewed this video
+  viewers         : [ObjectId] #the users who have viewed this video
   funds: {
-    allocated : {type: Number, required: true}
-    remaining : {type: Number, required: true}
+    allocated     : {type: Number, required: true}
+    remaining     : {type: Number, required: true}
+  }
+  transaction: {
+    state         : {type: String, required: true, enum: choices.transactions.state._enum, default: choices.transactions.state.PENDING}
+    error         : {type: String} #only populated if there is an error in the transaction i.e. insufficient funds
+    created       : {type: Date, required: true, default: new Date( (new Date()).toUTCString() )}
+    lastmodified  : {type: Date, required: true, default: new Date( (new Date()).toUTCString() )}
   }
 }
 
@@ -386,8 +397,13 @@ Poll = new Schema {
 # Discussion #######
 ####################
 Discussion = new Schema {
-  businessid      : {type: ObjectId, required: true}
-  name            : {type: String, required: true}
+  entity: { #We support various types of users creating discussions (currently businesses and consumers can create discussions)
+    type          : {type: String, required: true, enum: choices.entities._enum}
+    id            : {type: ObjectId, required: true}
+    name          : {type: String}
+  }
+  campaignName    : {type: String, required: true}
+  entityName      : {type: String}
   question        : {type: String, required: true}
   image           : {type: String}
   responses       : {type: Number, required: true, default: 0} #count of the number of responses (not including sub comments)
@@ -436,8 +452,10 @@ Response = new Schema {
 # Stream ###########
 ####################
 Stream = new Schema {
-  entity       : {type: String, required: true, enum: ['user', 'business']}
-  id           : {type: ObjectId, required: true}
+  entity: {
+    type       : {type: String, required: true, enum: ['business', 'consumer']},
+    id         : {type: ObjectId, required: true}
+  }
   type         : {type: String, required: true, enum: ['']}
   action       : {type: String, required: true, enum: ['']}
   datetime     : {type: Date, default: Date.now}
