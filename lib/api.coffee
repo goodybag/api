@@ -265,40 +265,6 @@ class Deals extends API
     @model.collection.update  {did: did}, {$pull:{dislike: user, like: user}, $unset:voters}, callback
     return
 
-class Medias extends API
-  @model = Media
-  
-  #options: businessid, type, tags, start, end, limit, skip
-  @optionParser = (options, q)->
-    query = @_optionParser(options, q)
-    
-    if options.businessid?
-      query.where('businessid', options.businessid)
-    
-    if options.type?
-      query.where('type', options.type)
-    
-    if options.tags?
-      query.in('tags', options.tags)
-    
-    if options.start?
-      query.where('uploaddate').gte(options.start)
-    
-    if options.end?
-      query.where('uploaddate').lte(options.end)
-      
-    if options.limit?
-      query.limit(options.limit)
-      
-    if options.skip?
-      query.skip(options.skip)
-    
-    return query
-
-  @getByBusiness = (businessid, callback)->
-    @get {businessid: businessid}, callback
-    return
-
     
 class Polls extends API
   @model = Poll
@@ -319,7 +285,7 @@ class Discussions extends API
     query = @_optionParser(options, q)
 
     query.where('entity.type', options.entityType) if options.entityType?
-    query.where('entity.id', options.entityid) if options.entityid?
+    query.where('entity.id', options.entityId) if options.entityId?
     query.where('dates.start').gte(options.start) if options.start?
     query.where('dates.end').gte(options.start) if options.end?
     query.where('transaction.state', state) if options.state?
@@ -334,10 +300,10 @@ class Discussions extends API
     instance.save callback
     return
     
-  @pending: (entityType, entityid, skip, limit, callback)->
+  @pending: (entityType, entityId, skip, limit, callback)->
     options = {
       entityType: entityType,
-      entityid: entityid, 
+      entityId: entityId, 
       skip: skip, 
       limit: limit
     }
@@ -347,10 +313,10 @@ class Discussions extends API
     query.exec callback
     return
 
-  @active: (entityType, entityid, skip, limit, callback)->
+  @active: (entityType, entityId, skip, limit, callback)->
    options = {
       entityType: entityType,
-      entityid: entityid, 
+      entityId: entityId, 
       skip: skip, 
       limit: limit
     } 
@@ -361,10 +327,10 @@ class Discussions extends API
     query.exec callback
     return
     
-  @completed: (entityType, entityid, skip, limit, callback)->
+  @completed: (entityType, entityId, skip, limit, callback)->
     options = {
       entityType: entityType,
-      entityid: entityid, 
+      entityId: entityId, 
       skip: skip, 
       limit: limit
     }
@@ -381,7 +347,7 @@ class FlipAds extends API
     query = @_optionParser(options, q)
 
     query.where('entity.type', options.entityType) if options.entityType?
-    query.where('entity.id', options.entityid) if options.entityid?
+    query.where('entity.id', options.entityId) if options.entityId?
     query.where('dates.start').gte(options.start) if options.start?
     query.where('dates.end').gte(options.start) if options.end?
     query.where('transaction.state', state) if options.state?
@@ -396,10 +362,10 @@ class FlipAds extends API
     instance.save callback
     return
     
-  @pending: (entityType, entityid, skip, limit, callback)->
+  @pending: (entityType, entityId, skip, limit, callback)->
     options = {
       entityType: entityType,
-      entityid: entityid, 
+      entityId: entityId, 
       skip: skip, 
       limit: limit
     }
@@ -409,10 +375,10 @@ class FlipAds extends API
     query.exec callback
     return
 
-  @active: (entityType, entityid, skip, limit, callback)->
+  @active: (entityType, entityId, skip, limit, callback)->
     options = {
       entityType: entityType,
-      entityid: entityid, 
+      entityId: entityId, 
       skip: skip, 
       limit: limit
     }
@@ -423,10 +389,10 @@ class FlipAds extends API
     query.exec callback
     return
     
-  @completed: (entityType, entityid, skip, limit, callback)->
+  @completed: (entityType, entityId, skip, limit, callback)->
     options = {
       entityType: entityType,
-      entityid: entityid, 
+      entityId: entityId, 
       skip: skip, 
       limit: limit
     }
@@ -434,6 +400,26 @@ class FlipAds extends API
     query.where('dates.end').lte(new Date())
     query.sort('dates.start', -1)
     query.exec callback
+    return
+
+
+class Medias extends API
+  @model = Media
+  
+  @optionParser = (options, q)->
+    query = @_optionParser(options, q)
+    
+    query.where('entity.type', options.entityType) if options.entityType?
+    query.where('entity.id', options.entityId) if options.entityId?  
+    query.where('type', options.type) if options.type?
+    query.in('tags', options.tags) if options.tags?
+    query.where('uploaddate').gte(options.start) if options.start?
+    query.where('uploaddate').lte(options.end) if options.end?
+    
+    return query
+
+  @getByBusiness = (entityId, callback)->
+    @get {'entity.type': choices.entities.BUSINESS, 'entity.id': entityId}, callback
     return
 
 

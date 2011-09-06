@@ -96,35 +96,6 @@ Goody.namedScope 'email', (email)->
 
 
 ####################
-# Media ############
-####################
-Media = new Schema {
-  businessid  : {type: ObjectId, required: true}
-  type        : {type: String, required: true, enum: choices.media.type._enum}
-  uploaddate  : {type: Date, required: true, default: new Date( (new Date()).toUTCString() )}
-  name        : {type: String, required: true}
-  url         : {type: Url, required: true}
-  duration    : {type: Number}
-  filesize    : {type: Number}
-  thumb       : {type: Url, required: true}
-  thumbs      : [] #only populated if video
-  sizes: { #only for images, not yet implemented in transloaded's template, or api
-    small     : {type: Url}
-    medium    : {type: Url}
-    large     : {type: Url}
-  }
-  tags        : []
-}
-
-#indexes
-Media.index {businessid:1, type: 1}
-Media.index {businessid:1, tags: 1} #use tags instead of folders
-Media.index {businessid:1, name:1} #for searching by name
-Media.index {businessid:1, uploaddate: 1} #for ordering by date
-Media.index {url:1} #for when we want to find out which client a url belongs to
-
-
-####################
 # Deal #############
 ####################
 Deal = new Schema {
@@ -200,9 +171,9 @@ Deal.namedScope 'range', (start, end)->
 
 
 ####################
-# User #############
+# CONSUMER #########
 ####################
-User = new Schema {
+Consumer = new Schema {
   email           : {type: String, index: true, unique: true, set: utils.toLower, validate: /^(([^<>()[\]\\.,;:\s@\"]+(\.[^<>()[\]\\.,;:\s@\"]+)*)|(\".+\"))@((\[[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\])|(([a-zA-Z\-0-9]+\.)+[a-zA-Z]{2,}))$/}
   password        : {type: String, validate:/.{5,}/}
   fb: {           
@@ -221,54 +192,52 @@ User = new Schema {
 }
 
 #compound indexes
-User.index {email:1, password:1}
+Consumer.index {email:1, password:1}
 
 #static functions
-User.static {
+Consumer.static {
   authenticate: (email, password, callback)->
-    this.findOne {email: email, password: password}, (err, user)->
+    this.findOne {email: email, password: password}, (err, consumer)->
       if(err)
-        return callback err, user
-      if user?
-        return callback err, user
+        return callback err, consumer
+      if consumer?
+        return callback err, consumer
       else
-        return callback "invalid username password"
+        return callback "invalid consumername password"
     return
     
   getByFBID: (uid, callback)->
-    this.findOne {'fb.uid': uid}, (err, user)->
-      return callback err, user
+    this.findOne {'fb.uid': uid}, (err, consumer)->
+      return callback err, consumer
     
   register: (fbid, email, password, callback)->
     if fbid == null or fbid == undefined
       callback 'No facebook id specified'
       return
-    this.findOne {"fb.uid": fbid}, (err, user)->
+    this.findOne {"fb.uid": fbid}, (err, consumer)->
       if(err)
-        return callback err, user
-      if user == null
+        return callback err, consumer
+      if consumer == null
         return callback "User not authenticated with facebook"
-      if user.email != undefined
+      if consumer.email != undefined
         return callback "User already registered"
       
-      #everything is ok, update user object and save
-      user.email = email
-      user.password = password
-      user.date = new Date()
-      user.save (err)->
-        callback err, user
+      #everything is ok, update consumer object and save
+      consumer.email = email
+      consumer.password = password
+      consumer.date = new Date()
+      consumer.save (err)->
+        callback err, consumer
     return
 }
-
-
 
 
 ####################
 # Client ###########
 ####################
 Client = new Schema {
-  firstname     : {type: String, required: true}
-  lastname      : {type: String, required: true}
+  firstName     : {type: String, required: true}
+  lastName      : {type: String, required: true}
   phone         : {type: String}
   email         : {type: String, index: true, unique: true, set: utils.toLower, validate: /^(([^<>()[\]\\.,;:\s@\"]+(\.[^<>()[\]\\.,;:\s@\"]+)*)|(\".+\"))@((\[[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\])|(([a-zA-Z\-0-9]+\.)+[a-zA-Z]{2,}))$/}
   password      : {type: String, validate:/.{5,}/, required: true}
@@ -278,10 +247,10 @@ Client = new Schema {
 }
 
 #indexes
-Client.index({email: 1, password: 1})
-Client.index({'permissions.businesses.admin': 1})
-Client.index({'permissions.businesses.manage': 1})
-Client.index({phone: 1})
+Client.index {email: 1, password: 1}
+Client.index {'permissions.businesses.admin': 1}
+Client.index {'permissions.businesses.manage': 1}
+Client.index {phone: 1}
 
 
 ####################
@@ -308,7 +277,7 @@ Location = new Schema {
 #STORE THIS ENTIRE DB IN MEMCACHE OR REDIS, SHOULD BE SMALL
 Business = new Schema {
   name          : {type: String, required: true}
-  publicname    : {type: String, required: true}
+  publicName    : {type: String, required: true}
   logo          : {type: Url} 
   locations     : [Location]
   users         : [ObjectId] #client ids
@@ -316,9 +285,90 @@ Business = new Schema {
 }
 
 #indexes
-Business.index({name: 1})
-Business.index({publicname: 1})
-Business.index({users: 1})
+Business.index {name: 1}
+Business.index {publicName: 1}
+Business.index {users: 1}
+
+
+####################
+# Poll #############
+####################
+
+Poll = new Schema {
+  name          : {type:String, required: true}
+  businessid    : {type: ObjectId, required: true}
+  type          : {type: String, require: true, enum: choices.polls.type._enum}
+  question      : {type: String, required: true}
+  choices       : []
+  image         : {type: Url}
+  businessName  : {type: String}
+  stats         : {type: Boolean, default: true, required: true} #whether to display the stats to the user or not
+  answered      : {type: Number, default: 0}
+  dates: {
+    created     : {type: Date, required: true, default: new Date( (new Date()).toUTCString() )}
+    start       : {type: Date, required: true, default: new Date( (new Date()).toUTCString() )}
+    end         : {type: Date}
+  }
+  funds: {
+    allocated   : {type: Number, required: true}
+    remaining   : {type: Number, required: true}
+  }
+}
+
+
+####################
+# Discussion #######
+####################
+Discussion = new Schema {
+  entity: { #We support various types of users creating discussions (currently businesses and consumers can create discussions)
+    type          : {type: String, required: true, enum: choices.entities._enum}
+    id            : {type: ObjectId, required: true}
+    name          : {type: String}
+  }
+  campaignName    : {type: String, required: true}
+  entityName      : {type: String}
+  question        : {type: String, required: true}
+  image           : {type: String}
+  responses       : {type: Number, required: true, default: 0} #count of the number of responses (not including sub comments)
+  bestResponses   : [] #a copy of the responses that were selected as the best response (without sub comments) #up to two
+  dates: {
+    created       : {type: Date, required: true, default: new Date( (new Date()).toUTCString() )}
+    start         : {type: Date, required: true, default: new Date( (new Date()).toUTCString() )}
+    end           : {type: Date, required: true, default: new Date( (new Date()).toUTCString() )}
+    
+    #end           : {type: Date, required: true, default: new Date( (new Date().addWeeks(3)).toUTCString() )} #three week later
+  }
+  funds: {
+    allocated     : {type: Number, required: true}
+    remaining     : {type: Number, required: true}
+  }
+  transaction: {
+    state         : {type: String, required: true, enum: choices.transactions.state._enum, default: choices.transactions.state.PENDING}
+    error         : {type: String} #only populated if there is an error in the transaction i.e. insufficient funds
+    created       : {type: Date, required: true, default: new Date( (new Date()).toUTCString() )}
+    lastModified  : {type: Date, required: true, default: new Date( (new Date()).toUTCString() )}
+  }
+}
+
+#index
+Discussion.index {'entity.type': 1, 'entity.id': 1, 'dates.start': 1, 'dates.end': 1} #for listing in the client interface, to show most recently created
+Discussion.index {'transaction.state': 1}
+
+
+####################
+# Response #########
+####################
+#Responses happen on the consumer end, so no need to worry about specing this out right now
+#Responses are in their own collection for two reasons: 
+#   They need to be pulled in a limit/skip fashion
+#   We want to section them off in groups of either 25/50/100. This way will result in less requests to the database
+Response = new Schema {
+  discussionId    : {type: ObjectId, required: true}
+  ###responses: [{
+    userid: ObjectId, required
+    response: String, required
+  }]###
+}
 
 
 ####################
@@ -357,95 +407,48 @@ FlipAd = new Schema {
     state         : {type: String, required: true, enum: choices.transactions.state._enum, default: choices.transactions.state.PENDING}
     error         : {type: String} #only populated if there is an error in the transaction i.e. insufficient funds
     created       : {type: Date, required: true, default: new Date( (new Date()).toUTCString() )}
-    lastmodified  : {type: Date, required: true, default: new Date( (new Date()).toUTCString() )}
+    lastModified  : {type: Date, required: true, default: new Date( (new Date()).toUTCString() )}
   }
 }
 
 #indexes
-FlipAd.index('businessid':1, 'dates.created':1) #for listing in the client interface, to show most recently created
-FlipAd.index('funds.remainging':1, 'dates.start':1, 'dates.end':1) #for showing the flips ads that are still viewable
+FlipAd.index {'entity.type': 1, 'entity.id': 1, 'dates.start': 1, 'dates.end': 1} #for listing in the client interface, to show most recently created
+FlipAd.index {'funds.remainging':1, 'dates.start':1, 'dates.end':1} #for showing the flips ads that are still viewable
 
 
 ####################
-# Poll #############
+# Media ############
 ####################
-
-Poll = new Schema {
-  name          : {type:String, required: true}
-  businessid    : {type: ObjectId, required: true}
-  type          : {type: String, require: true, enum: choices.polls.type._enum}
-  question      : {type: String, required: true}
-  choices       : []
-  image         : {type: Url}
-  businessName  : {type: String}
-  stats         : {type: Boolean, default: true, required: true} #whether to display the stats to the user or not
-  answered      : {type: Number, default: 0}
+Media = new Schema {
+  entity: { #We support different types of users creating and uploading content 
+    type      : {type: String, required: true, enum: choices.entities._enum}
+    id        : {type: ObjectId, required: true}
+    name      : {type: String}
+  }
+  type        : {type: String, required: true, enum: choices.media.type._enum}
+  name        : {type: String, required: true}
+  url         : {type: Url, required: true}
+  duration    : {type: Number}
+  fileSize    : {type: Number}
+  thumb       : {type: Url, required: true}
+  thumbs      : [] #only populated if video
+  sizes: { #only for images, not yet implemented in transloaded's template, or api
+    small     : {type: Url}
+    medium    : {type: Url}
+    large     : {type: Url}
+  }
+  tags        : []
   dates: {
-    created     : {type: Date, required: true, default: new Date( (new Date()).toUTCString() )}
-    start       : {type: Date, required: true, default: new Date( (new Date()).toUTCString() )}
-    end         : {type: Date}
-  }
-  funds: {
-    allocated   : {type: Number, required: true}
-    remaining   : {type: Number, required: true}
-  }
-
-}
-
-
-####################
-# Discussion #######
-####################
-Discussion = new Schema {
-  entity: { #We support various types of users creating discussions (currently businesses and consumers can create discussions)
-    type          : {type: String, required: true, enum: choices.entities._enum}
-    id            : {type: ObjectId, required: true}
-    name          : {type: String}
-  }
-  campaignName    : {type: String, required: true}
-  entityName      : {type: String}
-  question        : {type: String, required: true}
-  image           : {type: String}
-  responses       : {type: Number, required: true, default: 0} #count of the number of responses (not including sub comments)
-  bestresponses   : [] #a copy of the responses that were selected as the best response (without sub comments) #up to two
-  dates: {
-    created       : {type: Date, required: true, default: new Date( (new Date()).toUTCString() )}
-    start         : {type: Date, required: true, default: new Date( (new Date()).toUTCString() )}
-    end           : {type: Date, required: true, default: new Date( (new Date()).toUTCString() )}
-    
-    #end           : {type: Date, required: true, default: new Date( (new Date().addWeeks(3)).toUTCString() )} #three week later
-  }
-  funds: {
-    allocated     : {type: Number, required: true}
-    remaining     : {type: Number, required: true}
-  }
-  transaction: {
-    state         : {type: String, required: true, enum: choices.transactions.state._enum, default: choices.transactions.state.PENDING}
-    error         : {type: String} #only populated if there is an error in the transaction i.e. insufficient funds
-    created       : {type: Date, required: true, default: new Date( (new Date()).toUTCString() )}
-    lastmodified  : {type: Date, required: true, default: new Date( (new Date()).toUTCString() )}
+    created   : {type: Date, required: true, default: new Date( (new Date()).toUTCString() )}
   }
 }
 
-#index
-Discussion.index('businessid': 1, 'dates.start': 1, 'dates.end': 1)
-Discussion.index('transaction.state': 1)
-
-
-####################
-# Response #########
-####################
-#Responses happen on the consumer end, so no need to worry about specing this out right now
-#Responses are in their own collection for two reasons: 
-#   They need to be pulled in a limit/skip fashion
-#   We want to section them off in groups of either 25/50/100. This way will result in less requests to the database
-Response = new Schema {
-  discussionid    : {type: ObjectId, required: true}
-  ###responses: [{
-    userid: ObjectId, required
-    response: String, required
-  }]###
-}
+#indexes
+Media.index {'entity.type': 1, 'entity.id': 1, type: 1} #for listing in the client interface, to show most recently created
+Media.index {'entity.type': 1, 'entity.id': 1, tags: 1} #for searching by tags
+Media.index {'entity.type': 1, 'entity.id': 1, name: 1} #for searching by name
+Media.index {'entity.type': 1, 'entity.id': 1, 'dates.created': 1} #for searching by name
+Media.index {url:1} #for when we want to find out which entity a url belongs to
 
 
 ####################
@@ -466,7 +469,7 @@ Stream = new Schema {
 Stream.index('entity': 1, 'id': 1, 'datetime': 1, 'type':1)
 Stream.index('datetime': 1)
 
-exports.User        = mongoose.model 'User', User
+exports.Consumer    = mongoose.model 'Consumer', Consumer
 exports.Client      = mongoose.model 'Client', Client
 exports.Business    = mongoose.model 'Business', Business
 exports.Goody       = mongoose.model 'Goody', Goody
@@ -477,7 +480,7 @@ exports.Poll        = mongoose.model 'Poll', Poll
 exports.Discussion  = mongoose.model 'Discussion', Discussion
 
 exports.schemas = {
-  User: User
+  Consumer: Consumer
   Client: Client
   Business: Business
   Goody: Goody
