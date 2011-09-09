@@ -145,7 +145,7 @@ class Businesses extends API
     query = @_optionParser(options, q)
     
     if options.clientid?
-      query.in('users', options.clientid)
+      query.in('users', options.clientId)
 
     return query
     
@@ -157,14 +157,14 @@ class Businesses extends API
         instance.markModified('locations')
 
     #add user to the list of users for this business and add the admin role
-    instance['users'] = [clientid] #only one user now
+    instance['users'] = [clientId] #only one user now
     instance['permissions'] = {}
-    instance['permissions'][clientid] = [choices.roles.business.ADMIN]
+    instance['permissions'][clientId] = [choices.roles.business.ADMIN]
 
     instance.save callback 
     return
 
-  @addPermissions: (clientid, id, perms, callback)->
+  @addPermissions: (clientId, id, perms, callback)->
     #clientid is the user wanting to remove this permission
     #make sure user has permissions to add permission (where should this happen)
 
@@ -181,7 +181,7 @@ class Businesses extends API
     @model.collection.update  {id: id}, {$addToSet: obj}, callback
     return
 
-  @removePermission: (clientid, id, perms, callback)->
+  @removePermission: (clientId, id, perms, callback)->
     #clientid is the user wanting to remove this permission
     #make sure user has permissions to remove permissions permission (where should this happen)
 
@@ -418,8 +418,12 @@ class Medias extends API
     
     return query
 
-  @getByBusiness = (entityId, callback)->
-    @get {'entity.type': choices.entities.BUSINESS, 'entity.id': entityId}, callback
+  @getByBusiness = (entityId, type, callback)->
+    if typeof(type)=="function"
+      callback = type
+      @get {'entity.type': choices.entities.BUSINESS, 'entity.id': entityId}, callback
+    else
+      @get {'entity.type': choices.entities.BUSINESS, 'entity.id': entityId, type: type}, callback
     return
 
 
