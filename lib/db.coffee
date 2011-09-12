@@ -384,15 +384,16 @@ FlipAd = new Schema {
   title           : {type: String, required: true}
   description     : {type: String}
   type            : {type: String, required: true, enum: choices.media.type._enum}
-  url             : {type: Url, required: true} #video or image
-  thumb           : {type: Url}
+  media: {
+    url           : {type: Url, required: true} #video or image
+    thumb         : {type: Url}
+    guid          : {type: String}
+    duration      : {type: Number} #useful for videos, in number of seconds (e.g. 48.42)
+  }
   dates: {
     created       : {type: Date, required: true, default: new Date( (new Date()).toUTCString() )}
     start         : {type: Date, required: true}
     end           : {type: Date}
-  }
-  metaData: {
-    duration      : {type: Number} #useful for videos, in number of seconds (e.g. 48.42)
   }
   views: {
     unique        : {type: Number, required: true, default: 0} #this gets incremented only if it was the first time
@@ -413,7 +414,9 @@ FlipAd = new Schema {
 
 #indexes
 FlipAd.index {'entity.type': 1, 'entity.id': 1, 'dates.start': 1, 'dates.end': 1} #for listing in the client interface, to show most recently created
-FlipAd.index {'funds.remainging':1, 'dates.start':1, 'dates.end':1} #for showing the flips ads that are still viewable
+FlipAd.index {'funds.remainging': 1, 'dates.start': 1, 'dates.end': 1} #for showing the flips ads that are still viewable
+FlipAd.index {'entity.type': 1, 'entity.id': 1, 'media.url': 1} #to look up by url
+FlipAd.index {'entity.type': 1, 'entity.id': 1, 'media.guid': 1} #to look up by guid
 
 
 ####################

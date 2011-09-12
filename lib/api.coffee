@@ -144,7 +144,7 @@ class Businesses extends API
   @optionParser = (options, q)->
     query = @_optionParser(options, q)
     
-    if options.clientid?
+    if options.clientId?
       query.in('users', options.clientId)
 
     return query
@@ -401,6 +401,10 @@ class FlipAds extends API
     query.sort('dates.start', -1)
     query.exec callback
     return
+  
+  @updateUrlByGuid: (entityType, entityId, guid, url, thumb, callback)->
+    @model.collection.update  {'entity.type': entityType, 'entity.id': entityId, 'media.guid': guid}, {$set:{'media.url': url, 'media.thumb': thumb}}, callback
+    return
 
 
 class Medias extends API
@@ -412,19 +416,27 @@ class Medias extends API
     query.where('entity.type', options.entityType) if options.entityType?
     query.where('entity.id', options.entityId) if options.entityId?  
     query.where('type', options.type) if options.type?
+    query.where('guid', options.guid) if options.guid?
     query.in('tags', options.tags) if options.tags?
     query.where('uploaddate').gte(options.start) if options.start?
     query.where('uploaddate').lte(options.end) if options.end?
     
     return query
 
+  #type is either image or video
   @getByBusiness = (entityId, type, callback)->
     if typeof(type)=="function"
       callback = type
-      @get {'entity.type': choices.entities.BUSINESS, 'entity.id': entityId}, callback
+      @get {entityType: choices.entities.BUSINESS, entityId: entityId}, callback
+      #@get {'entity.type': choices.entities.BUSINESS, 'entity.id': entityId}, callback
     else
-      @get {'entity.type': choices.entities.BUSINESS, 'entity.id': entityId, type: type}, callback
+      @get {entityType: choices.entities.BUSINESS, entityId: entityId, type: type}, callback
+      #@get {'entity.type': choices.entities.BUSINESS, 'entity.id': entityId, type: type}, callback
     return
+  
+  @getByGuid = (entityType, entityId, guid, callback)->
+    @get {entityType: entityType, entityId: entityId, guid: guid}, callback
+    #@get {'entity.type': entityType, 'entity.id': entityId, 'media.guid': guid}, callback
 
 
 exports.Clients = Clients
