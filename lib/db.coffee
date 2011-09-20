@@ -96,9 +96,9 @@ Goody.namedScope 'email', (email)->
 
 
 ####################
-# Deal #############
+# DailyDeal ########
 ####################
-Deal = new Schema {
+DailyDeal = new Schema {
   did             : {type: String, required: true, unique: true}
   provider        : {type: String, required: true}
   title           : {type: String, required: true}
@@ -144,25 +144,25 @@ Deal = new Schema {
 #indexes
 #all together, so we can do real-time queries ocross all these values (instead of map/reducing on ones which are not indexed)
 #more expensive, but this index isn't really modified that often, so no real worry at the moment
-Deal.index {did:1}
-Deal.index {city:1}
-Deal.index {provider:1, city:1, state: 1, 'dates.start': 1, 'dates.end': 1, 'cost.actual': 1, 'cost.discounted': 1, created: 1}
-Deal.index {like: 1}
-Deal.index {dislike: 1}
-#Deal.index {provider:1, city:1, state: 1}
-#Deal.index {created: 1}
+DailyDeal.index {did:1}
+DailyDeal.index {city:1}
+DailyDeal.index {provider:1, city:1, state: 1, 'dates.start': 1, 'dates.end': 1, 'cost.actual': 1, 'cost.discounted': 1, created: 1}
+DailyDeal.index {like: 1}
+DailyDeal.index {dislike: 1}
+#DailyDeal.index {provider:1, city:1, state: 1}
+#DailyDeal.index {created: 1}
 
 #named scopes
-Deal.namedScope('available').where('dates.end').gt(new Date( (new Date()).toUTCString() ))
+DailyDeal.namedScope('available').where('dates.end').gt(new Date( (new Date()).toUTCString() ))
 
 #dynamic named scopes
-Deal.namedScope 'city', (city)->
+DailyDeal.namedScope 'city', (city)->
   return this.where('city', city)
 
-Deal.namedScope 'deal', (id)->
+DailyDeal.namedScope 'deal', (id)->
   return this.where('_id', id)
 
-Deal.namedScope 'range', (start, end)->
+DailyDeal.namedScope 'range', (start, end)->
   if start?
     this.where('dates.start').gte(start)
   if end?
@@ -420,6 +420,48 @@ FlipAd.index {'entity.type': 1, 'entity.id': 1, 'media.guid': 1} #to look up by 
 
 
 ####################
+# Deal #############
+####################
+Deal = new Schema {
+  entity: { #We support different types of users creating and uploading content 
+    type          : {type: String, required: true, enum: choices.entities._enum}
+    id            : {type: ObjectId, required: true}
+    name          : {type: String}
+  }
+  
+  type            : {type: String, required: true, enum: choices.deals.type._enum}
+  campaignName    : {type: String, required: true}
+
+  item            : {type: String} #product or service
+  item2           : {type: String} #the second product or service
+  discount        : {type: Number} #dollar or percentage depending on deal type
+  value           : {type: Number, required: true} #estimated value / estimated retail value / minimum purchase amount
+  price           : {type: Number, required: true} #sale price
+
+  title           : {type: String, required: true}
+  subtitle        : {type: String}
+  locations       : [String]
+  terms           : {type: String}
+  restrictions    : {type: String}
+  purchaseLimit   : {type: Number, required: true, default: -1} #max per consumer, -1 is infinite
+  availabile      : {type: Number, required: true, default: -1} #if infinite -1?
+  code            : {type: String}
+  media: {
+    url           : {type: Url, required: true} #video or image
+    thumb         : {type: Url}
+    guid          : {type: String}
+  }
+  dates: {
+    created     : {type: Date, required: true, default: new Date( (new Date()).toUTCString() )}
+    start       : {type: Date, required: true, default: new Date( (new Date()).toUTCString() )}
+    end         : {type: Date, required: true, default: new Date( (new Date()).toUTCString() )}
+    expiration  : {type: Date, required: true, default: new Date( (new Date()).toUTCString() )}
+  }
+  
+}
+
+
+####################
 # Media ############
 ####################
 Media = new Schema {
@@ -476,20 +518,22 @@ exports.Consumer    = mongoose.model 'Consumer', Consumer
 exports.Client      = mongoose.model 'Client', Client
 exports.Business    = mongoose.model 'Business', Business
 exports.Goody       = mongoose.model 'Goody', Goody
-exports.Deal        = mongoose.model 'Deal', Deal
+exports.DailyDeal   = mongoose.model 'DailyDeal', DailyDeal
 exports.Media       = mongoose.model 'Media', Media
 exports.FlipAd      = mongoose.model 'FlipAd', FlipAd
 exports.Poll        = mongoose.model 'Poll', Poll
 exports.Discussion  = mongoose.model 'Discussion', Discussion
+exports.Deal        = mongoose.model 'Deal', Deal
 
 exports.schemas = {
+  Goody: Goody
+  DailyDeal: DailyDeal
   Consumer: Consumer
   Client: Client
   Business: Business
-  Goody: Goody
-  Deal: Deal
-  Media: Media
-  FlipAd: FlipAd
   Poll: Poll
   Discussion: Discussion
+  FlipAd: FlipAd
+  Deal: Deal
+  Media: Media
 }

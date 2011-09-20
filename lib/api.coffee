@@ -8,6 +8,7 @@ choices = globals.choices
 defaults = globals.defaults
 
 Goody = db.Goody
+DailyDeal = db.DailyDeal
 Client = db.Client
 Business = db.Business
 Deal = db.Deal
@@ -149,7 +150,7 @@ class Businesses extends API
 
     return query
     
-  @add = (clientid, data, callback)->
+  @add = (clientId, data, callback)->
     instance = new @model()
     for own k,v of data
       instance[k] = v
@@ -199,8 +200,8 @@ class Businesses extends API
   ###
 
 
-class Deals extends API
-  @model = Deal
+class DailyDeals extends API
+  @model = DailyDeal
   
   #currently only supports groupon, more abstraction needed to support more deals
   @add: (data, callback)->
@@ -407,6 +408,122 @@ class FlipAds extends API
     return
 
 
+class Deals extends API
+  @model = Deal
+
+  @optionParser = (options, q)->
+    query = @_optionParser(options, q)
+
+    query.where('entity.type', options.entityType) if options.entityType?
+    query.where('entity.id', options.entityId) if options.entityId?
+    query.where('dates.start').gte(options.start) if options.start?
+    query.where('dates.end').gte(options.start) if options.end?
+    query.where('transaction.state', state) if options.state?
+    
+    return query
+
+  @add = (data, callback)->
+    switch data.type
+      when choices.deals.type.VOUCHER
+        if utils.isBlank(data.item)
+          callback {name: "ValidationError", message: "Invalid value for field: item"}, null
+          return
+      
+      when choices.deals.type.BXGXF
+        if utils.isBlank(data.item)
+          callback {name: "ValidationError", message: "Invalid value for field: item"}, null
+          return
+        if utils.isBlank(data.item2)
+          callback {name: "ValidationError", message: "Invalid value for field: item2"}, null
+          return
+          
+      when choices.deals.type.PERCENT_ALL
+        if utils.isBlank(data.discount) || parseInt(data.discount) > 100
+          callback {name: "ValidationError", message: "Invalid value for field: discount"}, null
+          return
+      
+      when choices.deals.type.PERCENT_MIN
+        if utils.isBlank(data.discount) || parseInt(data.discount) > 100
+          callback {name: "ValidationError", message: "Invalid value for field: discount"}, null
+          return
+      
+      when choices.deals.type.PERCENT_ITEM
+        if utils.isBlank(data.item)
+          callback {name: "ValidationError", message: "Invalid value for field: item"}, null
+          return
+        if utils.isBlank(data.discount) || parseInt(data.discount) > 100
+          callback {name: "ValidationError", message: "Invalid value for field: discount"}, null
+          return
+        
+      when choices.deals.type.DOLLAR_ALL
+        if utils.isBlank(data.discount) || parseFloat(data.discount) > parseFloat(data.value)
+          callback {name: "ValidationError", message: "Invalid value for field: discount"}, null
+          return
+      
+      when choices.deals.type.DOLLAR_MIN
+        if utils.isBlank(data.discount) || parseFloat(data.discount) > parseFloat(data.value)
+          callback {name: "ValidationError", message: "Invalid value for field: discount"}, null
+          return
+      
+      when choices.deals.type.DOLLAR_ITEM
+        if utils.isBlank(data.item)
+          callback {name: "ValidationError", message: "Invalid value for field: item"}, null
+          return
+        if utils.isBlank(data.discount) || parseFloat(data.discount) > parseFloat(data.value)
+          callback {name: "ValidationError", message: "Invalid value for field: discount"}, null
+          return
+
+    instance = new @model(data)
+    
+    #load default transaction stuff (maybe create a separate function to do transaction setup)
+    #instance.transaction.state = choices.transactions.state.PENDING #This is the default setting
+    instance.save callback
+    return
+  
+  @pending: (entityType, entityId, skip, limit, callback)->
+    options = {
+      entityType: entityType,
+      entityId: entityId, 
+      skip: skip, 
+      limit: limit
+    }
+    query = @optionParser(options)
+    query.where('dates.start').gt(new Date())
+    query.sort('dates.start', -1)
+    query.exec callback
+    return
+
+  @active: (entityType, entityId, skip, limit, callback)->
+    options = {
+      entityType: entityType,
+      entityId: entityId, 
+      skip: skip, 
+      limit: limit
+    }
+    query = @optionParser(options)
+    query.where('dates.start').lte(new Date())
+    query.where('dates.end').gt(new Date())
+    query.sort('dates.start', -1)
+    query.exec callback
+    return
+    
+  @completed: (entityType, entityId, skip, limit, callback)->
+    options = {
+      entityType: entityType,
+      entityId: entityId, 
+      skip: skip, 
+      limit: limit
+    }
+    query = @optionParser(options)
+    query.where('dates.end').lte(new Date())
+    query.sort('dates.start', -1)
+    query.exec callback
+    return
+
+  @updateMediaUrlByGuid: (entityType, entityId, guid, url, thumb, callback)->
+    @model.collection.update  {'entity.type': entityType, 'entity.id': entityId, 'media.guid': guid}, {$set:{'media.url': url, 'media.thumb': thumb}}, callback
+    return
+
 class Medias extends API
   @model = Media
   
@@ -414,7 +531,7 @@ class Medias extends API
     query = @_optionParser(options, q)
     
     query.where('entity.type', options.entityType) if options.entityType?
-    query.where('entity.id', options.entityId) if options.entityId?  
+    query.where('entity.id', options.entityId) if options.entityId?
     query.where('type', options.type) if options.type?
     query.where('guid', options.guid) if options.guid?
     query.in('tags', options.tags) if options.tags?
@@ -441,8 +558,9 @@ class Medias extends API
 
 exports.Clients = Clients
 exports.Businesses = Businesses
-exports.Deals = Deals
 exports.Medias = Medias
 exports.FlipAds = FlipAds
 exports.Polls = Polls
 exports.Discussions = Discussions
+exports.Deals = Deals
+exports.DailyDeals = DailyDeals
