@@ -13,15 +13,11 @@
     "node": "~v0.4.8"
   },
   "dependencies": {
+    "async": "=0.1.9",
+    "groupon": "=0.0.4",
     "mongoose": "=1.8.0",
-    "mongoose-types": "",
-    "vows": "",
-    "groupon": ">=0.0.3"
-  },
-  "devDependencies": {
-    "mongoose": "=1.8.0",
-    "mongoose-types": "",
-    "vows": "",
-    "groupon": ">=0.0.3"
+    "mongoose-types": "=1.0.3",
+    "poolr": "=0.0.4",
+    "sugar": "=0.9.5"
   }
 }
