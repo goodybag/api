@@ -37,65 +37,6 @@ exports.disconnect = (callback)->
 
 
 ####################
-# Goody ############
-####################
-Goody = new Schema {
-  email             : {type: String, index:true, required:true}
-  id                : {type: String, index:true, required:true}
-  title             : {type: String, required: true}
-  desc              : {type: String}
-  image             : {type: String}
-  url               : {type: Url}
-  share: {
-    facebook: {
-      allowed       : {type: Boolean, default:false}
-      url           : {type: Url}
-    }
-    twitter: {
-      allowed       : {type: Boolean, default:false}
-      url           : {type: Url}
-    }
-  }
-  
-  company           : {type: String, index:true}
-  category          : {type: Array, index: true}
-  type              : {type: String, enum: ['freebie', 'discount', 'printable'], index: true}
-  state             : {type: String, enum: ['received', 'activated', 'credited'], default: 'received', index: true}
-  dates: {
-    received        : {type: Date, index: true}
-    activated       : {type: Date, index: true}
-    credited        : {type: Date, index: true}
-    expiration      : {type: Date, index: true}
-  }
-}
-
-#compound indexes
-Goody.index {email:1, id:1}
-Goody.index {email:1, company:1}
-Goody.index {email:1, category:1}
-Goody.index {email:1, type:1}
-#Goody.index {email:1, state:1} #already accounted for below
-Goody.index {email:1, 'dates.received':1}
-Goody.index {email:1, 'dates.activated':1}
-Goody.index {email:1, 'dates.credited':1}
-Goody.index {email:1, 'dates.expiration':1}
-Goody.index {email:1, state:1, 'dates.expiration': 1}
-
-#named scopes
-Goody.namedScope('inbox').where('state', 'received').where('dates.expiration').lt(new Date())
-Goody.namedScope('activated').where('state', 'activated').where('dates.expiration').lte(new Date())
-Goody.namedScope('credited').where('state', 'credited')
-Goody.namedScope('expired').where('state').ne('credited').where('dates.expiration').lte(new Date())
-
-#dynamic named scopes
-Goody.namedScope 'email', (email)->
-  return this.where('email', email)
-# 
-# Goody.namedScope 'limit', (size)->
-#   this.limit size
-
-
-####################
 # DailyDeal ########
 ####################
 DailyDeal = new Schema {
@@ -242,14 +183,10 @@ Client = new Schema {
   email         : {type: String, index: true, unique: true, set: utils.toLower, validate: /^(([^<>()[\]\\.,;:\s@\"]+(\.[^<>()[\]\\.,;:\s@\"]+)*)|(\".+\"))@((\[[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\])|(([a-zA-Z\-0-9]+\.)+[a-zA-Z]{2,}))$/}
   password      : {type: String, validate:/.{5,}/, required: true}
   created       : {type: Date, default: new Date( (new Date()).toUTCString() ), index: true}
-  #permissions   : {} #consider putting this into it's own collection and then cache this entire thing in memory, otherwise cache each logged in user in memory and have this available
-  #We are moving permissions(roles) into each object so that it is faster for querying and inserting purposes (double the speed because we now only have to do something to a single collection instead of two collections, right now the benefits outway separating it out into its own collection or even keeping it in the user collection)
 }
 
 #indexes
 Client.index {email: 1, password: 1}
-Client.index {'permissions.businesses.admin': 1}
-Client.index {'permissions.businesses.manage': 1}
 Client.index {phone: 1}
 
 
@@ -278,10 +215,30 @@ Location = new Schema {
 Business = new Schema {
   name          : {type: String, required: true}
   publicName    : {type: String, required: true}
-  logo          : {type: Url} 
+  media: {
+    url         : {type: Url, required: true, default: "http://www.campusdish.com/NR/rdonlyres/1E7DF990-91DC-4101-99CD-96A23A2E5E7E/0/Subwaycontour.gif"} #image
+    thumb       : {type: Url}
+    guid        : {type: String}
+    duration    : {type: Number} #useful for videos, in number of seconds (e.g. 48.42)
+  }
+
   locations     : [Location]
-  users         : [ObjectId] #client ids
-  permissions   : {}
+  
+  clients       : [ObjectId] #clientIds
+  clientGroups  : {} #{clientId: group}
+  groups: {
+    #default groups for a business, others can be created
+    owners      : [ObjectId] #clientIds
+    managers    : [ObjectId] #clientIds
+  }
+  permissions: { #permissions for groups
+  #nothing needs to be done for now, but in the future permissions for groups will be taken care of here.
+  #we take care of logic and permissions for owners and manager
+  #owners and managers can't change, the permissions can't change either, therefore no need to specify anything for them now
+    #default groups for a business
+    #owners      : [String]
+    #managers    : [String]
+  }
 }
 
 #indexes
@@ -293,9 +250,8 @@ Business.index {users: 1}
 ####################
 # Poll #############
 ####################
-
 Poll = new Schema {
-  name          : {type:String, required: true}
+  name          : {type: String, required: true}
   businessid    : {type: ObjectId, required: true}
   type          : {type: String, require: true, enum: choices.polls.type._enum}
   question      : {type: String, required: true}
@@ -506,7 +462,7 @@ Stream = new Schema {
   }
   type         : {type: String, required: true, enum: ['']}
   action       : {type: String, required: true, enum: ['']}
-  datetime     : {type: Date, default: Date.now}
+  dateTime     : {type: Date, default: Date.now}
   data         : {}
 }
 
@@ -517,7 +473,6 @@ Stream.index('datetime': 1)
 exports.Consumer    = mongoose.model 'Consumer', Consumer
 exports.Client      = mongoose.model 'Client', Client
 exports.Business    = mongoose.model 'Business', Business
-exports.Goody       = mongoose.model 'Goody', Goody
 exports.DailyDeal   = mongoose.model 'DailyDeal', DailyDeal
 exports.Media       = mongoose.model 'Media', Media
 exports.FlipAd      = mongoose.model 'FlipAd', FlipAd
@@ -526,7 +481,6 @@ exports.Discussion  = mongoose.model 'Discussion', Discussion
 exports.Deal        = mongoose.model 'Deal', Deal
 
 exports.schemas = {
-  Goody: Goody
   DailyDeal: DailyDeal
   Consumer: Consumer
   Client: Client

@@ -2,12 +2,12 @@ exports = module.exports
 
 db = require './db'
 globals = require 'globals'
+ObjectId = require('mongoose').Types.ObjectId;
 
 utils = globals.utils
 choices = globals.choices
 defaults = globals.defaults
 
-Goody = db.Goody
 DailyDeal = db.DailyDeal
 Client = db.Client
 Business = db.Business
@@ -16,35 +16,6 @@ Media = db.Media
 FlipAd = db.FlipAd
 Poll = db.Poll
 Discussion = db.Discussion
-
-
-exports.getGoodies = (email, type, limit, skip, callback)->
-  #valid types include: inbox, activated, credited, expired
-  query = null
-  switch type
-    when 'inbox'
-      query = Goody.inbox.email(email)
-    when 'activated'
-      query = Goody.activated.email(email)
-    when 'credited'
-      query = Goody.credited.email(email)
-    when 'expired'
-      query = Goody.expired.email(email)
-    else
-      return callback 'invalidType: '+type
-
-  if limit?
-    query.limit(limit)
-  else
-    query.limit(10)
-  
-  if skip?
-    query.skip(skip)
-    
-  query.find (err, data)->
-    callback err, data
-  return
-
 
 #TODO:
 #Make sure that all necessary fields exist for each function before sending the query to the db
@@ -145,9 +116,8 @@ class Businesses extends API
   @optionParser = (options, q)->
     query = @_optionParser(options, q)
     
-    if options.clientId?
-      query.in('users', options.clientId)
-
+    query.in('clients', options.clientId) if options.clientId?
+      
     return query
     
   @add = (clientId, data, callback)->
@@ -157,49 +127,72 @@ class Businesses extends API
     if data['locations']? and data['locations'] != []
         instance.markModified('locations')
 
-    #add user to the list of users for this business and add the admin role
-    instance['users'] = [clientId] #only one user now
-    instance['permissions'] = {}
-    instance['permissions'][clientId] = [choices.roles.business.ADMIN]
+    #add user to the list of users for this business and add them to the group of owners
+    console.log instance
+    instance['clients'] = [clientId] #only one user now
+    instance['clientGroups'] = {}
+    instance['clientGroups'][clientId] = choices.businesses.groups.OWNERS
+    instance['groups'][choices.businesses.groups.OWNERS] = [clientId]
 
     instance.save callback 
     return
 
-  @addPermissions: (clientId, id, perms, callback)->
-    #clientid is the user wanting to remove this permission
-    #make sure user has permissions to add permission (where should this happen)
+  @addClient: (id, clientId, group, callback)->
+    if !(group in choices.businesses.groups._enum)
+      callback {name: "ValidationError", message: "Invalid Group"}, null
+      return
+      
+    updateDoc = {}
+    updateDoc['$addToSet'] = {}
+    updateDoc['$addToSet']['clients'] = clientId
+    updateDoc['$addToSet']['groups.'+group] = clientIdId
+    updateDoc['clientGroups.'+clientId] = group
 
-    #perms: {clientid: [roles]}
-    #e.g. perms: {'4ab21ad39ae20001': ['admin']}
-    for own user, rls in perms
-      obj = {}
-      for role in rls
-        #make sure all the roles exist otherwise die!
-        if !roles.business.hasOwnProperty(role)
-          callback(new Error('role: ' + role + ' is not a valid role. clientid: '+ user))
-          return
-      obj[user] = {$each: roles}
-    @model.collection.update  {id: id}, {$addToSet: obj}, callback
+    @model.collection.update {_id: new ObjectId(id)}, updateDoc, {safe: true}, callback
     return
 
-  @removePermission: (clientId, id, perms, callback)->
-    #clientid is the user wanting to remove this permission
-    #make sure user has permissions to remove permissions permission (where should this happen)
+  @addManager: (id, clientId, callback)->
+    @addClient(id, clientId, choices.businesses.groups.MANAGERS, callback)
+    return
 
-    #perms: {clientid: [roles]}
-    #e.g. perms: {'4ab21ad39ae20001': ['admin']}
-    for own user, rls in perms
-      obj = {}
-      obj[user] = rls
-    @model.collection.update  {id: id}, {$pullAll:obj}, callback 
+  @addOwner: (id, clientId, callback)->
+    @addClient(id, clientId, choices.businesses.groups.OWNERS, callback)
+    return
+  
+  @delClients: (id, clientIds, callback)->
+    @one id, (error, business)->
+      if error?
+        callback(error, null)
+        return
+      else
+        updateDoc = {}
+        updateDoc['$pull'] = {}
+        updateDoc['$pull']['clients'] = clientIds
+        updateDocs['$unset'] = {}
+        for clientId in clientIds
+          group = business.clientGroups[clientId] #the group the client is in
+          updateDocs['$pull']['groups.'+group] = clientId
+          updateDocs['$unset']['clientGroups.'+clientId] = 1
+        @model.collection.update {id: id}, updateDoc, callback
+  
+  @updateIdentity: (id, data, callback)->
+    set = {}
+    for own k,v of data
+      if !utils.isBlank(v)
+        set[k] = v
+    @model.collection.update {_id: new ObjectId(id)}, {$set: set}, {safe: true}, callback
 
-  ###
-  #this should probably be here, for now it's in the media class
-  @getMedias(businessid, callback)->
-    Medias.get {'businessid': businessid}, callback
-  ###
-
-
+  @updateLocation: (id, locationId, data, callback)->
+    if locationId? #update an existing location
+      data._id = new ObjectId(locationId)
+      #@model.update {_id: new ObjectId(id), 'locations._id': new ObjectId(locationId)}, data, (error, business)-> #safe=true is the default here I believe
+      @model.collection.update {_id: new ObjectId(id), 'locations._id': new ObjectId(locationId)}, {$set: {"locations.$": data}}, {safe: true}, callback
+    else #add a new location
+      data._id = new ObjectId()
+      @model.collection.update {_id: new ObjectId(id)}, {$push: {"locations": data}}, {safe: true}, (error, count)->
+        callback(error, count, data._id)
+      
+  
 class DailyDeals extends API
   @model = DailyDeal
   
@@ -404,7 +397,7 @@ class FlipAds extends API
     return
   
   @updateUrlByGuid: (entityType, entityId, guid, url, thumb, callback)->
-    @model.collection.update  {'entity.type': entityType, 'entity.id': entityId, 'media.guid': guid}, {$set:{'media.url': url, 'media.thumb': thumb}}, callback
+    @model.collection.update  {'entity.type': entityType, 'entity.id': entityId, 'media.guid': guid}, {$set:{'media.url': url, 'media.thumb': thumb}}, {safe: true}, callback
     return
 
 
@@ -521,7 +514,7 @@ class Deals extends API
     return
 
   @updateMediaUrlByGuid: (entityType, entityId, guid, url, thumb, callback)->
-    @model.collection.update  {'entity.type': entityType, 'entity.id': entityId, 'media.guid': guid}, {$set:{'media.url': url, 'media.thumb': thumb}}, callback
+    @model.collection.update  {'entity.type': entityType, 'entity.id': entityId, 'media.guid': guid}, {$set:{'media.url': url, 'media.thumb': thumb}}, {safe: true}, callback
     return
 
 class Medias extends API
