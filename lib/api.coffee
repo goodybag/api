@@ -182,15 +182,25 @@ class Businesses extends API
         set[k] = v
     @model.collection.update {_id: new ObjectId(id)}, {$set: set}, {safe: true}, callback
 
+  @addLocation: (id, data, callback)->
+    data._id = new ObjectId()
+    @model.collection.update {_id: new ObjectId(id)}, {$push: {"locations": data}}, {safe: true}, (error, count)->
+      callback(error, count, data._id)
+
   @updateLocation: (id, locationId, data, callback)->
-    if locationId? #update an existing location
-      data._id = new ObjectId(locationId)
-      #@model.update {_id: new ObjectId(id), 'locations._id': new ObjectId(locationId)}, data, (error, business)-> #safe=true is the default here I believe
-      @model.collection.update {_id: new ObjectId(id), 'locations._id': new ObjectId(locationId)}, {$set: {"locations.$": data}}, {safe: true}, callback
-    else #add a new location
-      data._id = new ObjectId()
-      @model.collection.update {_id: new ObjectId(id)}, {$push: {"locations": data}}, {safe: true}, (error, count)->
-        callback(error, count, data._id)
+    data._id = new ObjectId(locationId)
+    #@model.update {_id: new ObjectId(id), 'locations._id': new ObjectId(locationId)}, data, (error, business)-> #safe=true is the default here I believe
+    @model.collection.update {_id: new ObjectId(id), 'locations._id': new ObjectId(locationId)}, {$set: {"locations.$": data}}, {safe: true}, callback
+  
+  #locationIds can be an array or a string
+  @delLocations: (id, locationIds, callback)->
+    objIds = []
+    if Object.isArray(locationIds)
+      for locationId in locationIds
+        objIds.push new ObjectId(locationId)
+    else
+      objIds = [locationIds]
+    @model.collection.update {_id: new ObjectId(id)}, {$pull: {locations: {_id: {$in: objIds} }}}, {safe: true}, callback
       
   
 class DailyDeals extends API
