@@ -1,5 +1,8 @@
 exports = module.exports
 
+generatePassword = require 'password-generator'
+hashlib = require 'hashlib'
+
 db = require './db'
 globals = require 'globals'
 ObjectId = require('mongoose').Types.ObjectId;
@@ -16,6 +19,7 @@ Media = db.Media
 FlipAd = db.FlipAd
 Poll = db.Poll
 Discussion = db.Discussion
+ClientInvitation = db.ClientInvitation
 
 #TODO:
 #Make sure that all necessary fields exist for each function before sending the query to the db
@@ -74,7 +78,6 @@ class API
     query = @optionParser(options)
     query.exec callback
     return
-
     
   @bulkInsert: (docs, options, callback)->
     @model.collection.insert(docs, options, callback)
@@ -116,7 +119,7 @@ class Businesses extends API
   @optionParser = (options, q)->
     query = @_optionParser(options, q)
     
-    query.in('clients', options.clientId) if options.clientId?
+    query.in('clients', [options.clientId]) if options.clientId?
       
     return query
     
@@ -137,18 +140,26 @@ class Businesses extends API
     instance.save callback 
     return
 
-  @addClient: (id, clientId, group, callback)->
-    if !(group in choices.businesses.groups._enum)
+  @addClient: (id, clientId, groupName, callback)->
+    if !(groupName in choices.businesses.groups._enum)
       callback {name: "ValidationError", message: "Invalid Group"}, null
       return
+      
+    #incase we pass in a string turn it into an ObjectId
+    if Object.isString(clientId)
+      clientId = new ObjectId(clientId)
+
+    if Object.isString(id)
+      id = new ObjectId(id)
       
     updateDoc = {}
     updateDoc['$addToSet'] = {}
     updateDoc['$addToSet']['clients'] = clientId
-    updateDoc['$addToSet']['groups.'+group] = clientIdId
-    updateDoc['clientGroups.'+clientId] = group
+    updateDoc['$addToSet']['groups.'+groupName] = clientId
+    updateDoc['$set'] = {}
+    updateDoc['$set']['clientGroups.'+clientId] = groupName
 
-    @model.collection.update {_id: new ObjectId(id)}, updateDoc, {safe: true}, callback
+    @model.collection.update {_id: id}, updateDoc, {safe: true}, callback
     return
 
   @addManager: (id, clientId, callback)->
@@ -201,8 +212,28 @@ class Businesses extends API
     else
       objIds = [locationIds]
     @model.collection.update {_id: new ObjectId(id)}, {$pull: {locations: {_id: {$in: objIds} }}}, {safe: true}, callback
-      
-  
+
+  @getGroup: (id, groupName, callback)->
+    data = {}
+    data.groupName = groupName
+    @one id, (error, business)->
+      if error?
+        callback error, business
+      else
+        userIds = []
+        for userId in business.groups[groupName]
+          userIds.push(userId)
+        query = Client.find()
+        query.in('_id', userIds)
+        query.exclude(['created', 'password'])
+        query.exec (error, clients)->
+          if error?
+            callback error, null
+          else
+            data.members = clients
+            callback null, data
+
+
 class DailyDeals extends API
   @model = DailyDeal
   
@@ -559,6 +590,16 @@ class Medias extends API
     #@get {'entity.type': entityType, 'entity.id': entityId, 'media.guid': guid}, callback
 
 
+class ClientInvitations extends API
+  @model = ClientInvitation
+
+  @add = (businessId, groupName, email, callback)->
+    key = hashlib.md5(globals.secretWord + email+(new Date().toString()))+'-'+generatePassword(12, false, /\d/)
+    @_add {businessId: businessId, groupName: groupName, email: email, key: key}, callback
+  
+  @validate = (key, callback)->
+    @model.collection.findAndModify {key: key, status: choices.invitations.state.PENDING},[],{$set: {status: choices.invitations.state.PROCESSED}}, {new: true}, callback
+
 exports.Clients = Clients
 exports.Businesses = Businesses
 exports.Medias = Medias
@@ -567,3 +608,4 @@ exports.Polls = Polls
 exports.Discussions = Discussions
 exports.Deals = Deals
 exports.DailyDeals = DailyDeals
+exports.ClientInvitations = ClientInvitations

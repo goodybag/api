@@ -172,7 +172,6 @@ Consumer.static {
     return
 }
 
-
 ####################
 # Client ###########
 ####################
@@ -453,6 +452,24 @@ Media.index {url:1} #for when we want to find out which entity a url belongs to
 
 
 ####################
+# ClientInvitation #
+####################
+ClientInvitation = new Schema {
+  businessId      : {type: ObjectId, required: true}
+  groupName       : {type: String, required: true}
+  email           : {type: Email, required: true}
+  key             : {type: String, required: true}
+  status          : {type: String, required: true, enum: choices.invitations.state._enum, default: choices.invitations.state.PENDING}
+  dates: {
+    created       : {type: Date, default: new Date( (new Date()).toUTCString() )}
+    expires       : {type: Date}
+  }
+}
+
+#unique index on businessId + email address is required
+
+
+####################
 # Stream ###########
 ####################
 Stream = new Schema {
@@ -470,15 +487,16 @@ Stream = new Schema {
 Stream.index('entity': 1, 'id': 1, 'datetime': 1, 'type':1)
 Stream.index('datetime': 1)
 
-exports.Consumer    = mongoose.model 'Consumer', Consumer
-exports.Client      = mongoose.model 'Client', Client
-exports.Business    = mongoose.model 'Business', Business
-exports.DailyDeal   = mongoose.model 'DailyDeal', DailyDeal
-exports.Media       = mongoose.model 'Media', Media
-exports.FlipAd      = mongoose.model 'FlipAd', FlipAd
-exports.Poll        = mongoose.model 'Poll', Poll
-exports.Discussion  = mongoose.model 'Discussion', Discussion
-exports.Deal        = mongoose.model 'Deal', Deal
+exports.DailyDeal           = mongoose.model 'DailyDeal', DailyDeal
+exports.Consumer            = mongoose.model 'Consumer', Consumer
+exports.Client              = mongoose.model 'Client', Client
+exports.Business            = mongoose.model 'Business', Business
+exports.Poll                = mongoose.model 'Poll', Poll
+exports.Discussion          = mongoose.model 'Discussion', Discussion
+exports.FlipAd              = mongoose.model 'FlipAd', FlipAd
+exports.Deal                = mongoose.model 'Deal', Deal
+exports.Media               = mongoose.model 'Media', Media
+exports.ClientInvitation    = mongoose.model 'ClientInvitation', ClientInvitation
 
 exports.schemas = {
   DailyDeal: DailyDeal
@@ -490,4 +508,5 @@ exports.schemas = {
   FlipAd: FlipAd
   Deal: Deal
   Media: Media
+  ClientInvitation: ClientInvitation
 }
