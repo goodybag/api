@@ -307,11 +307,61 @@ class Polls extends API
   #options: name, businessid, type, businessname,showstats, answered, start, end, outoffunds
   @optionParser = (options, q) ->
     query = q || @_query()
-    query.where('name', options.name) if options.name?
-    # query.where('businessid', options.businessid) if options.businessid?
-    # query.where('type', options.type) if options.type?
-    # query.where('businessname', options.businessname) if options.businessname?
+    query.where('entity.type', options.entityType) if options.entityType?
+    query.where('entity.id', options.entityId) if options.entityId?
+    query.where('dates.start').gte(options.start) if options.start?
+    query.where('dates.end').gte(options.start) if options.end?
+    query.where('transaction.state', state) if options.state?
     return query
+  
+  @add = (data, callback)->
+    instance = new @model(data)
+    
+    #load default transaction stuff (maybe create a separate function to do transaction setup)
+    #instance.transaction.state = choices.transactions.state.PENDING #This is the default setting
+    instance.save callback
+    return
+    
+  @pending = (entityType, entityId, skip, limit, callback)->
+    options = {
+      entityType: entityType,
+      entityId: entityId, 
+      skip: skip, 
+      limit: limit
+    }
+    query = @optionParser(options)
+    query.where('dates.start').gt(new Date())
+    query.sort('dates.start', -1)
+    query.exec callback
+    return
+
+  @active = (entityType, entityId, skip, limit, callback)->
+   options = {
+      entityType: entityType,
+      entityId: entityId, 
+      skip: skip, 
+      limit: limit
+    } 
+    query = @optionParser(options)
+    query.where('dates.start').lte(new Date())
+    query.where('dates.end').gt(new Date())
+    query.sort('dates.start', -1)
+    query.exec callback
+    return
+    
+  @completed = (entityType, entityId, skip, limit, callback)->
+    options = {
+      entityType: entityType,
+      entityId: entityId, 
+      skip: skip, 
+      limit: limit
+    }
+    query = @optionParser(options)
+    query.where('dates.end').lte(new Date())
+    query.sort('dates.start', -1)
+    query.exec callback
+    return
+
   
 class Discussions extends API
   @model = Discussion

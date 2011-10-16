@@ -250,23 +250,36 @@ Business.index {users: 1}
 # Poll #############
 ####################
 Poll = new Schema {
-  name          : {type: String, required: true}
-  businessid    : {type: ObjectId, required: true}
-  type          : {type: String, require: true, enum: choices.polls.type._enum}
-  question      : {type: String, required: true}
-  choices       : []
-  image         : {type: Url}
-  businessName  : {type: String}
-  stats         : {type: Boolean, default: true, required: true} #whether to display the stats to the user or not
-  answered      : {type: Number, default: 0}
+  entity: { #We support various types of users creating discussions (currently businesses and consumers can create discussions)
+    type          : {type: String, required: true, enum: choices.entities._enum}
+    id            : {type: ObjectId, required: true}
+    name          : {type: String}
+  }
+  type            : {type: String, require: true, enum: choices.polls.type._enum}
+  question        : {type: String, required: true}
+  choices         : [String]
+  amount          : {type: Number, default: 0} #number of people to pose this to
+  stats           : {type: Boolean, default: true, required: true} #whether to display the stats to the user or not
+  answered        : {type: Number, default: 0}
+  media: {
+    url           : {type: Url, required: true} #video or image
+    thumb         : {type: Url}
+    guid          : {type: String}
+  }
   dates: {
-    created     : {type: Date, required: true, default: new Date( (new Date()).toUTCString() )}
-    start       : {type: Date, required: true, default: new Date( (new Date()).toUTCString() )}
-    end         : {type: Date}
+    created       : {type: Date, required: true, default: new Date( (new Date()).toUTCString() )}
+    start         : {type: Date, required: true, default: new Date( (new Date()).toUTCString() )}
+    end           : {type: Date}
   }
   funds: {
-    allocated   : {type: Number, required: true}
-    remaining   : {type: Number, required: true}
+    allocated     : {type: Number, required: true}
+    remaining     : {type: Number, required: true}
+  }
+  transaction: {
+    state         : {type: String, required: true, enum: choices.transactions.state._enum, default: choices.transactions.state.PENDING}
+    error         : {type: String} #only populated if there is an error in the transaction i.e. insufficient funds
+    created       : {type: Date, required: true, default: new Date( (new Date()).toUTCString() )}
+    lastModified  : {type: Date, required: true, default: new Date( (new Date()).toUTCString() )}
   }
 }
 
