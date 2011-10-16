@@ -281,9 +281,12 @@ Discussion = new Schema {
     name          : {type: String}
   }
   campaignName    : {type: String, required: true}
-  entityName      : {type: String}
   question        : {type: String, required: true}
-  image           : {type: String}
+  media: {
+    url           : {type: Url, required: true} #video or image
+    thumb         : {type: Url}
+    guid          : {type: String}
+  }
   responses       : {type: Number, required: true, default: 0} #count of the number of responses (not including sub comments)
   bestResponses   : [] #a copy of the responses that were selected as the best response (without sub comments) #up to two
   dates: {
