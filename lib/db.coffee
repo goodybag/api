@@ -238,6 +238,10 @@ Business = new Schema {
     #owners      : [String]
     #managers    : [String]
   }
+  funds: {
+    allocated     : {type: Number, required: true}
+    remaining     : {type: Number, required: true}
+  }
 }
 
 #indexes
@@ -295,6 +299,7 @@ Discussion = new Schema {
   }
   campaignName    : {type: String, required: true}
   question        : {type: String, required: true}
+  details         : {type: String}
   media: {
     url           : {type: Url, required: true} #video or image
     thumb         : {type: Url}
@@ -503,6 +508,17 @@ Stream = new Schema {
 Stream.index('entity': 1, 'id': 1, 'datetime': 1, 'type':1)
 Stream.index('datetime': 1)
 
+
+####################
+# TAG ##############
+####################
+Tag = new Schema {
+  name: {type: String, required: true}
+}
+
+Tag.index('name': 1)
+
+
 exports.DailyDeal           = mongoose.model 'DailyDeal', DailyDeal
 exports.Consumer            = mongoose.model 'Consumer', Consumer
 exports.Client              = mongoose.model 'Client', Client
@@ -513,6 +529,7 @@ exports.FlipAd              = mongoose.model 'FlipAd', FlipAd
 exports.Deal                = mongoose.model 'Deal', Deal
 exports.Media               = mongoose.model 'Media', Media
 exports.ClientInvitation    = mongoose.model 'ClientInvitation', ClientInvitation
+exports.Tag                 = mongoose.model 'Tag', Tag
 
 exports.schemas = {
   DailyDeal: DailyDeal
@@ -525,4 +542,5 @@ exports.schemas = {
   Deal: Deal
   Media: Media
   ClientInvitation: ClientInvitation
+  Tag: Tag
 }

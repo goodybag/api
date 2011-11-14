@@ -20,6 +20,7 @@ FlipAd = db.FlipAd
 Poll = db.Poll
 Discussion = db.Discussion
 ClientInvitation = db.ClientInvitation
+Tag = db.Tag
 
 #TODO:
 #Make sure that all necessary fields exist for each function before sending the query to the db
@@ -425,6 +426,7 @@ class Discussions extends API
     query.exec callback
     return
 
+
 class FlipAds extends API
   @model = FlipAd
 
@@ -608,6 +610,7 @@ class Deals extends API
     @model.collection.update  {'entity.type': entityType, 'entity.id': entityId, 'media.guid': guid}, {$set:{'media.url': url, 'media.thumb': thumb}}, {safe: true}, callback
     return
 
+
 class Medias extends API
   @model = Media
   
@@ -650,6 +653,20 @@ class ClientInvitations extends API
   @validate = (key, callback)->
     @model.collection.findAndModify {key: key, status: choices.invitations.state.PENDING},[],{$set: {status: choices.invitations.state.PROCESSED}}, {new: true}, callback
 
+
+class Tags extends API
+  @model = Tag
+
+  @add = (name, callback)->
+    @_add {name: name}, callback
+  
+  @search = (name, callback)->
+    re = new RegExp("^"+name+".*", 'i')
+    query = @_query()
+    query.where('name', re)
+    query.limit(10)
+    query.exec callback
+
 exports.Clients = Clients
 exports.Businesses = Businesses
 exports.Medias = Medias
@@ -659,3 +676,4 @@ exports.Discussions = Discussions
 exports.Deals = Deals
 exports.DailyDeals = DailyDeals
 exports.ClientInvitations = ClientInvitations
+exports.Tags = Tags
