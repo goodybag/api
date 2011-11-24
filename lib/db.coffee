@@ -51,7 +51,7 @@ DailyDeal = new Schema {
     city          : {type: String}
     state         : {type: String}
     zip           : {type: String}
-    country       : {type: String, enum: countries.codes}
+    country       : {type: String, enum: countries.codes, default: "us"}
     lat           : {type: Number}
     lng           : {type: Number}
   }
@@ -199,7 +199,7 @@ Location = new Schema {
     city          : {type: String, required: true}
     state         : {type: String, required: true}
     zip           : {type: Number, required: true}
-    country       : {type: String, enum: countries.codes, required: true}
+    country       : {type: String, enum: countries.codes, required: true, default: "us"}
     phone         : {type: String, required: true}
     fax           : {type: String}
     lat           : {type: Number}
@@ -214,14 +214,26 @@ Location = new Schema {
 Business = new Schema {
   name          : {type: String, required: true}
   publicName    : {type: String, required: true}
+  url           : {type: Url}
+
+  hq: { #headquarters
+    street1     : {type: String, required: true}
+    street2     : {type: String}
+    city        : {type: String, required: true}
+    state       : {type: String, required: true}
+    zip         : {type: Number, required: true}
+    country     : {type: String, enum: countries.codes, required: true, default: "us"}
+    phone       : {type: String, required: true}
+    fax         : {type: String, required: true}
+  }
+  locations     : [Location]
+
   media: {
     url         : {type: Url, required: true, default: "http://www.campusdish.com/NR/rdonlyres/1E7DF990-91DC-4101-99CD-96A23A2E5E7E/0/Subwaycontour.gif"} #image
     thumb       : {type: Url}
     guid        : {type: String}
     duration    : {type: Number} #useful for videos, in number of seconds (e.g. 48.42)
   }
-
-  locations     : [Location]
   
   clients       : [ObjectId] #clientIds
   clientGroups  : {} #{clientId: group}
