@@ -171,7 +171,16 @@ class Businesses extends API
     @addClient(id, clientId, choices.businesses.groups.OWNERS, callback)
     return
   
-  @delClients: (id, clientIds, callback)->
+  @delClient: (id, clientId, callback)->
+    self = this
+    
+    #incase we pass in a string turn it into an ObjectId
+    if Object.isString(clientId)
+      clientId = new ObjectId(clientId)
+
+    if Object.isString(id)
+      id = new ObjectId(id)
+    
     @one id, (error, business)->
       if error?
         callback(error, null)
@@ -179,13 +188,14 @@ class Businesses extends API
       else
         updateDoc = {}
         updateDoc['$pull'] = {}
-        updateDoc['$pull']['clients'] = clientIds
-        updateDocs['$unset'] = {}
-        for clientId in clientIds
-          group = business.clientGroups[clientId] #the group the client is in
-          updateDocs['$pull']['groups.'+group] = clientId
-          updateDocs['$unset']['clientGroups.'+clientId] = 1
-        @model.collection.update {id: id}, updateDoc, callback
+        updateDoc['$pull']['clients'] = clientId
+        updateDoc['$unset'] = {}
+
+        group = business.clientGroups[clientId] #the group the client is in
+        updateDoc['$pull']['groups.'+group] = clientId
+        updateDoc['$unset']['clientGroups.'+clientId] = 1
+        console.log 
+        self.model.collection.update {_id: id}, updateDoc, callback
   
   @updateIdentity: (id, data, callback)->
     set = {}
