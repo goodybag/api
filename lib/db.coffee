@@ -317,8 +317,6 @@ Discussion = new Schema {
     thumb         : {type: Url}
     guid          : {type: String}
   }
-  responses       : {type: Number, required: true, default: 0} #count of the number of responses (not including sub comments)
-  bestResponses   : [] #a copy of the responses that were selected as the best response (without sub comments) #up to two
   dates: {
     created       : {type: Date, required: true, default: new Date( (new Date()).toUTCString() )}
     start         : {type: Date, required: true, default: new Date( (new Date()).toUTCString() )}
@@ -350,14 +348,33 @@ Discussion.index {'transaction.state': 1}
 #Responses are in their own collection for two reasons: 
 #   They need to be pulled in a limit/skip fashion
 #   We want to section them off in groups of either 25/50/100. This way will result in less requests to the database
+
+###THIS IS AN OPTIMIZATION WE CAN DO LATER - LETS REACH THIS MUCH ACTIVITY THAT OUR SITE SLOWS DOWN :)
 Response = new Schema {
   discussionId    : {type: ObjectId, required: true}
-  ###responses: [{
-    userid: ObjectId, required
-    response: String, required
-  }]###
+  responses: [{
+    entity: { #We support various types of users creating discussions (currently businesses and consumers can create discussions)
+      type   : {type: String, required: true, enum: choices.entities._enum}
+      id     : {type: ObjectId, required: true}
+      name   : {type: String}
+    }
+    response : {type: String, required: true}
+  }]
 }
 
+###
+
+Response = new Schema {
+  entity: { #We support various types of users creating discussions (currently businesses and consumers can create discussions)
+    type          : {type: String, required: true, enum: choices.entities._enum}
+    id            : {type: ObjectId, required: true}
+    name          : {type: String}
+  }
+  
+  discussionId    : {type: ObjectId, required: true}
+  response        : {type: String, required: true}
+  parent          : {type: ObjectId} #was this in response to a previous response? which one?
+}
 
 ####################
 # FipAd ############
@@ -537,6 +554,7 @@ exports.Client              = mongoose.model 'Client', Client
 exports.Business            = mongoose.model 'Business', Business
 exports.Poll                = mongoose.model 'Poll', Poll
 exports.Discussion          = mongoose.model 'Discussion', Discussion
+exports.Response            = mongoose.model 'Response', Response
 exports.FlipAd              = mongoose.model 'FlipAd', FlipAd
 exports.Deal                = mongoose.model 'Deal', Deal
 exports.Media               = mongoose.model 'Media', Media
@@ -550,6 +568,7 @@ exports.schemas = {
   Business: Business
   Poll: Poll
   Discussion: Discussion
+  Response: Response
   FlipAd: FlipAd
   Deal: Deal
   Media: Media

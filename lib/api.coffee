@@ -19,6 +19,7 @@ Media = db.Media
 FlipAd = db.FlipAd
 Poll = db.Poll
 Discussion = db.Discussion
+Response = db.Response
 ClientInvitation = db.ClientInvitation
 Tag = db.Tag
 
@@ -435,6 +436,14 @@ class Discussions extends API
     query.sort('dates.start', -1)
     query.exec callback
     return
+    
+    
+class Responses extends API
+  @model = Response
+
+  @count = (entityType, businessId, discussionId, callback)->
+    @model.count {'entity.id':businessId, 'entity.type':entityType, discussionId: discussionId}, (error, count)->
+      callback error, count
 
 
 class FlipAds extends API
@@ -683,6 +692,7 @@ exports.Medias = Medias
 exports.FlipAds = FlipAds
 exports.Polls = Polls
 exports.Discussions = Discussions
+exports.Responses = Responses
 exports.Deals = Deals
 exports.DailyDeals = DailyDeals
 exports.ClientInvitations = ClientInvitations
