@@ -73,6 +73,9 @@ class API
     return
     
   @one = (id, callback)->
+    return @_one(id, callback)
+    
+  @_one = (id, callback)->
     @model.findOne {_id: id}, callback
     return
 
@@ -389,6 +392,20 @@ class Discussions extends API
     
     return query
 
+  @update: (entityType, entityId, discussionId, data, callback)->
+    @getByEntity entityType, entityId, discussionId, (error, discussion)->
+      if error?
+        callback error, discussion
+      else
+        if (discussion.dates.start <= new Date())
+          callback {name: "DateTimeError", message: "Can not edit a discussion that is in progress or has completed."}, null
+        else
+          for own k,v of data
+            discussion[k] = v
+          discussion.save callback
+      return
+    return
+    
   @add = (data, callback)->
     instance = new @model(data)
     
@@ -436,7 +453,10 @@ class Discussions extends API
     query.sort('dates.start', -1)
     query.exec callback
     return
-    
+
+  @getByEntity: (entityType, entityId, discussionId, callback)->
+    @model.findOne {_id: discussionId, 'entity.type': entityType ,'entity.id': entityId}, callback
+    return
     
 class Responses extends API
   @model = Response

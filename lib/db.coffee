@@ -312,6 +312,7 @@ Discussion = new Schema {
   campaignName    : {type: String, required: true}
   question        : {type: String, required: true}
   details         : {type: String}
+  tags            : [String]
   media: {
     url           : {type: Url, required: true} #video or image
     thumb         : {type: Url}
@@ -374,6 +375,9 @@ Response = new Schema {
   discussionId    : {type: ObjectId, required: true}
   response        : {type: String, required: true}
   parent          : {type: ObjectId} #was this in response to a previous response? which one?
+  dates: {
+    created       : {type: Date, default: new Date( (new Date()).toUTCString() )}
+  }
 }
 
 ####################
