@@ -117,6 +117,20 @@ class Clients extends API
       else
         return callback new Error("invalid username/password")
   
+  @getBusinessIds: (id, callback)->
+    query = Businesses.model.find()
+    query.only('_id')
+    query.where('clients', id)
+
+    query.exec (error, businesses)->
+      if error?
+        callback error, null
+      else
+        ids = []
+        for business in businesses
+          ids.push business.id
+        callback null, ids
+      
 
 class Businesses extends API
   @model = Business
@@ -137,7 +151,6 @@ class Businesses extends API
         instance.markModified('locations')
 
     #add user to the list of users for this business and add them to the group of owners
-    console.log instance
     instance['clients'] = [clientId] #only one user now
     instance['clientGroups'] = {}
     instance['clientGroups'][clientId] = choices.businesses.groups.OWNERS

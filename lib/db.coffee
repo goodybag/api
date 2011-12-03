@@ -10,6 +10,7 @@ Url = mongoose.SchemaTypes.Url
 
 globals = require 'globals'
 utils = globals.utils
+defaults = globals.defaults
 choices = globals.choices
 countries = globals.countries
 
@@ -178,15 +179,15 @@ Consumer.static {
 Client = new Schema {
   firstName     : {type: String, required: true}
   lastName      : {type: String, required: true}
-  phone         : {type: String}
   email         : {type: String, index: true, unique: true, set: utils.toLower, validate: /^(([^<>()[\]\\.,;:\s@\"]+(\.[^<>()[\]\\.,;:\s@\"]+)*)|(\".+\"))@((\[[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\])|(([a-zA-Z\-0-9]+\.)+[a-zA-Z]{2,}))$/}
   password      : {type: String, validate:/.{5,}/, required: true}
-  created       : {type: Date, default: new Date( (new Date()).toUTCString() ), index: true}
+  dates: {
+    created     : {type: Date, required: true, default: new Date( (new Date()).toUTCString() )}
+  }
 }
 
 #indexes
 Client.index {email: 1, password: 1}
-Client.index {phone: 1}
 
 
 ####################
@@ -200,7 +201,7 @@ Location = new Schema {
     state         : {type: String, required: true}
     zip           : {type: Number, required: true}
     country       : {type: String, enum: countries.codes, required: true, default: "us"}
-    phone         : {type: String, required: true}
+    phone         : {type: String}
     fax           : {type: String}
     lat           : {type: Number}
     lng           : {type: Number}
@@ -210,13 +211,13 @@ Location = new Schema {
 ####################
 # Business #########
 ####################
-#STORE THIS ENTIRE DB IN MEMCACHE OR REDIS, SHOULD BE SMALL
 Business = new Schema {
   name          : {type: String, required: true}
   publicName    : {type: String, required: true}
   url           : {type: Url}
+  email         : {type: Email}
 
-  hq: { #headquarters
+  legal: { #legal
     street1     : {type: String, required: true}
     street2     : {type: String}
     city        : {type: String, required: true}
@@ -224,7 +225,7 @@ Business = new Schema {
     zip         : {type: Number, required: true}
     country     : {type: String, enum: countries.codes, required: true, default: "us"}
     phone       : {type: String, required: true}
-    fax         : {type: String, required: true}
+    fax         : {type: String}
   }
   locations     : [Location]
 
@@ -242,6 +243,16 @@ Business = new Schema {
     owners      : [ObjectId] #clientIds
     managers    : [ObjectId] #clientIds
   }
+
+  dates: {
+    created     : {type: Date, required: true, default: new Date( (new Date()).toUTCString() )}
+  }
+
+  funds: {
+    allocated     : {type: Number, required: true}
+    remaining     : {type: Number, required: true}
+  }
+
   permissions: { #permissions for groups
   #nothing needs to be done for now, but in the future permissions for groups will be taken care of here.
   #we take care of logic and permissions for owners and manager
@@ -249,10 +260,6 @@ Business = new Schema {
     #default groups for a business
     #owners      : [String]
     #managers    : [String]
-  }
-  funds: {
-    allocated     : {type: Number, required: true}
-    remaining     : {type: Number, required: true}
   }
 }
 
@@ -321,7 +328,7 @@ Discussion = new Schema {
   dates: {
     created       : {type: Date, required: true, default: new Date( (new Date()).toUTCString() )}
     start         : {type: Date, required: true, default: new Date( (new Date()).toUTCString() )}
-    end           : {type: Date, required: true, default: new Date( (new Date()).toUTCString() )}
+    end           : {type: Date}
     
     #end           : {type: Date, required: true, default: new Date( (new Date().addWeeks(3)).toUTCString() )} #three week later
   }
@@ -410,8 +417,8 @@ FlipAd = new Schema {
   }
   viewers         : [ObjectId] #the users who have viewed this video
   funds: {
-    allocated     : {type: Number, required: true}
-    remaining     : {type: Number, required: true}
+    allocated     : {type: Number, required: true, default: 0}
+    remaining     : {type: Number, required: true, default: 0}
   }
   transaction: {
     state         : {type: String, required: true, enum: choices.transactions.state._enum, default: choices.transactions.state.PENDING}
