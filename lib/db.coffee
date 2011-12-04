@@ -278,12 +278,19 @@ Poll = new Schema {
     id            : {type: ObjectId, required: true}
     name          : {type: String}
   }
-  type            : {type: String, require: true, enum: choices.polls.type._enum}
+  name            : {type: String, required: true}
+  type            : {type: String, required: true, enum: choices.polls.type._enum}
   question        : {type: String, required: true}
-  choices         : [String]
-  amount          : {type: Number, default: 0} #number of people to pose this to
-  stats           : {type: Boolean, default: true, required: true} #whether to display the stats to the user or not
-  answered        : {type: Number, default: 0}
+  choices         : [type: String, required: true]
+  responses: {
+    count         : {type: Number, default: 0}
+    max           : {type: Number, required: true}
+    users         : [type: ObjectId]
+    userChoices   : {}
+    choiceCounts  : [type: Number, required: true]
+  }
+  showStats       : {type: Boolean, required: true} #whether to display the stats to the user or not
+  displayName     : {type: Boolean, required: true}
   media: {
     url           : {type: Url, required: true} #video or image
     thumb         : {type: Url}
@@ -291,10 +298,11 @@ Poll = new Schema {
   }
   dates: {
     created       : {type: Date, required: true, default: new Date( (new Date()).toUTCString() )}
-    start         : {type: Date, required: true, default: new Date( (new Date()).toUTCString() )}
+    start         : {type: Date, required: true}
     end           : {type: Date}
   }
   funds: {
+    perResponse   : {type: Number, required: true}
     allocated     : {type: Number, required: true}
     remaining     : {type: Number, required: true}
   }

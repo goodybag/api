@@ -10,6 +10,7 @@ ObjectId = require('mongoose').Types.ObjectId;
 utils = globals.utils
 choices = globals.choices
 defaults = globals.defaults
+errors = globals.errors
 
 DailyDeal = db.DailyDeal
 Client = db.Client
@@ -88,6 +89,10 @@ class API
   @bulkInsert: (docs, options, callback)->
     @model.collection.insert(docs, options, callback)
     return
+  
+  @getByEntity: (entityType, entityId, id, callback)->
+    @model.findOne {_id: id, 'entity.type': entityType ,'entity.id': entityId}, callback
+    return
 
 class Clients extends API
   @model = Client
@@ -100,37 +105,48 @@ class Clients extends API
     query.where('email', data.email)
     query.findOne (error, client)->
       if error?
-        return callback err, user
+        callback error #db error
       else if !client?
-        return self.add(data, callback)
+        self.add(data, callback) #registration success
       else if client?
-        return callback(new Error('Client already exists'))
+        callback new errors.ValidationError {"email":"Email Already Exists"} #email exists error
+      return
         
   @login: (email, password, callback)->
     query = @_query()
     query.where('email', email).where('password', password)
     query.findOne (error, client)->
-      if(error)
-        return callback error, client
-      else if client?
-        return callback error, client
-      else
-        return callback new Error("invalid username/password")
-  
-  @getBusinessIds: (id, callback)->
-    query = Businesses.model.find()
-    query.only('_id')
-    query.where('clients', id)
-
-    query.exec (error, businesses)->
       if error?
-        callback error, null
+        callback error #db error
+      else if client?
+        callback null, client #login success (error is null..)
       else
-        ids = []
-        for business in businesses
-          ids.push business.id
-        callback null, ids
-      
+        callback new errors.ValidationError {'login':"Invalid Email or Password"} #invalid login error
+      return
+  
+  @getByEmail: (email, callback)->
+    query = @_query()
+    query.where('email', email)
+    query.findOne (error, client)->
+      if error?
+        callback error #db error
+      else
+        callback null, client #if no client with that email will return null
+
+  @updateWithPassword: (id, password, options, callback)->
+    query = @_query()
+    query.where('_id', id).where('password', password)
+    query.where('password', password)
+    query.findOne (error, client)->
+      if error?
+        callback error
+      else if client?
+        for own k,v of options
+          client[k] = v
+        client.save callback
+      else
+        callback new errors.ValidationError {'password':"Wrong Password"} #invalid login error
+      return
 
 class Businesses extends API
   @model = Business
@@ -138,9 +154,7 @@ class Businesses extends API
   #clientid, limit, skip
   @optionParser = (options, q)->
     query = @_optionParser(options, q)
-    
     query.in('clients', [options.clientId]) if options.clientId?
-      
     return query
     
   @add = (clientId, data, callback)->
@@ -156,12 +170,12 @@ class Businesses extends API
     instance['clientGroups'][clientId] = choices.businesses.groups.OWNERS
     instance['groups'][choices.businesses.groups.OWNERS] = [clientId]
 
-    instance.save callback 
+    instance.save callback
     return
 
   @addClient: (id, clientId, groupName, callback)->
     if !(groupName in choices.businesses.groups._enum)
-      callback {name: "ValidationError", message: "Invalid Group"}, null
+      callback new errors.ValidationError {"groupName":"Group does not Exist"}
       return
       
     #incase we pass in a string turn it into an ObjectId
@@ -201,7 +215,7 @@ class Businesses extends API
     
     @one id, (error, business)->
       if error?
-        callback(error, null)
+        callback error
         return
       else
         updateDoc = {}
@@ -345,12 +359,25 @@ class Polls extends API
   
   @add = (data, callback)->
     instance = new @model(data)
-    
     #load default transaction stuff (maybe create a separate function to do transaction setup)
     #instance.transaction.state = choices.transactions.state.PENDING #This is the default setting
     instance.save callback
     return
-    
+  
+  @update: (entityType, entityId, pollId, data, callback)->
+    @getByEntity entityType, entityId, pollId, (error, poll)->
+      if error?
+        callback error, null
+      else
+        if (poll.dates.start <= new Date())
+          callback {name: "DateTimeError", message: "Can not edit a poll that is in progress or has completed."}, null
+        else
+          for own k,v of data
+            poll[k] = v
+          poll.save callback
+      return
+    return
+
   @pending = (entityType, entityId, skip, limit, callback)->
     options = {
       entityType: entityType,
@@ -468,9 +495,6 @@ class Discussions extends API
     query.exec callback
     return
 
-  @getByEntity: (entityType, entityId, discussionId, callback)->
-    @model.findOne {_id: discussionId, 'entity.type': entityType ,'entity.id': entityId}, callback
-    return
     
 class Responses extends API
   @model = Response
@@ -565,51 +589,51 @@ class Deals extends API
     switch data.type
       when choices.deals.type.VOUCHER
         if utils.isBlank(data.item)
-          callback {name: "ValidationError", message: "Invalid value for field: item"}, null
+          callback new errors.ValidationError {"item":"required"}
           return
       
       when choices.deals.type.BXGXF
         if utils.isBlank(data.item)
-          callback {name: "ValidationError", message: "Invalid value for field: item"}, null
+          callback new errors.ValidationError {"item":"required"}
           return
         if utils.isBlank(data.item2)
-          callback {name: "ValidationError", message: "Invalid value for field: item2"}, null
+          callback new errors.ValidationError {"item2":"required"}
           return
           
       when choices.deals.type.PERCENT_ALL
         if utils.isBlank(data.discount) || parseInt(data.discount) > 100
-          callback {name: "ValidationError", message: "Invalid value for field: discount"}, null
+          callback new errors.ValidationError {"discount":["required", "invalid"]}
           return
       
       when choices.deals.type.PERCENT_MIN
         if utils.isBlank(data.discount) || parseInt(data.discount) > 100
-          callback {name: "ValidationError", message: "Invalid value for field: discount"}, null
+          callback new errors.ValidationError {"discount":["required", "invalid"]}
           return
       
       when choices.deals.type.PERCENT_ITEM
         if utils.isBlank(data.item)
-          callback {name: "ValidationError", message: "Invalid value for field: item"}, null
+          callback new errors.ValidationError {"item":"required"}
           return
         if utils.isBlank(data.discount) || parseInt(data.discount) > 100
-          callback {name: "ValidationError", message: "Invalid value for field: discount"}, null
+          callback new errors.ValidationError {"discount":"required"}
           return
         
       when choices.deals.type.DOLLAR_ALL
         if utils.isBlank(data.discount) || parseFloat(data.discount) > parseFloat(data.value)
-          callback {name: "ValidationError", message: "Invalid value for field: discount"}, null
+          callback new errors.ValidationError {"discount":["required","invalid"]}
           return
       
       when choices.deals.type.DOLLAR_MIN
         if utils.isBlank(data.discount) || parseFloat(data.discount) > parseFloat(data.value)
-          callback {name: "ValidationError", message: "Invalid value for field: discount"}, null
+          callback new errors.ValidationError {"discount":["required","invalid"]}
           return
       
       when choices.deals.type.DOLLAR_ITEM
         if utils.isBlank(data.item)
-          callback {name: "ValidationError", message: "Invalid value for field: item"}, null
+          callback new errors.ValidationError {"item":"required"}
           return
         if utils.isBlank(data.discount) || parseFloat(data.discount) > parseFloat(data.value)
-          callback {name: "ValidationError", message: "Invalid value for field: discount"}, null
+          callback new errors.ValidationError {"discount":["required","invalid"]}
           return
 
     instance = new @model(data)
@@ -682,7 +706,7 @@ class Medias extends API
 
   #type is either image or video
   @getByBusiness = (entityId, type, callback)->
-    if typeof(type)=="function"
+    if Object.isFunction(type)
       callback = type
       @get {entityType: choices.entities.BUSINESS, entityId: entityId}, callback
       #@get {'entity.type': choices.entities.BUSINESS, 'entity.id': entityId}, callback
@@ -704,7 +728,14 @@ class ClientInvitations extends API
     @_add {businessId: businessId, groupName: groupName, email: email, key: key}, callback
   
   @validate = (key, callback)->
-    @model.collection.findAndModify {key: key, status: choices.invitations.state.PENDING},[],{$set: {status: choices.invitations.state.PROCESSED}}, {new: true}, callback
+    @model.collection.findAndModify {key: key, status: choices.invitations.state.PENDING},[],{$set: {status: choices.invitations.state.PROCESSED}}, {new: true}, (error, invite)->
+      if error?
+        callback error #db error
+      else if !invite?
+        callback new errors.ValidationError {"key":"Invalid Invite Key"} #invalid key error
+      else
+        callback null, invite #success
+      return
 
 
 class Tags extends API
