@@ -116,14 +116,27 @@ class Clients extends API
     query = @_query()
     query.where('email', email).where('password', password)
     query.findOne (error, client)->
-      if error?
-        callback error #db error
+      if(error)
+        return callback error, client
       else if client?
-        callback null, client #login success (error is null..)
+        return callback error, client
       else
-        callback new errors.ValidationError {'login':"Invalid Email or Password"} #invalid login error
-      return
+        return callback new Error("invalid username/password")
   
+  @getBusinessIds: (id, callback)->
+    query = Businesses.model.find()
+    query.only('_id')
+    query.where('clients', id)
+
+    query.exec (error, businesses)->
+      if error?
+        callback error, null
+      else
+        ids = []
+        for business in businesses
+          ids.push business.id
+        callback null, ids
+
   @getByEmail: (email, callback)->
     query = @_query()
     query.where('email', email)
