@@ -628,7 +628,7 @@ class Discussions extends API
         return
       else
         amount = discussion.transactions.newBalance - discussion.transactions.currentBalance
-        Businesses.deductFunds discussion.entity.id, choices.transactions.types.DISCUSSION, discussion.id, discussion.transactions.currentId, discussion.transactions.newBalance (error, business)->
+        Businesses.deductFunds discussion.entity.id, choices.transactions.types.DISCUSSION, discussion.id, discussion.transactions.currentId, discussion.transactions.newBalance, (error, business)->
           if error?
             return
           else
