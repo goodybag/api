@@ -297,25 +297,29 @@ Poll = new Schema {
     id            : {type: ObjectId, required: true}
     name          : {type: String}
   }
-  type            : {type: String, require: true, enum: choices.polls.type._enum}
+  name            : {type: String, required: true}
+  type            : {type: String, required: true, enum: choices.polls.type._enum}
   question        : {type: String, required: true}
-  choices         : [String]
-  amount          : {type: Number, default: 0} #number of people to pose this to
-  stats           : {type: Boolean, default: true, required: true} #whether to display the stats to the user or not
-  answered        : {type: Number, default: 0}
-
+  choices         : [type: String, required: true]
+  responses: {
+    count         : {type: Number, default: 0}
+    max           : {type: Number, required: true}
+    users         : [type: ObjectId]
+    userChoices   : {}
+    choiceCounts  : [type: Number, required: true]
+  }
+  showStats       : {type: Boolean, required: true} #whether to display the stats to the user or not
+  displayName     : {type: Boolean, required: true}
   media: {
     url           : {type: Url, required: true} #video or image
     thumb         : {type: Url}
     guid          : {type: String}
   }
-  
   dates: {
     created       : {type: Date, required: true, default: new Date( (new Date()).toUTCString() )}
-    start         : {type: Date, required: true, default: new Date( (new Date()).toUTCString() )}
+    start         : {type: Date, required: true}
     end           : {type: Date}
   }
-  
   funds: {
     perResponse   : {type: Number, required: true}
     allocated     : {type: Number, required: true, default: 0.0}
@@ -612,6 +616,25 @@ Tag = new Schema {
 
 Tag.index('name': 1)
 
+####################
+#Events Requests ###
+####################
+EventRequest = new Schema {
+  userEntity          : {
+    type              : {type: String, required: true, enum: choices.entities._enum}
+    id                : {type: ObjectId, required: true}
+    name              : {type: String}
+  }
+  organizationEntity  : {
+    type              : {type: String, required: true, enum: choices.entities._enum}
+    id                : {type: ObjectId, required: true}
+    name              : {type: String}
+  }
+  date                : {
+    requested         : {type: Date, default: Date.now}
+    responded         : {type: Date}
+  }
+}
 
 exports.DailyDeal           = mongoose.model 'DailyDeal', DailyDeal
 exports.Consumer            = mongoose.model 'Consumer', Consumer
@@ -625,6 +648,7 @@ exports.Deal                = mongoose.model 'Deal', Deal
 exports.Media               = mongoose.model 'Media', Media
 exports.ClientInvitation    = mongoose.model 'ClientInvitation', ClientInvitation
 exports.Tag                 = mongoose.model 'Tag', Tag
+exports.EventRequest        = mongoose.model 'EventRequest', EventRequest
 
 exports.schemas = {
   DailyDeal: DailyDeal
@@ -639,4 +663,5 @@ exports.schemas = {
   Media: Media
   ClientInvitation: ClientInvitation
   Tag: Tag
+  EventRequest: EventRequest
 }
