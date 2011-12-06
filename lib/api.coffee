@@ -2,6 +2,7 @@ exports = module.exports
 
 generatePassword = require 'password-generator'
 hashlib = require 'hashlib'
+util = require 'util'
 
 db = require './db'
 globals = require 'globals'
@@ -222,14 +223,23 @@ class Businesses extends API
     @model.collection.update {_id: new ObjectId(id)}, {$set: set}, {safe: true}, callback
 
   @addLocation: (id, data, callback)->
+    if Object.isString(id)
+      id = new ObjectId(id)
+      
     data._id = new ObjectId()
-    @model.collection.update {_id: new ObjectId(id)}, {$push: {"locations": data}}, {safe: true}, (error, count)->
-      callback(error, count, data._id)
+    @model.collection.update {_id: id}, {$push: {"locations": data}}, {safe: true}, (error, count)->
+      callback error, count, data._id
 
   @updateLocation: (id, locationId, data, callback)->
-    data._id = new ObjectId(locationId)
+    if Object.isString(id)
+      id = new ObjectId(id)
+      
+    if Object.isString(locationId)
+      locationId = new ObjectId(locationId)
+      
+    data._id = locationId
     #@model.update {_id: new ObjectId(id), 'locations._id': new ObjectId(locationId)}, data, (error, business)-> #safe=true is the default here I believe
-    @model.collection.update {_id: new ObjectId(id), 'locations._id': new ObjectId(locationId)}, {$set: {"locations.$": data}}, {safe: true}, callback
+    @model.collection.update {_id: id, 'locations._id': locationId}, {$set: {"locations.$": data}}, {safe: true}, callback
   
   #locationIds can be an array or a string
   @delLocations: (id, locationIds, callback)->
@@ -239,7 +249,11 @@ class Businesses extends API
         objIds.push new ObjectId(locationId)
     else
       objIds = [locationIds]
-    @model.collection.update {_id: new ObjectId(id)}, {$pull: {locations: {_id: {$in: objIds} }}}, {safe: true}, callback
+    
+    if Object.isString(id)
+      id = new ObjectId(id)
+      
+    @model.collection.update {_id: id}, {$pull: {locations: {_id: {$in: objIds} }}}, {safe: true}, callback
 
   @getGroup: (id, groupName, callback)->
     data = {}
@@ -261,6 +275,53 @@ class Businesses extends API
             data.members = clients
             callback null, data
 
+  @deductFunds: (id, documentType, documentId, transactionId, amount, callback)->
+    if Object.isString(id)
+      id = new ObjectId(id)
+    
+    if Object.isString(documentId)
+      documentId = new ObjectId(documentId)
+      
+    if Object.isString(transactionId)
+      transactionId = new ObjectId(transactionId)
+      
+  # transactions: {
+  #   ids           : [ObjectId]
+  #   history       : {}
+  # 
+  #   # Example of transaction history object
+  #   # history: {
+  #   #   transactionId: { #transactionId is a string representation of the ObjectId
+  #   #     document: {
+  #   #       type          : {type: String, required: true, enum: choices.transactions.types._enum}
+  #   #       id            : {type: ObjectId, required: true}
+  #   #     }
+  #   #     amount: {type: Number}
+  #   #     timestamp: {type: Date, required: true, default: new Date( (new Date()).toUTCString() )}
+  #   #   }
+  #   # }
+  # 
+  # }
+
+    transaction = {}
+
+    transaction.document = {}
+    transaction.document.type = documentType
+    transaction.document.id = documentId
+
+    transaction.amount = amount
+    transaction.timestamp = new Date( (new Date()).toUTCString() )
+
+    transactionIdStr = transactionId.toString()
+    $set = {}
+    $set['transactions.history.'+transactionIdStr] = transaction
+
+    console.log {_id: id, 'funds.remaining': {$gte: amount}, 'transactions.ids': {$ne: transactionId}}
+    console.log util.inspect {$set: $set, $inc: {'funds.remaining': amount }}
+
+    @model.collection.findAndModify {_id: id, 'funds.remaining': {$gte: amount}, 'transactions.ids': {$ne: transactionId}}, [], {$set: $set, $inc: {'funds.remaining': -1*amount }}, {new: true, safe: true}, (error, business)->
+      console.log error
+      console.log business
 
 class DailyDeals extends API
   @model = DailyDeal
@@ -342,12 +403,65 @@ class Polls extends API
     query.where('transaction.state', state) if options.state?
     return query
   
-  @add = (data, callback)->
+  @add = (data, amount, callback)->
     instance = new @model(data)
     
-    #load default transaction stuff (maybe create a separate function to do transaction setup)
-    #instance.transaction.state = choices.transactions.state.PENDING #This is the default setting
-    instance.save callback
+   # transactions: {
+   #    ids           : [ObjectId]
+   #    history       : {}
+   #  
+   #    # Example of a transaction history object
+   #    # history = {
+   #    #   transactionId: {
+   #    #     state: {type: String, required: true, enum: choices.transactions.state._enum, default: choices.transactions.state.PENDING}
+   #    #     created: {type: Date, required: true, default: new Date( (new Date()).toUTCString() )}
+   #    #     lastModified: {type: Date, required: true, default: new Date( (new Date()).toUTCString() )}
+   #    #     amount: {type: Number, required: true, default: 0.0}
+   #    #   }
+   #    # }
+   #  
+   #    currentState  : {type: String, required: true, enum: choices.transactions.state._enum, default: choices.transactions.state.PENDING}
+   #    currentId     : {type: ObjectId}
+   #  
+   #    currentBalance: {type: Number, required: true}
+   #    newBalance    : {type: Number}
+   # }
+
+
+    transaction = {}
+    transaction.state = choices.transactions.state.PENDING
+    transaction.created = new Date()
+    transaction.lastModified = new Date()
+    
+    transactionId = new ObjectId()
+    transactionIdStr = transactionId.toString()
+
+    instance.transactions.ids = [transactionId]
+
+    instance.transactions.history = {}
+    instance.transactions.history[transactionIdStr] = transaction
+
+    instance.transactions.currentId = transactionId
+    instance.transactions.currentState = choices.transactions.state.PENDING
+
+    instance.transactions.currentBalance = 0.0
+    instance.transactions.newBalance = amount
+
+    console.log instance
+    console.log amount
+
+    instance.save (error, poll)->
+      callback error, poll
+      if error?
+        return
+      else
+        amount = poll.transactions.newBalance - poll.transactions.currentBalance
+        Businesses.deductFunds poll.entity.id, choices.transactions.types.POLL, poll.id, poll.transactions.currentId, poll.transactions.newBalance, (error, business)->
+          if error?
+            return
+          else
+            polls.setTransactionProcessed instance.transactions.id, amount, (error, poll)->
+              return
     return
     
   @pending = (entityType, entityId, skip, limit, callback)->
@@ -419,12 +533,62 @@ class Discussions extends API
       return
     return
     
-  @add = (data, callback)->
+  @add = (data, amount, callback)->
     instance = new @model(data)
     
-    #load default transaction stuff (maybe create a separate function to do transaction setup)
-    #instance.transaction.state = choices.transactions.state.PENDING #This is the default setting
-    instance.save callback
+   # transactions: {
+   #    ids           : [ObjectId]
+   #    history       : {}
+   #  
+   #    # Example of a transaction history object
+   #    # history = {
+   #    #   transactionId: {
+   #    #     state: {type: String, required: true, enum: choices.transactions.state._enum, default: choices.transactions.state.PENDING}
+   #    #     created: {type: Date, required: true, default: new Date( (new Date()).toUTCString() )}
+   #    #     lastModified: {type: Date, required: true, default: new Date( (new Date()).toUTCString() )}
+   #    #     amount: {type: Number, required: true, default: 0.0}
+   #    #   }
+   #    # }
+   #  
+   #    currentState  : {type: String, required: true, enum: choices.transactions.state._enum, default: choices.transactions.state.PENDING}
+   #    currentId     : {type: ObjectId}
+   #  
+   #    currentBalance: {type: Number, required: true}
+   #    newBalance    : {type: Number}
+   # }
+
+
+    transaction = {}
+    transaction.state = choices.transactions.state.PENDING
+    transaction.created = new Date()
+    transaction.lastModified = new Date()
+    
+    transactionId = new ObjectId()
+    transactionIdStr = transactionId.toString()
+
+    instance.transactions.ids = [transactionId]
+
+    instance.transactions.history = {}
+    instance.transactions.history[transactionIdStr] = transaction
+
+    instance.transactions.currentId = transactionId
+    instance.transactions.currentState = choices.transactions.state.PENDING
+
+    instance.transactions.currentBalance = 0.0
+    instance.transactions.newBalance = amount
+
+    instance.save (error, discussion)->
+      callback error, discussion
+      if error?
+        return
+      else
+        amount = discussion.transactions.newBalance - discussion.transactions.currentBalance
+        Businesses.deductFunds discussion.entity.id, choices.transactions.types.DISCUSSION, discussion.id, discussion.transactions.currentId, discussion.transactions.newBalance (error, business)->
+          if error?
+            return
+          else
+            Discussions.setTransactionProcessed instance.transactions.id, amount, (error, discussion)->
+              return
     return
     
   @pending: (entityType, entityId, skip, limit, callback)->
@@ -470,6 +634,85 @@ class Discussions extends API
   @getByEntity: (entityType, entityId, discussionId, callback)->
     @model.findOne {_id: discussionId, 'entity.type': entityType ,'entity.id': entityId}, callback
     return
+
+  @setTransactionPending: (id, transactionId, callback)->
+    if !callback?
+      callback = error
+    #convert id to objectId
+    if Object.isString(id)
+      id = new ObjectId(id)
+    
+    #convert id to objectId
+    if Object.isString(transactionId)
+      transactionId = new ObjectId(transactionId)
+    
+    transactionIdStr = transactionId.toString()
+
+    $set: {}
+    $set["transactions.currentId"] = transactionId
+    $set["transactions.currentState"] = state
+    $set["transactions.history."+transactionIdStr+".state"] = state
+    @model.collection.findAndModify {_id: id}, [], {$set: $set}, {new: true, safe: true}, callback
+    return
+
+  @setTransactionProcessing: (id, transactionId, callback)->
+    if !callback?
+      callback = error
+    #convert id to objectId
+    if Object.isString(id)
+      id = new ObjectId(id)
+    
+    #convert id to objectId
+    if Object.isString(transactionId)
+      transactionId = new ObjectId(transactionId)
+    
+    transactionIdStr = transactionId.toString()
+
+    $set: {}
+    $set["transactions.currentState"] = state
+    $set["transactions.history."+transactionIdStr+".state"] = state
+    @model.collection.findAndModify {_id: id}, [], {$set: $set}, {new: true, safe: true}, callback
+    return
+  
+  @setTransactionProcessed: (id, transactionId, amount, callback)->
+    if !callback?
+      callback = error
+    #convert id to objectId
+    if Object.isString(id)
+      id = new ObjectId(id)
+    
+    #convert id to objectId
+    if Object.isString(transactionId)
+      transactionId = new ObjectId(transactionId)
+    
+    transactionIdStr = transactionId.toString()
+
+    $set: {}
+    $set["transactions.currentState"] = state
+    $set["transactions.history."+transactionIdStr+".state"] = state
+    $set["transactions.history."+transactionIdStr+".amount"] = amount
+    @model.collection.findAndModify {_id: id}, [], {$set: $set}, $inc: {"transactions.currentBalance": amount, "funds.allocated": amount, "funds.remaining": amount}, {new: true, safe: true}, callback
+    return
+
+  @setTransactionError: (id, transactionId, errorObj, callback)->
+    if !callback?
+      callback = error
+    #convert id to objectId
+    if Object.isString(id)
+      id = new ObjectId(id)
+    
+    #convert id to objectId
+    if Object.isString(transactionId)
+      transactionId = new ObjectId(transactionId)
+    
+    transactionIdStr = transactionId.toString()
+
+    $set: {}
+    $set["transactions.currentState"] = state
+    $set["transactions.history."+transactionIdStr+".error"] = errorObj
+    @model.collection.findAndModify {_id: id}, [], {$set: $set}, {new: true, safe: true}, callback
+    return
+    
     
 class Responses extends API
   @model = Response
@@ -703,7 +946,7 @@ class ClientInvitations extends API
     @_add {businessId: businessId, groupName: groupName, email: email, key: key}, callback
   
   @validate = (key, callback)->
-    @model.collection.findAndModify {key: key, status: choices.invitations.state.PENDING},[],{$set: {status: choices.invitations.state.PROCESSED}}, {new: true}, callback
+    @model.collection.findAndModify {key: key, status: choices.invitations.state.PENDING}, [], {$set: {status: choices.invitations.state.PROCESSED}}, {new: true, safe:true}, callback
 
 
 class Tags extends API

@@ -227,6 +227,7 @@ Business = new Schema {
     phone       : {type: String, required: true}
     fax         : {type: String}
   }
+
   locations     : [Location]
 
   media: {
@@ -261,6 +262,24 @@ Business = new Schema {
     #owners      : [String]
     #managers    : [String]
   }
+
+  transactions: {
+    ids           : [ObjectId]
+    history       : {}
+
+    # Example of transaction history object
+    # history: {
+    #   transactionId: { #transactionId is a string representation of the ObjectId
+    #     document: {
+    #       type          : {type: String, required: true, enum: choices.transactions.types._enum}
+    #       id            : {type: ObjectId, required: true}
+    #     }
+    #     amount: {type: Number}
+    #     timestamp: {type: Date, required: true, default: new Date( (new Date()).toUTCString() )}
+    #   }
+    # }
+
+  }
 }
 
 #indexes
@@ -284,26 +303,46 @@ Poll = new Schema {
   amount          : {type: Number, default: 0} #number of people to pose this to
   stats           : {type: Boolean, default: true, required: true} #whether to display the stats to the user or not
   answered        : {type: Number, default: 0}
+
   media: {
     url           : {type: Url, required: true} #video or image
     thumb         : {type: Url}
     guid          : {type: String}
   }
+  
   dates: {
     created       : {type: Date, required: true, default: new Date( (new Date()).toUTCString() )}
     start         : {type: Date, required: true, default: new Date( (new Date()).toUTCString() )}
     end           : {type: Date}
   }
+  
   funds: {
-    allocated     : {type: Number, required: true}
-    remaining     : {type: Number, required: true}
+    perResponse   : {type: Number, required: true}
+    allocated     : {type: Number, required: true, default: 0.0}
+    remaining     : {type: Number, required: true, default: 0.0}
   }
-  transaction: {
-    state         : {type: String, required: true, enum: choices.transactions.state._enum, default: choices.transactions.state.PENDING}
-    error         : {type: String} #only populated if there is an error in the transaction i.e. insufficient funds
-    created       : {type: Date, required: true, default: new Date( (new Date()).toUTCString() )}
-    lastModified  : {type: Date, required: true, default: new Date( (new Date()).toUTCString() )}
+
+  transactions: {
+    ids           : [ObjectId]
+    history       : {}
+    
+    # Example of a transaction history object
+    # history = {
+    #   transactionId: {
+    #     state: {type: String, required: true, enum: choices.transactions.state._enum, default: choices.transactions.state.PENDING}
+    #     created: {type: Date, required: true, default: new Date( (new Date()).toUTCString() )}
+    #     lastModified: {type: Date, required: true, default: new Date( (new Date()).toUTCString() )}
+    #     amount: {type: Number, required: true, default: 0.0}
+    #   }
+    # }
+    
+    currentState  : {type: String, required: true, enum: choices.transactions.state._enum, default: choices.transactions.state.PENDING}
+    currentId     : {type: ObjectId}
+    
+    currentBalance: {type: Number, required: true, default: 0.0}
+    newBalance    : {type: Number, required: true, default: 0.0}
   }
+
 }
 
 
@@ -333,14 +372,29 @@ Discussion = new Schema {
     #end           : {type: Date, required: true, default: new Date( (new Date().addWeeks(3)).toUTCString() )} #three week later
   }
   funds: {
-    allocated     : {type: Number, required: true}
-    remaining     : {type: Number, required: true}
+    allocated     : {type: Number, required: true, default: 0.0}
+    remaining     : {type: Number, required: true, default: 0.0}
   }
-  transaction: {
-    state         : {type: String, required: true, enum: choices.transactions.state._enum, default: choices.transactions.state.PENDING}
-    error         : {type: String} #only populated if there is an error in the transaction i.e. insufficient funds
-    created       : {type: Date, required: true, default: new Date( (new Date()).toUTCString() )}
-    lastModified  : {type: Date, required: true, default: new Date( (new Date()).toUTCString() )}
+  
+  transactions: {
+    ids           : [ObjectId]
+    history       : {}
+    
+    # Example of a transaction history object
+    # history = {
+    #   transactionId: {
+    #     state: {type: String, required: true, enum: choices.transactions.state._enum, default: choices.transactions.state.PENDING}
+    #     created: {type: Date, required: true, default: new Date( (new Date()).toUTCString() )}
+    #     lastModified: {type: Date, required: true, default: new Date( (new Date()).toUTCString() )}
+    #     amount: {type: Number, required: true, default: 0.0}
+    #   }
+    # }
+    
+    currentState  : {type: String, required: true, enum: choices.transactions.state._enum, default: choices.transactions.state.PENDING}
+    currentId     : {type: ObjectId}
+    
+    currentBalance: {type: Number, required: true, default: 0.0}
+    newBalance    : {type: Number, required: true, default: 0.0}
   }
 }
 

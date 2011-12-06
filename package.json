@@ -15,7 +15,7 @@
   "dependencies": {
     "async": "=0.1.9",
     "groupon": "=0.0.4",
-    "mongoose": "=2.3.0",
+    "mongoose": "=2.3.13",
     "mongoose-types": "=1.0.3",
     "poolr": "=0.0.4",
     "sugar": "=0.9.5",
