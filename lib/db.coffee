@@ -315,6 +315,7 @@ Poll = new Schema {
   }
   showStats       : {type: Boolean, required: true} #whether to display the stats to the user or not
   displayName     : {type: Boolean, required: true}
+  displayMedia    : {type: String, required: true, default: choices.polls.displayMedia.NO, enum: choices.polls.displayMedia._enum}
   media: {
     url           : {type: Url, required: true} #video or image
     thumb         : {type: Url}
