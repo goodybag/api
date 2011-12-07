@@ -475,8 +475,8 @@ class Polls extends API
     instance.transactions.currentBalance = 0.0
     instance.transactions.newBalance = amount
 
-    console.log instance
-    console.log amount
+    #console.log instance
+    #console.log amount
 
     instance.save (error, poll)->
       callback error, poll
@@ -490,9 +490,10 @@ class Polls extends API
           else
             polls.setTransactionProcessed instance.transactions.id, amount, (error, poll)->
               return
+            return
     #load default transaction stuff (maybe create a separate function to do transaction setup)
     #instance.transaction.state = choices.transactions.state.PENDING #This is the default setting
-    instance.save callback
+    #instance.save callback
     return
   
   @update: (entityType, entityId, pollId, data, callback)->
@@ -967,16 +968,16 @@ class Medias extends API
     return query
 
   #type is either image or video
-  @getByBusiness = (entityId, type, callback)->
+  @getByEntity = (entityType, entityId, type, callback)->
     if Object.isFunction(type)
       callback = type
-      @get {entityType: choices.entities.BUSINESS, entityId: entityId}, callback
+      @get {entityType: entityType, entityId: entityId}, callback
       #@get {'entity.type': choices.entities.BUSINESS, 'entity.id': entityId}, callback
     else
-      @get {entityType: choices.entities.BUSINESS, entityId: entityId, type: type}, callback
+      @get {entityType: entityType, entityId: entityId, type: type}, callback
       #@get {'entity.type': choices.entities.BUSINESS, 'entity.id': entityId, type: type}, callback
     return
-  
+
   @getByGuid = (entityType, entityId, guid, callback)->
     @get {entityType: entityType, entityId: entityId, guid: guid}, callback
     #@get {'entity.type': entityType, 'entity.id': entityId, 'media.guid': guid}, callback

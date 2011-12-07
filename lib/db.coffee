@@ -181,6 +181,11 @@ Client = new Schema {
   lastName      : {type: String, required: true}
   email         : {type: String, index: true, unique: true, set: utils.toLower, validate: /^(([^<>()[\]\\.,;:\s@\"]+(\.[^<>()[\]\\.,;:\s@\"]+)*)|(\".+\"))@((\[[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\])|(([a-zA-Z\-0-9]+\.)+[a-zA-Z]{2,}))$/}
   password      : {type: String, validate:/.{5,}/, required: true}
+  media: {
+    url         : {type: Url, required: true} #video or image
+    thumb       : {type: Url}
+    guid        : {type: String}
+  }
   dates: {
     created     : {type: Date, required: true, default: new Date( (new Date()).toUTCString() )}
   }
