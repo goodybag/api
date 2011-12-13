@@ -125,7 +125,7 @@ class Consumers extends API
       else if consumer?
         return callback error, consumer
       else
-        return callback new Error("invalid username/password")
+        return callback new errors.ValidationError {"login":"invalid username/password"}
 
 class Clients extends API
   @model = Client
