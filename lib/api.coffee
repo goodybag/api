@@ -708,83 +708,83 @@ class Polls extends API
     callback null, polls #array or one poll
     return
     
-    @setTransactionPending: (id, transactionId, callback)->
-      if !callback?
-        callback = error
-      #convert id to objectId
-      if Object.isString(id)
-        id = new ObjectId(id)
+  @setTransactionPending: (id, transactionId, callback)->
+    if !callback?
+      callback = error
+    #convert id to objectId
+    if Object.isString(id)
+      id = new ObjectId(id)
 
-      #convert id to objectId
-      if Object.isString(transactionId)
-        transactionId = new ObjectId(transactionId)
+    #convert id to objectId
+    if Object.isString(transactionId)
+      transactionId = new ObjectId(transactionId)
 
-      transactionIdStr = transactionId.toString()
+    transactionIdStr = transactionId.toString()
 
-      $set: {}
-      $set["transactions.currentId"] = transactionId
-      $set["transactions.currentState"] = state
-      $set["transactions.history."+transactionIdStr+".state"] = state
-      @model.collection.findAndModify {_id: id}, [], {$set: $set}, {new: true, safe: true}, callback
-      return
+    $set: {}
+    $set["transactions.currentId"] = transactionId
+    $set["transactions.currentState"] = state
+    $set["transactions.history."+transactionIdStr+".state"] = state
+    @model.collection.findAndModify {_id: id}, [], {$set: $set}, {new: true, safe: true}, callback
+    return
 
-    @setTransactionProcessing: (id, transactionId, callback)->
-      if !callback?
-        callback = error
-      #convert id to objectId
-      if Object.isString(id)
-        id = new ObjeπctId(id)
+  @setTransactionProcessing: (id, transactionId, callback)->
+    if !callback?
+      callback = error
+    #convert id to objectId
+    if Object.isString(id)
+      id = new ObjeπctId(id)
 
-      #convert id to objectid
-      if Object.isString(transactionId)
-        transactionId = new ObjectId(transactionId)
+    #convert id to objectid
+    if Object.isString(transactionId)
+      transactionId = new ObjectId(transactionId)
 
-      transactionIdStr = transactionId.toString()
+    transactionIdStr = transactionId.toString()
 
-      $set: {}
-      $set["transactions.currentState"] = state
-      $set["transactions.history."+transactionIdStr+".state"] = state
-      @model.collection.findAndModify {_id: id}, [], {$set: $set}, {new: true, safe: true}, callback
-      return
+    $set: {}
+    $set["transactions.currentState"] = state
+    $set["transactions.history."+transactionIdStr+".state"] = state
+    @model.collection.findAndModify {_id: id}, [], {$set: $set}, {new: true, safe: true}, callback
+    return
 
-    @setTransactionProcessed: (id, transactionId, amount, callback)->
-      if !callback?
-        callback = error
-      #convert id to objectId
-      if Object.isString(id)
-        id = new ObjectId(id)
+  @setTransactionProcessed: (id, transactionId, amount, callback)->
+    if !callback?
+      callback = error
+    #convert id to objectId
+    if Object.isString(id)
+      id = new ObjectId(id)
 
-      #convert id to objectId
-      if Object.isString(transactionId)
-        transactionId = new ObjectId(transactionId)
+    #convert id to objectId
+    if Object.isString(transactionId)
+      transactionId = new ObjectId(transactionId)
 
-      transactionIdStr = transactionId.toString()
+    transactionIdStr = transactionId.toString()
 
-      $set: {}
-      $set["transactions.currentState"] = state
-      $set["transactions.history."+transactionIdStr+".state"] = state
-      $set["transactions.history."+transactionIdStr+".amount"] = amount
-      @model.collection.findAndModify {_id: id}, [], {$set: $set}, $inc: {"transactions.currentBalance": amount, "funds.allocated": amount, "funds.remaining": amount}, {new: true, safe: true}, callback
-      return
+    $set: {}
+    $set["transactions.currentState"] = state
+    $set["transactions.history."+transactionIdStr+".state"] = state
+    $set["transactions.history."+transactionIdStr+".amount"] = amount
+    @model.collection.findAndModify {_id: id}, [], {$set: $set}, $inc: {"transactions.currentBalance": amount, "funds.allocated": amount, "funds.remaining": amount}, {new: true, safe: true}, callback
+    return
 
-    @setTransactionError: (id, transactionId, errorObj, callback)->
-      if !callback?
-        callback = error
-      #convert id to objectId
-      if Object.isString(id)
-        id = new ObjectId(id)
+  @setTransactionError: (id, transactionId, errorObj, callback)->
+    if !callback?
+      callback = error
+    #convert id to objectId
+    if Object.isString(id)
+      id = new ObjectId(id)
 
-      #convert id to objectId
-      if Object.isString(transactionId)
-        transactionId = new ObjectId(transactionId)
+    #convert id to objectId
+    if Object.isString(transactionId)
+      transactionId = new ObjectId(transactionId)
 
-      transactionIdStr = transactionId.toString()
+    transactionIdStr = transactionId.toString()
 
-      $set: {}
-      $set["transactions.currentState"] = state
-      $set["transactions.history."+transactionIdStr+".error"] = errorObj
-      @model.collection.findAndModify {_id: id}, [], {$set: $set}, {new: true, safe: true}, callback
-      return
+    $set: {}
+    $set["transactions.currentState"] = state
+    $set["transactions.history."+transactionIdStr+".error"] = errorObj
+    @model.collection.findAndModify {_id: id}, [], {$set: $set}, {new: true, safe: true}, callback
+    return
       
       
 class Discussions extends API
