@@ -687,6 +687,7 @@ exports.Media               = mongoose.model 'Media', Media
 exports.ClientInvitation    = mongoose.model 'ClientInvitation', ClientInvitation
 exports.Tag                 = mongoose.model 'Tag', Tag
 exports.EventRequest        = mongoose.model 'EventRequest', EventRequest
+exports.Event               = mongoose.model 'EventRequest', Event
 
 exports.schemas = {
   DailyDeal: DailyDeal
@@ -702,4 +703,5 @@ exports.schemas = {
   ClientInvitation: ClientInvitation
   Tag: Tag
   EventRequest: EventRequest
+  Event: Event
 }
