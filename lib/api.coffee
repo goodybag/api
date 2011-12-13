@@ -383,6 +383,7 @@ class Businesses extends API
       console.log error
       console.log business
 
+
 class DailyDeals extends API
   @model = DailyDeal
   
@@ -994,6 +995,7 @@ class Discussions extends API
     @model.collection.findAndModify {_id: id}, [], {$set: $set}, {new: true, safe: true}, callback
     return
     
+
 class Responses extends API
   @model = Response
 
@@ -1266,6 +1268,3 @@ exports.ClientInvitations = ClientInvitations
 exports.Tags = Tags
 exports.EventRequests = EventRequests
 
-# Polls.answer "4ecddba7209bbd2432000002", "4ecddba7209bbd2432999999", [1,2], (error, data)->
-#   console.log(error)
-#   console.log(data)
