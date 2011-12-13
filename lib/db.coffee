@@ -622,9 +622,39 @@ Tag = new Schema {
 
 Tag.index('name': 1)
 
-####################
-#Events Requests ###
-####################
+############
+# Events ###
+############
+Event = new Schema {
+  entity      : { 
+    type      : {type: String, required: true, enum: choices.entities._enum}
+    id        : {type: ObjectId, required: true}
+    name      : {type: String}
+  }
+  location    : {
+    name      : {type: String, required: true}
+    address   : {type: String, required: true}
+    phone     : {type: String, required: true}
+  }
+  dates       : {
+    requested : {type: Date, required: true}
+    responded : {type: Date, required: true}
+    actual    : {type: Date, required: true}
+  }
+  hours       : [Date]
+  pledge      : {type: Number, min: 0, max: 100, required: true}
+  facebook    : {
+    appId     : {type: Number, required: true}
+    url       : {type: Url, required: true}
+  }
+  externalUrl : {type: Url}
+  rsvp        : [ObjectId]
+  rsvpUsers   : [ObjectId]
+}
+
+#####################
+# Events Requests ###
+#####################
 EventRequest = new Schema {
   userEntity          : {
     type              : {type: String, required: true, enum: choices.entities._enum}

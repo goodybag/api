@@ -1017,6 +1017,9 @@ class Tags extends API
 class EventRequests extends API
   @model = EventRequest
 
+class Events extends API
+  @model = EventRequest
+
 exports.Clients = Clients
 exports.Businesses = Businesses
 exports.Medias = Medias
@@ -1029,3 +1032,4 @@ exports.DailyDeals = DailyDeals
 exports.ClientInvitations = ClientInvitations
 exports.Tags = Tags
 exports.EventRequests = EventRequests
+exports.Events = Events
