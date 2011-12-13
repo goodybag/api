@@ -1252,6 +1252,9 @@ class Tags extends API
 class EventRequests extends API
   @model = EventRequest
 
+class Events extends API
+  @model = Event
+
 exports.Clients = Clients
 exports.Consumers = Consumers
 exports.Businesses = Businesses
