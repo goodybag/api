@@ -359,7 +359,7 @@ class DailyDeals extends API
     deal = new Deal();
     for own k,v of data
       deal[k] = v
-    # @model.collection.update 
+    # @model.collection.update
     delete deal.doc._id #need to delete otherwise: Mod on _id not allowed
     @model.update {did:deal['did']}, deal.doc, {upsert: true}, callback #upsert
     return
@@ -488,7 +488,7 @@ class Polls extends API
           if error?
             return
           else
-            polls.setTransactionProcessed instance.transactions.id, amount, (error, poll)->
+            Polls.setTransactionProcessed instance.transactions.id, amount, (error, poll)->
               return
             return
     #load default transaction stuff (maybe create a separate function to do transaction setup)
@@ -550,6 +550,84 @@ class Polls extends API
     query.exec callback
     return
 
+  @setTransactionPending: (id, transactionId, callback)->
+    if !callback?
+      callback = error
+    #convert id to objectId
+    if Object.isString(id)
+      id = new ObjectId(id)
+    
+    #convert id to objectId
+    if Object.isString(transactionId)
+      transactionId = new ObjectId(transactionId)
+    
+    transactionIdStr = transactionId.toString()
+
+    $set: {}
+    $set["transactions.currentId"] = transactionId
+    $set["transactions.currentState"] = choices.transactions.state.PENDING
+    $set["transactions.history."+transactionIdStr+".state"] = state
+    @model.collection.findAndModify {_id: id}, [], {$set: $set}, {new: true, safe: true}, callback
+    return
+
+  @setTransactionProcessing: (id, transactionId, callback)->
+    if !callback?
+      callback = error
+    #convert id to objectId
+    if Object.isString(id)
+      id = new ObjectId(id)
+    
+    #convert id to objectId
+    if Object.isString(transactionId)
+      transactionId = new ObjectId(transactionId)
+    
+    transactionIdStr = transactionId.toString()
+
+    $set: {}
+    $set["transactions.currentState"] = choices.transactions.state.PROCESSING
+    $set["transactions.history."+transactionIdStr+".state"] = state
+    @model.collection.findAndModify {_id: id}, [], {$set: $set}, {new: true, safe: true}, callback
+    return
+  
+  @setTransactionProcessed: (id, transactionId, amount, callback)->
+    if !callback?
+      callback = error
+    #convert id to objectId
+    if Object.isString(id)
+      id = new ObjectId(id)
+    
+    #convert id to objectId
+    if Object.isString(transactionId)
+      transactionId = new ObjectId(transactionId)
+    
+    transactionIdStr = transactionId.toString()
+
+    $set: {}
+    $set["transactions.currentState"] = choices.transactions.state.PROCESSED
+    $set["transactions.history."+transactionIdStr+".state"] = state
+    $set["transactions.history."+transactionIdStr+".amount"] = amount
+    @model.collection.findAndModify {_id: id}, [], {$set: $set}, $inc: {"transactions.currentBalance": amount, "funds.allocated": amount, "funds.remaining": amount}, {new: true, safe: true}, callback
+    return
+
+  @setTransactionError: (id, transactionId, errorObj, callback)->
+    if !callback?
+      callback = error
+    #convert id to objectId
+    if Object.isString(id)
+      id = new ObjectId(id)
+    
+    #convert id to objectId
+    if Object.isString(transactionId)
+      transactionId = new ObjectId(transactionId)
+    
+    transactionIdStr = transactionId.toString()
+
+    $set: {}
+    $set["transactions.currentState"] = choices.transactions.state.ERROR
+    $set["transactions.history."+transactionIdStr+".error"] = errorObj
+    @model.collection.findAndModify {_id: id}, [], {$set: $set}, {new: true, safe: true}, callback
+    return
+    
   
 class Discussions extends API
   @model = Discussion
@@ -561,7 +639,6 @@ class Discussions extends API
     query.where('entity.id', options.entityId) if options.entityId?
     query.where('dates.start').gte(options.start) if options.start?
     query.where('dates.end').gte(options.start) if options.end?
-    query.where('transaction.state', state) if options.state?
     
     return query
 
@@ -696,7 +773,7 @@ class Discussions extends API
 
     $set: {}
     $set["transactions.currentId"] = transactionId
-    $set["transactions.currentState"] = state
+    $set["transactions.currentState"] = choices.transactions.state.PENDING
     $set["transactions.history."+transactionIdStr+".state"] = state
     @model.collection.findAndModify {_id: id}, [], {$set: $set}, {new: true, safe: true}, callback
     return
@@ -715,7 +792,7 @@ class Discussions extends API
     transactionIdStr = transactionId.toString()
 
     $set: {}
-    $set["transactions.currentState"] = state
+    $set["transactions.currentState"] = choices.transactions.state.PROCESSING
     $set["transactions.history."+transactionIdStr+".state"] = state
     @model.collection.findAndModify {_id: id}, [], {$set: $set}, {new: true, safe: true}, callback
     return
@@ -734,7 +811,7 @@ class Discussions extends API
     transactionIdStr = transactionId.toString()
 
     $set: {}
-    $set["transactions.currentState"] = state
+    $set["transactions.currentState"] = choices.transactions.state.PROCESSED
     $set["transactions.history."+transactionIdStr+".state"] = state
     $set["transactions.history."+transactionIdStr+".amount"] = amount
     @model.collection.findAndModify {_id: id}, [], {$set: $set}, $inc: {"transactions.currentBalance": amount, "funds.allocated": amount, "funds.remaining": amount}, {new: true, safe: true}, callback
@@ -754,7 +831,7 @@ class Discussions extends API
     transactionIdStr = transactionId.toString()
 
     $set: {}
-    $set["transactions.currentState"] = state
+    $set["transactions.currentState"] = choices.transactions.state.ERROR
     $set["transactions.history."+transactionIdStr+".error"] = errorObj
     @model.collection.findAndModify {_id: id}, [], {$set: $set}, {new: true, safe: true}, callback
     return
