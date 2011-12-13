@@ -15,6 +15,7 @@ errors = globals.errors
 
 DailyDeal = db.DailyDeal
 Client = db.Client
+Consumer = db.Consumer
 Business = db.Business
 Deal = db.Deal
 Media = db.Media
@@ -94,6 +95,37 @@ class API
   @getByEntity: (entityType, entityId, id, callback)->
     @model.findOne {_id: id, 'entity.type': entityType ,'entity.id': entityId}, callback
     return
+
+class Consumers extends API
+  @model = Consumer
+
+  @facebook: (data, callback)->
+    #TODO
+    return
+
+  @register: (data, callback)->
+    self = this
+    query = @_query()
+    query.where('email', data.email)
+    query.findOne (error, client)->
+      if error?
+        callback error #db error
+      else if !client?
+        self.add(data, callback) #registration success
+      else if client?
+        callback new errors.ValidationError {"email":"Email Already Exists"} #email exists error
+      return
+  
+  @login: (email, password, callback)->
+    query = @_query()
+    query.where('email', email).where('password', password)
+    query.findOne (error, client)->
+      if(error)
+        return callback error, client
+      else if client?
+        return callback error, client
+      else
+        return callback new Error("invalid username/password")
 
 class Clients extends API
   @model = Client
@@ -359,7 +391,7 @@ class DailyDeals extends API
     deal = new Deal();
     for own k,v of data
       deal[k] = v
-    # @model.collection.update
+    # @model.collection.update 
     delete deal.doc._id #need to delete otherwise: Mod on _id not allowed
     @model.update {did:deal['did']}, deal.doc, {upsert: true}, callback #upsert
     return
@@ -488,7 +520,7 @@ class Polls extends API
           if error?
             return
           else
-            Polls.setTransactionProcessed instance.transactions.id, amount, (error, poll)->
+            polls.setTransactionProcessed instance.transactions.id, amount, (error, poll)->
               return
             return
     #load default transaction stuff (maybe create a separate function to do transaction setup)
@@ -550,85 +582,210 @@ class Polls extends API
     query.exec callback
     return
 
-  @setTransactionPending: (id, transactionId, callback)->
-    if !callback?
-      callback = error
-    #convert id to objectId
-    if Object.isString(id)
-      id = new ObjectId(id)
+  @answer = (pollId, consumerId, answers, callback)->
+    if Object.isString(pollId)
+      pollId = new ObjectId(pollId)
+    if Object.isString(consumerId)
+      consumerId = new ObjectId(consumerId)
+    minAnswer = Math.min.apply(Math,answers)
+    maxAnswer = Math.max.apply(Math,answers)
+    if(minAnswer < 0 || isNaN(minAnswer) || isNaN(maxAnswer))
+      callback new errors.ValidationError({"answers":"Out of Range"})
+      return
+    timestamp = new Date
     
-    #convert id to objectId
-    if Object.isString(transactionId)
-      transactionId = new ObjectId(transactionId)
+    query = {
+        _id               : pollId,
+        numChoices        : {$gt : maxAnswer},
+        "responses.consumers" : {$ne : consumerId}
+    }
+    inc = new Object()
+    inc["responses.remaining"] = -1;
+    i=0
+    while i<answers.length
+      inc["responses.choiceCounts."+answers[i]] = 1;
+      i++
+    set = new Object()
+    set["responses.log."+consumerId] = {
+        answers   : answers,
+        timestamp : timestamp
+    }
+    update = {
+        $inc  : inc,
+        $push : {
+            date  : {
+                consumerId : consumerId
+                timestamp  : timestamp
+            }
+            "responses.consumers" : consumerId,
+        },
+        $set  : set
+    }
+    fieldsToReturn = {
+        _id                      : 1,
+        question                 : 1,
+        choices                  : 1,
+        "responses.choiceCounts" : 1,
+      # "responses.log.consumerId: 1, # below
+        showStats                : 1,
+        displayName              : 1,
+        displayMedia             : 1,
+        "entity.name"            : 1,
+        media                    : 1,
+        dates                    : 1,
+        "funds.perResponse"      : 1
+    }
+    fieldsToReturn["responses.log."+consumerId.toString]
     
-    transactionIdStr = transactionId.toString()
+    @model.collection.findAndModify query, [], update, {new:true, safe:true}, fieldsToReturn, (error, poll)->
+      Polls.removePollPrivateFields(error, poll, callback)
+    #TODO: transaction of funds.. per response gain to consumer..
 
-    $set: {}
-    $set["transactions.currentId"] = transactionId
-    $set["transactions.currentState"] = choices.transactions.state.PENDING
-    $set["transactions.history."+transactionIdStr+".state"] = state
-    @model.collection.findAndModify {_id: id}, [], {$set: $set}, {new: true, safe: true}, callback
+  @next = (userId, callback)->
+    if Object.isString(userId)
+      userId = new ObjectId(userId)
+    query = @_query
+    query.where('responses.users').ne(userId)
+    #endDate..
+    #remove fields
+    query.fields({
+        _id           : 1,
+        question      : 1,
+        choices       : 1,
+        displayName   : 1,
+        displayMedia  : 1,
+        "entity.name" : 1,
+        media         : 1
+    });
+    query.exec (error, poll)->
+      if error? || !poll?
+        callback error
+        return
+      Polls.removePollPrivateFields(error, poll, callback)
+      return
+
+  @answered = (userId, skip, limit)->
+    if Object.isString(userId)
+      userId = new ObjectId(userId)
+    query = $_query
+    query.where('responses.users',userId)
+    query.fields({
+        _id           : 1,
+        question      : 1,
+        choices       : 1,
+        displayName   : 1,
+        displayMedia  : 1,
+        "entity.name" : 1,
+        media         : 1
+    });
+    query.exec (error, poll)->
+      if error? || !poll?
+        callback error
+        return
+      Polls.removePollPrivateFields(error, poll, callback)
+      return
+
+  @removePollPrivateFields = (error, polls, callback)->
+    #arrayCheck
+    if !Object.isArray(polls)
+      if(!polls.displayName)
+        delete polls.entity
+      if(!polls.displayMedia)
+        delete media
+      if(!polls.showStats && polls.responses?)
+        delete polls.responses.choiceCounts 
+    else
+      i=0
+      while i<polls.length
+        if(!polls[i].displayName)
+          delete polls[i].entity
+        if(!polls[i].displayMedia)
+          delete media
+        if(!polls[i].showStats)
+          delete polls[i].responses.choiceCounts 
+        i++
+    callback null, polls #array or one poll
     return
+    
+    @setTransactionPending: (id, transactionId, callback)->
+      if !callback?
+        callback = error
+      #convert id to objectId
+      if Object.isString(id)
+        id = new ObjectId(id)
 
-  @setTransactionProcessing: (id, transactionId, callback)->
-    if !callback?
-      callback = error
-    #convert id to objectId
-    if Object.isString(id)
-      id = new ObjectId(id)
-    
-    #convert id to objectId
-    if Object.isString(transactionId)
-      transactionId = new ObjectId(transactionId)
-    
-    transactionIdStr = transactionId.toString()
+      #convert id to objectId
+      if Object.isString(transactionId)
+        transactionId = new ObjectId(transactionId)
 
-    $set: {}
-    $set["transactions.currentState"] = choices.transactions.state.PROCESSING
-    $set["transactions.history."+transactionIdStr+".state"] = state
-    @model.collection.findAndModify {_id: id}, [], {$set: $set}, {new: true, safe: true}, callback
-    return
-  
-  @setTransactionProcessed: (id, transactionId, amount, callback)->
-    if !callback?
-      callback = error
-    #convert id to objectId
-    if Object.isString(id)
-      id = new ObjectId(id)
-    
-    #convert id to objectId
-    if Object.isString(transactionId)
-      transactionId = new ObjectId(transactionId)
-    
-    transactionIdStr = transactionId.toString()
+      transactionIdStr = transactionId.toString()
 
-    $set: {}
-    $set["transactions.currentState"] = choices.transactions.state.PROCESSED
-    $set["transactions.history."+transactionIdStr+".state"] = state
-    $set["transactions.history."+transactionIdStr+".amount"] = amount
-    @model.collection.findAndModify {_id: id}, [], {$set: $set}, $inc: {"transactions.currentBalance": amount, "funds.allocated": amount, "funds.remaining": amount}, {new: true, safe: true}, callback
-    return
+      $set: {}
+      $set["transactions.currentId"] = transactionId
+      $set["transactions.currentState"] = state
+      $set["transactions.history."+transactionIdStr+".state"] = state
+      @model.collection.findAndModify {_id: id}, [], {$set: $set}, {new: true, safe: true}, callback
+      return
 
-  @setTransactionError: (id, transactionId, errorObj, callback)->
-    if !callback?
-      callback = error
-    #convert id to objectId
-    if Object.isString(id)
-      id = new ObjectId(id)
-    
-    #convert id to objectId
-    if Object.isString(transactionId)
-      transactionId = new ObjectId(transactionId)
-    
-    transactionIdStr = transactionId.toString()
+    @setTransactionProcessing: (id, transactionId, callback)->
+      if !callback?
+        callback = error
+      #convert id to objectId
+      if Object.isString(id)
+        id = new ObjeπctId(id)
 
-    $set: {}
-    $set["transactions.currentState"] = choices.transactions.state.ERROR
-    $set["transactions.history."+transactionIdStr+".error"] = errorObj
-    @model.collection.findAndModify {_id: id}, [], {$set: $set}, {new: true, safe: true}, callback
-    return
-    
-  
+      #convert id to objectid
+      if Object.isString(transactionId)
+        transactionId = new ObjectId(transactionId)
+
+      transactionIdStr = transactionId.toString()
+
+      $set: {}
+      $set["transactions.currentState"] = state
+      $set["transactions.history."+transactionIdStr+".state"] = state
+      @model.collection.findAndModify {_id: id}, [], {$set: $set}, {new: true, safe: true}, callback
+      return
+
+    @setTransactionProcessed: (id, transactionId, amount, callback)->
+      if !callback?
+        callback = error
+      #convert id to objectId
+      if Object.isString(id)
+        id = new ObjectId(id)
+
+      #convert id to objectId
+      if Object.isString(transactionId)
+        transactionId = new ObjectId(transactionId)
+
+      transactionIdStr = transactionId.toString()
+
+      $set: {}
+      $set["transactions.currentState"] = state
+      $set["transactions.history."+transactionIdStr+".state"] = state
+      $set["transactions.history."+transactionIdStr+".amount"] = amount
+      @model.collection.findAndModify {_id: id}, [], {$set: $set}, $inc: {"transactions.currentBalance": amount, "funds.allocated": amount, "funds.remaining": amount}, {new: true, safe: true}, callback
+      return
+
+    @setTransactionError: (id, transactionId, errorObj, callback)->
+      if !callback?
+        callback = error
+      #convert id to objectId
+      if Object.isString(id)
+        id = new ObjectId(id)
+
+      #convert id to objectId
+      if Object.isString(transactionId)
+        transactionId = new ObjectId(transactionId)
+
+      transactionIdStr = transactionId.toString()
+
+      $set: {}
+      $set["transactions.currentState"] = state
+      $set["transactions.history."+transactionIdStr+".error"] = errorObj
+      @model.collection.findAndModify {_id: id}, [], {$set: $set}, {new: true, safe: true}, callback
+      return
+      
+      
 class Discussions extends API
   @model = Discussion
 
@@ -639,6 +796,7 @@ class Discussions extends API
     query.where('entity.id', options.entityId) if options.entityId?
     query.where('dates.start').gte(options.start) if options.start?
     query.where('dates.end').gte(options.start) if options.end?
+    query.where('transaction.state', state) if options.state?
     
     return query
 
@@ -773,7 +931,7 @@ class Discussions extends API
 
     $set: {}
     $set["transactions.currentId"] = transactionId
-    $set["transactions.currentState"] = choices.transactions.state.PENDING
+    $set["transactions.currentState"] = state
     $set["transactions.history."+transactionIdStr+".state"] = state
     @model.collection.findAndModify {_id: id}, [], {$set: $set}, {new: true, safe: true}, callback
     return
@@ -783,16 +941,16 @@ class Discussions extends API
       callback = error
     #convert id to objectId
     if Object.isString(id)
-      id = new ObjectId(id)
+      id = new ObjeπctId(id)
     
-    #convert id to objectId
+    #convert id to objectid
     if Object.isString(transactionId)
       transactionId = new ObjectId(transactionId)
     
     transactionIdStr = transactionId.toString()
 
     $set: {}
-    $set["transactions.currentState"] = choices.transactions.state.PROCESSING
+    $set["transactions.currentState"] = state
     $set["transactions.history."+transactionIdStr+".state"] = state
     @model.collection.findAndModify {_id: id}, [], {$set: $set}, {new: true, safe: true}, callback
     return
@@ -811,7 +969,7 @@ class Discussions extends API
     transactionIdStr = transactionId.toString()
 
     $set: {}
-    $set["transactions.currentState"] = choices.transactions.state.PROCESSED
+    $set["transactions.currentState"] = state
     $set["transactions.history."+transactionIdStr+".state"] = state
     $set["transactions.history."+transactionIdStr+".amount"] = amount
     @model.collection.findAndModify {_id: id}, [], {$set: $set}, $inc: {"transactions.currentBalance": amount, "funds.allocated": amount, "funds.remaining": amount}, {new: true, safe: true}, callback
@@ -831,7 +989,7 @@ class Discussions extends API
     transactionIdStr = transactionId.toString()
 
     $set: {}
-    $set["transactions.currentState"] = choices.transactions.state.ERROR
+    $set["transactions.currentState"] = state
     $set["transactions.history."+transactionIdStr+".error"] = errorObj
     @model.collection.findAndModify {_id: id}, [], {$set: $set}, {new: true, safe: true}, callback
     return
@@ -1095,6 +1253,7 @@ class EventRequests extends API
   @model = EventRequest
 
 exports.Clients = Clients
+exports.Consumers = Consumers
 exports.Businesses = Businesses
 exports.Medias = Medias
 exports.FlipAds = FlipAds
@@ -1106,3 +1265,7 @@ exports.DailyDeals = DailyDeals
 exports.ClientInvitations = ClientInvitations
 exports.Tags = Tags
 exports.EventRequests = EventRequests
+
+# Polls.answer "4ecddba7209bbd2432000002", "4ecddba7209bbd2432999999", [1,2], (error, data)->
+#   console.log(error)
+#   console.log(data)
