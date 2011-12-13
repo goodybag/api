@@ -103,27 +103,27 @@ class Consumers extends API
     #TODO
     return
 
-  @register: (data, callback)->
+  @register: (email, password, callback)->
     self = this
     query = @_query()
-    query.where('email', data.email)
-    query.findOne (error, client)->
+    query.where('email', email)
+    query.findOne (error, consumer)->
       if error?
         callback error #db error
-      else if !client?
-        self.add(data, callback) #registration success
-      else if client?
+      else if !consumer?
+        self.add({email:email,password:password}, callback) #registration success
+      else if consumer?
         callback new errors.ValidationError {"email":"Email Already Exists"} #email exists error
       return
   
   @login: (email, password, callback)->
     query = @_query()
     query.where('email', email).where('password', password)
-    query.findOne (error, client)->
+    query.findOne (error, consumer)->
       if(error)
-        return callback error, client
-      else if client?
-        return callback error, client
+        return callback error, consumer
+      else if consumer?
+        return callback error, consumer
       else
         return callback new Error("invalid username/password")
 
