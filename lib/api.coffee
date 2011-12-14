@@ -26,6 +26,7 @@ Response = db.Response
 ClientInvitation = db.ClientInvitation
 Tag = db.Tag
 EventRequest = db.EventRequest
+Event = db.Event
 
 #TODO:
 #Make sure that all necessary fields exist for each function before sending the query to the db
@@ -625,7 +626,6 @@ class Polls extends API
   
   @add = (data, amount, callback)->
     instance = new @model(data)
-    
    # transactions: {
    #    ids           : [ObjectId]
    #    history       : {}
@@ -700,6 +700,18 @@ class Polls extends API
             poll[k] = v
           poll.save callback
       return
+    return
+
+  @all = (entityType, entityId, skip, limit, callback)->
+    options = {
+      entityType: entityType,
+      entityId: entityId, 
+      skip: skip, 
+      limit: limit
+    }
+    query = @optionParser(options)
+    query.sort('dates.start', -1)
+    query.exec callback
     return
 
   @pending = (entityType, entityId, skip, limit, callback)->
@@ -801,48 +813,51 @@ class Polls extends API
       Polls.removePollPrivateFields(error, poll, callback)
     #TODO: transaction of funds.. per response gain to consumer..
 
-  @next = (userId, callback)->
-    if Object.isString(userId)
-      userId = new ObjectId(userId)
-    query = @_query
-    query.where('responses.users').ne(userId)
-    #endDate..
-    #remove fields
+  @next = (consumerId, callback)->
+    if Object.isString(consumerId)
+      consumerId = new ObjectId(consumerId)
+    query = @_query()
+    query.where('responses.consumers').ne(consumerId)
+    #endDate..startDate..
+    #transactionState
+    #where not author..
     query.fields({
-        _id           : 1,
-        question      : 1,
-        choices       : 1,
-        displayName   : 1,
-        displayMedia  : 1,
-        "entity.name" : 1,
-        media         : 1
+        _id                 : 1,
+        question            : 1,
+        choices             : 1,
+        displayName         : 1,
+        displayMedia        : 1,
+        "entity.name"       : 1,
+        media               : 1,
+        "funds.perResponse" : 1
     });
     query.exec (error, poll)->
-      if error? || !poll?
+      if error?
         callback error
         return
-      Polls.removePollPrivateFields(error, poll, callback)
+      Polls.removePollPrivateFields(error, poll[0], callback)
       return
 
-  @answered = (userId, skip, limit)->
-    if Object.isString(userId)
-      userId = new ObjectId(userId)
-    query = $_query
-    query.where('responses.users',userId)
+  @answered = (consumerId, skip, limit, callback)->
+    if Object.isString(consumerId)
+      consumerId = new ObjectId(consumerId)
+    query = @_query()
+    query.where('responses.consumers',consumerId)
     query.fields({
-        _id           : 1,
-        question      : 1,
-        choices       : 1,
-        displayName   : 1,
-        displayMedia  : 1,
-        "entity.name" : 1,
-        media         : 1
+        _id                 : 1,
+        question            : 1,
+        choices             : 1,
+        displayName         : 1,
+        displayMedia        : 1,
+        "entity.name"       : 1,
+        media               : 1,
+        "funds.perResponse" : 1
     });
-    query.exec (error, poll)->
-      if error? || !poll?
+    query.exec (error, polls)->
+      if error?
         callback error
         return
-      Polls.removePollPrivateFields(error, poll, callback)
+      Polls.removePollPrivateFields(error, polls, callback)
       return
 
   @removePollPrivateFields = (error, polls, callback)->
@@ -1297,6 +1312,100 @@ class EventRequests extends API
   @setEventError: @__setEventError
 
 
+class Events extends API
+  @model = Event
+
+  @upcomingEvents = (limit, skip, callback)->
+    query = @_query()
+    query.where('dates.actual').$gt Date.now()
+    query.limit limit
+    query.skip skip
+    query.sort 'dates.actual', 1
+    query.exec (error, events)->
+      if error?
+        callback error
+      else
+        callback error, events
+
+  @soonestEvent = (callback)->
+    query = @model.findOne().sort 'dates.actual', -1
+    query.exec (error, event)->
+      if error?
+        callback error
+      else
+        callback error, event
+
+  # Retrieves the next latest event not in the passed in list of eventIds
+  @next = (eventIds, callback)->
+    query = @model.findOne {_id: {$nin: eventIds}}
+    query.sort 'dates.actual', -1
+    query.exec (error, event)->
+      if error?
+        callback error
+      else
+        callback error, event
+
+  @one = (eventId, callback)->
+    @model.findOne {_id: eventId}, (error, event)->
+      if error?
+        callback error
+      else
+        callback error, event
+
+  @isUserRsvpd = (eventId, userId, callback)->
+    query = @model.findOne {_id: eventId}
+    query.where "rsvpUsers.#{userId}", true
+    query.exec (error, event)->
+      if error?
+        callback error
+      else
+        callback error, true
+
+  @unRsvp = (eventId, userId, callback)->
+    @model.findOne {_id: eventId}, (error, event)->
+      if error?
+        callback error
+      else
+        index = event.rsvp.indexOf(userId)
+        if index == -1
+          callback error, event
+        else
+          event.rsvp.splice index, 1
+          if event.rsvpUsers[userId]?
+            delete event.rsvpUsers[userId]
+          event.save callback
+
+  @rsvp = (eventId, userId, callback)->
+    @model.findOne {_id: eventId}, (error, event)->
+      if error?
+        callback error
+      else
+        # Just return the event as if we were saving if it's already in the list
+        if event.rsvp.indexOf(userId) > -1
+          callback error, event
+        else
+          event.rsvp.push userId
+          event.rsvpUsers[userId] = true
+          event.save callback
+
+  # Get dates specified but support pagination
+  @getByDateDescLimit = (params, limit, page, callback)->
+    query = @model.find(params).sort 'dates.actual', -1
+    query.limit limit
+    query.skip(limit * page)
+    query.exec callback
+
+  @getOrderByDateDesc = (params, callback)->
+    query = @model.find(params).sort 'dates.actual', -1
+    query.exec callback
+
+  @getEventsRsvpdByUser = (id, order, callback)->
+    query = @_query()
+    query.where 'rsvp', id
+    if order == 1 || order == -1
+      query.sort 'dates.actual', order
+    query.exec callback
+
 exports.Clients = Clients
 exports.Consumers = Consumers
 exports.Businesses = Businesses
@@ -1310,4 +1419,4 @@ exports.DailyDeals = DailyDeals
 exports.ClientInvitations = ClientInvitations
 exports.Tags = Tags
 exports.EventRequests = EventRequests
-
+exports.Events = Events

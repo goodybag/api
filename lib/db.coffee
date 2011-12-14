@@ -380,8 +380,9 @@ Poll = new Schema {
   }
   showStats       : {type: Boolean, required: true} #whether to display the stats to the user or not
   displayName     : {type: Boolean, required: true}
-  displayMedia    : {type: String, required: true, default: choices.polls.displayMedia.NO, enum: choices.polls.displayMedia._enum}
+  displayMedia    : {type: Boolean, required: true}
   media: {
+    when          : {type: String, required: true, enum: choices.polls.media.when._enum } #when to display
     url           : {type: Url, required: true} #video or image
     thumb         : {type: Url}
     guid          : {type: String}
@@ -818,9 +819,48 @@ Tag = new Schema {
 
 Tag.index('name': 1)
 
-####################
-#Events Requests ###
-####################
+############
+# Events ###
+############
+EventDateRange = new Schema {
+  start: {type: Date, required: true}
+  end: {type: Date, required: true}
+}
+Event = new Schema {
+  entity      : { 
+    type      : {type: String, required: true, enum: choices.entities._enum}
+    id        : {type: ObjectId, required: true}
+    name      : {type: String}
+  }
+  locationId  : {type: ObjectId}
+  location    : {
+    name      : {type: String}
+    street1   : {type: String, required: true}
+    street2   : {type: String}
+    city      : {type: String, required: true}
+    state     : {type: String, required: true}
+    zip       : {type: Number, required: true}
+    country   : {type: String, enum: countries.codes, required: true, default: "us"}
+    phone     : {type: String}
+    fax       : {type: String}
+    lat       : {type: Number}
+    lng       : {type: Number}
+  }
+  dates       : {
+    requested : {type: Date, required: true}
+    responded : {type: Date, required: true}
+    actual    : {type: Date, required: true}
+  }
+  hours       : [EventDateRange]
+  pledge      : {type: Number, min: 0, max: 100, required: true}
+  externalUrl : {type: Url}
+  rsvp        : [ObjectId]
+  rsvpUsers   : {}
+}
+
+#####################
+# Events Requests ###
+#####################
 EventRequest = new Schema {
   userEntity          : {
     type              : {type: String, required: true, enum: choices.entities._enum}
@@ -852,6 +892,7 @@ exports.ClientInvitation    = mongoose.model 'ClientInvitation', ClientInvitatio
 exports.Tag                 = mongoose.model 'Tag', Tag
 exports.EventRequest        = mongoose.model 'EventRequest', EventRequest
 exports.Stream              = mongoose.model 'Stream', Stream
+exports.Event               = mongoose.model 'Event', Event
 
 exports.schemas = {
   DailyDeal: DailyDeal
@@ -868,4 +909,5 @@ exports.schemas = {
   Tag: Tag
   EventRequest: EventRequest
   Stream: Stream
+  Event: Event
 }
