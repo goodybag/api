@@ -130,6 +130,7 @@ Consumer = new Schema {
   }               
   created         : {type: Date, default: new Date( (new Date()).toUTCString() ), index: true}
   logins          : []
+  honorScore      : {type: Number, default: 0}
   charities       : {}
   
   events: {
@@ -227,6 +228,7 @@ Client = new Schema {
     #     state: {type: String, default: choices.eventStates._enum}
     #     timestamp: {type: Date, default: new Date( (new Date()).toUTCString() ), index: true}
     #     data: {}
+    #     error: {}
     #     attempts: 0
     #   }
     # }
@@ -771,14 +773,14 @@ ClientInvitation = new Schema {
 ####################
 Stream = new Schema {
   eventType     : {type: String, required: true, enum: choices.eventTypes._enum}
-  eventId       : {type: ObjectId, required: true}
+  eventId       : {type: ObjectId, required: true} #unique
   entity: {
     type        : {type: String, required: true, enum: choices.entities._enum},
     id          : {type: ObjectId, required: true}
     name        : {type: String}
   }
   documentId    : {type: ObjectId, required: true}
-  message       : {type: String}
+  messages      : [{type: String}]
   dates: {
     event       : {type: Date, required: true} #event date/time
     created     : {type: Date, default: new Date( (new Date()).toUTCString() )} #timestamp added to the stream
@@ -826,12 +828,14 @@ EventDateRange = new Schema {
   start: {type: Date, required: true}
   end: {type: Date, required: true}
 }
+
 Event = new Schema {
-  entity      : { 
+  entity: { 
     type      : {type: String, required: true, enum: choices.entities._enum}
     id        : {type: ObjectId, required: true}
     name      : {type: String}
   }
+  
   locationId  : {type: ObjectId}
   location    : {
     name      : {type: String}
@@ -846,11 +850,13 @@ Event = new Schema {
     lat       : {type: Number}
     lng       : {type: Number}
   }
-  dates       : {
+  
+  dates: {
     requested : {type: Date, required: true}
     responded : {type: Date, required: true}
     actual    : {type: Date, required: true}
   }
+  
   hours       : [EventDateRange]
   pledge      : {type: Number, min: 0, max: 100, required: true}
   externalUrl : {type: Url}
@@ -862,19 +868,21 @@ Event = new Schema {
 # Events Requests ###
 #####################
 EventRequest = new Schema {
-  userEntity          : {
-    type              : {type: String, required: true, enum: choices.entities._enum}
-    id                : {type: ObjectId, required: true}
-    name              : {type: String}
+  userEntity: {
+    type                : {type: String, required: true, enum: choices.entities._enum}
+    id                  : {type: ObjectId, required: true}
+    name                : {type: String}
   }
-  organizationEntity  : {
-    type              : {type: String, required: true, enum: choices.entities._enum}
-    id                : {type: ObjectId, required: true}
-    name              : {type: String}
+  
+  organizationEntity: {
+    type                : {type: String, required: true, enum: choices.entities._enum}
+    id                  : {type: ObjectId, required: true}
+    name                : {type: String}
   }
-  date                : {
-    requested         : {type: Date, default: Date.now}
-    responded         : {type: Date}
+  
+  date: {
+    requested           : {type: Date, default: Date.now}
+    responded           : {type: Date}
   }
 }
 

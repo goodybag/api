@@ -27,6 +27,7 @@ ClientInvitation = db.ClientInvitation
 Tag = db.Tag
 EventRequest = db.EventRequest
 Event = db.Event
+Stream = db.Stream
 
 #TODO:
 #Make sure that all necessary fields exist for each function before sending the query to the db
@@ -99,79 +100,73 @@ class API
   
   # EVENTENGINE STATE
   @_setEventPending: (id, eventId, callback)->
-    #convert id to objectId
     if Object.isString(id)
       id = new ObjectId(id)
 
-    #convert id to objectId
     if Object.isString(eventId)
       eventId = new ObjectId(eventId)
 
     eventIdStr = eventId.toString()
 
     $set: {}
-    $set["events.history.#{evnetIdStr}.state"] = choices.eventStates.PENDING
+    $set["events.history.#{eventIdStr}.state"] = choices.eventStates.PENDING
     @model.collection.findAndModify {_id: id}, [], {$set: $set}, {new: true, safe: true}, callback
     return
 
   @__setEventProcessing: (id, eventId, callback)->
-    #convert id to objectId
     if Object.isString(id)
       id = new ObjectId(id)
 
-    #convert id to objectId
     if Object.isString(eventId)
       eventId = new ObjectId(eventId)
 
     eventIdStr = eventId.toString()
 
     $set: {}
-    $set["events.history.#{evnetIdStr}.processing"] = choices.eventStates.PROCESSING
-    @model.collection.findAndModify {_id: id}, [], {$set: $set}, {new: true, safe: true}, callback
+    $set["events.history.#{eventIdStr}.state"] = choices.eventStates.PROCESSING
+
+    $inc: {}
+    $inc["events.history.#{eventIdStr}.attempts"] = 1
+    @model.collection.findAndModify {_id: id}, [], {$set: $set, $inc: $inc}, {new: true, safe: true}, callback
     return
     
   @__setEventProcessed: (id, eventId, callback)->
-    #convert id to objectId
     if Object.isString(id)
       id = new ObjectId(id)
 
-    #convert id to objectId
     if Object.isString(eventId)
       eventId = new ObjectId(eventId)
 
     eventIdStr = eventId.toString()
 
     $set: {}
-    $set["events.history.#{evnetIdStr}.state"] = choices.eventStates.PROCESSED
+    $set["events.history.#{eventIdStr}.state"] = choices.eventStates.PROCESSED
     @model.collection.findAndModify {_id: id}, [], {$set: $set}, {new: true, safe: true}, callback
     return
     
   @__setEventError: (id, eventId, errorObj, callback)->
     if !callback?
       callback = errorObj
-    #convert id to objectId
+      
     if Object.isString(id)
       id = new ObjectId(id)
 
-    #convert id to objectId
     if Object.isString(eventId)
       eventId = new ObjectId(eventId)
 
     eventIdStr = eventId.toString()
 
     $set: {}
-    $set["events.history.#{evnetIdStr}.state"] = choices.eventStates.ERROR
-    $set["events.history.#{evnetIdStr}.error"] = errorObj
+    $set["events.history.#{eventIdStr}.state"] = choices.eventStates.ERROR
+    $set["events.history.#{eventIdStr}.error"] = errorObj
     @model.collection.findAndModify {_id: id}, [], {$set: $set}, {new: true, safe: true}, callback
     return
   
   # TRANSACTION STATE
   @__setTransactionPending: (id, transactionId, callback)->
-    #convert id to objectId
     if Object.isString(id)
       id = new ObjectId(id)
 
-    #convert id to objectId
     if Object.isString(transactionId)
       transactionId = new ObjectId(transactionId)
 
@@ -185,11 +180,9 @@ class API
     return
 
   @__setTransactionProcessing: (id, transactionId, callback)->
-    #convert id to objectId
     if Object.isString(id)
       id = new ObjeπctId(id)
 
-    #convert id to objectid
     if Object.isString(transactionId)
       transactionId = new ObjectId(transactionId)
 
@@ -202,11 +195,9 @@ class API
     return
 
   @__setTransactionProcessed: (id, transactionId, amount, callback)->
-    #convert id to objectId
     if Object.isString(id)
       id = new ObjectId(id)
 
-    #convert id to objectId
     if Object.isString(transactionId)
       transactionId = new ObjectId(transactionId)
 
@@ -222,11 +213,10 @@ class API
   @__setTransactionError: (id, transactionId, errorObj, callback)->
     if !callback?
       callback = errorObj
-    #convert id to objectId
+      
     if Object.isString(id)
       id = new ObjectId(id)
 
-    #convert id to objectId
     if Object.isString(transactionId)
       transactionId = new ObjectId(transactionId)
 
@@ -270,6 +260,16 @@ class Consumers extends API
       else
         return callback new errors.ValidationError {"login":"invalid username/password"}
 
+  @updateHonorScore: (id, eventId, amount, callback)->
+    if Object.isString(id)
+      id = new ObjectId(id)
+      
+    if Object.isString(eventId)
+      eventId = new ObjectId(eventId)
+
+    @model.findAndModify {_id = id}, [], {$push:{"events.ids": eventId}, $inc: {honorScore: amount}}, {new: true, safe: true}, callback
+
+    
   @setEventPending: @__setEventPending
   @setEventProcessing: @__setEventProcessing
   @setEventProcessed: @__setEventProcessed
@@ -534,9 +534,7 @@ class Businesses extends API
     console.log {_id: id, 'funds.remaining': {$gte: amount}, 'transactions.ids': {$ne: transactionId}}
     console.log util.inspect {$set: $set, $inc: {'funds.remaining': amount }}
 
-    @model.collection.findAndModify {_id: id, 'funds.remaining': {$gte: amount}, 'transactions.ids': {$ne: transactionId}}, [], {$set: $set, $inc: {'funds.remaining': -1*amount }}, {new: true, safe: true}, (error, business)->
-      console.log error
-      console.log business
+    @model.collection.findAndModify {_id: id, 'funds.remaining': {$gte: amount}, 'transactions.ids': {$ne: transactionId}}, [], {$set: $set, $inc: {'funds.remaining': -1*amount }}, {new: true, safe: true}, callback
 
 
 class DailyDeals extends API
@@ -1303,6 +1301,7 @@ class Tags extends API
     query.limit(10)
     query.exec callback
 
+
 class EventRequests extends API
   @model = EventRequest
 
@@ -1406,6 +1405,34 @@ class Events extends API
       query.sort 'dates.actual', order
     query.exec callback
 
+
+
+class Streams extends API
+  @add: (eventType, eventId, timestamp, entity, documentId, messages, data, callback)->
+    if Object.isString(messages)
+      messages = [messages]
+      
+    if Object.isFunction(data)
+      callback = data
+      data = undefined
+    
+    stream = {
+      eventType : eventType
+      eventId   : eventId
+      entity    : entity
+      documentId: documentId
+      messages  : messages
+      data      : data
+
+      dates: {
+        event   : timestamp
+      }
+    }
+
+    instance = @model(stream)
+
+    instance.save callback
+    
 exports.Clients = Clients
 exports.Consumers = Consumers
 exports.Businesses = Businesses
@@ -1420,3 +1447,4 @@ exports.ClientInvitations = ClientInvitations
 exports.Tags = Tags
 exports.EventRequests = EventRequests
 exports.Events = Events
+exports.Streams = Streams
