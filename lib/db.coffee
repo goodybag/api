@@ -627,31 +627,40 @@ Tag.index('name': 1)
 ############
 # Events ###
 ############
+EventDateRange = new Schema {
+  start: {type: Date, required: true}
+  end: {type: Date, required: true}
+}
 Event = new Schema {
   entity      : { 
     type      : {type: String, required: true, enum: choices.entities._enum}
     id        : {type: ObjectId, required: true}
     name      : {type: String}
   }
+  locationId  : {type: ObjectId}
   location    : {
-    name      : {type: String, required: true}
-    address   : {type: String, required: true}
-    phone     : {type: String, required: true}
+    name      : {type: String}
+    street1   : {type: String, required: true}
+    street2   : {type: String}
+    city      : {type: String, required: true}
+    state     : {type: String, required: true}
+    zip       : {type: Number, required: true}
+    country   : {type: String, enum: countries.codes, required: true, default: "us"}
+    phone     : {type: String}
+    fax       : {type: String}
+    lat       : {type: Number}
+    lng       : {type: Number}
   }
   dates       : {
     requested : {type: Date, required: true}
     responded : {type: Date, required: true}
     actual    : {type: Date, required: true}
   }
-  hours       : [Date]
+  hours       : [EventDateRange]
   pledge      : {type: Number, min: 0, max: 100, required: true}
-  facebook    : {
-    appId     : {type: Number, required: true}
-    url       : {type: Url, required: true}
-  }
   externalUrl : {type: Url}
   rsvp        : [ObjectId]
-  rsvpUsers   : [ObjectId]
+  rsvpUsers   : {}
 }
 
 #####################
@@ -687,7 +696,7 @@ exports.Media               = mongoose.model 'Media', Media
 exports.ClientInvitation    = mongoose.model 'ClientInvitation', ClientInvitation
 exports.Tag                 = mongoose.model 'Tag', Tag
 exports.EventRequest        = mongoose.model 'EventRequest', EventRequest
-exports.Event               = mongoose.model 'EventRequest', Event
+exports.Event               = mongoose.model 'Event', Event
 
 exports.schemas = {
   DailyDeal: DailyDeal

@@ -26,6 +26,7 @@ Response = db.Response
 ClientInvitation = db.ClientInvitation
 Tag = db.Tag
 EventRequest = db.EventRequest
+Event = db.Event
 
 #TODO:
 #Make sure that all necessary fields exist for each function before sending the query to the db
@@ -1257,6 +1258,68 @@ class EventRequests extends API
 class Events extends API
   @model = Event
 
+  # Retrieves the next latest event not in the passed in list of eventIds
+  @next = (eventIds, callback)->
+    query = @model.findOne {_id: {$nin: eventIds}}
+    query.sort 'dates.actual', -1
+    query.exec (error, event)->
+      if error?
+        callback error
+      else
+        callback error, event
+
+  @one = (eventId, callback)->
+    @model.findOne {_id: eventId}, (error, event)->
+      if error?
+        callback error
+      else
+        callback error, event
+
+  @unRsvp = (eventId, userId, callback)->
+    @model.findOne {_id: eventId}, (error, event)->
+      if error?
+        callback error
+      else
+        index = event.rsvp.indexOf(userId)
+        if index == -1
+          callback error, event
+        else
+          event.rsvp.splice index, 1
+          if event.rsvpUsers[userId]?
+            delete event.rsvpUsers[userId]
+          event.save callback
+
+  @rsvp = (eventId, userId, callback)->
+    @model.findOne {_id: eventId}, (error, event)->
+      if error?
+        callback error
+      else
+        # Just return the event as if we were saving if it's already in the list
+        if event.rsvp.indexOf(userId) > -1
+          callback error, event
+        else
+          event.rsvp.push userId
+          event.rsvpUsers[userId] = true
+          event.save callback
+
+  # Get dates specified but support pagination
+  @getByDateDescLimit = (params, limit, page, callback)->
+    query = @model.find(params).sort 'dates.actual', -1
+    query.limit limit
+    query.skip(limit * page)
+    query.exec callback
+
+  @getOrderByDateDesc = (params, callback)->
+    query = @model.find(params).sort 'dates.actual', -1
+    query.exec callback
+
+  @getEventsRsvpdByUser = (id, order, callback)->
+    query = @_query()
+    query.where 'rsvp', id
+    if order == 1 || order == -1
+      query.sort 'dates.actual', order
+    query.exec callback
+
 exports.Clients = Clients
 exports.Consumers = Consumers
 exports.Businesses = Businesses
@@ -1270,4 +1333,4 @@ exports.DailyDeals = DailyDeals
 exports.ClientInvitations = ClientInvitations
 exports.Tags = Tags
 exports.EventRequests = EventRequests
-
+exports.Events = Events
