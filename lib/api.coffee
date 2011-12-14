@@ -1258,6 +1258,26 @@ class EventRequests extends API
 class Events extends API
   @model = Event
 
+  @upcomingEvents = (limit, skip, callback)->
+    query = @_query()
+    query.where('dates.actual').$gt Date.now()
+    query.limit limit
+    query.skip skip
+    query.sort 'dates.actual', 1
+    query.exec (error, events)->
+      if error?
+        callback error
+      else
+        callback error, events
+
+  @soonestEvent = (callback)->
+    query = @model.findOne().sort 'dates.actual', -1
+    query.exec (error, event)->
+      if error?
+        callback error
+      else
+        callback error, event
+
   # Retrieves the next latest event not in the passed in list of eventIds
   @next = (eventIds, callback)->
     query = @model.findOne {_id: {$nin: eventIds}}
@@ -1274,6 +1294,15 @@ class Events extends API
         callback error
       else
         callback error, event
+
+  @isUserRsvpd = (eventId, userId, callback)->
+    query = @model.findOne {_id: eventId}
+    query.where "rsvpUsers.#{userId}", true
+    query.exec (error, event)->
+      if error?
+        callback error
+      else
+        callback error, true
 
   @unRsvp = (eventId, userId, callback)->
     @model.findOne {_id: eventId}, (error, event)->
