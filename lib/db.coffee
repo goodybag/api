@@ -625,9 +625,48 @@ Tag = new Schema {
 
 Tag.index('name': 1)
 
-####################
-#Events Requests ###
-####################
+############
+# Events ###
+############
+EventDateRange = new Schema {
+  start: {type: Date, required: true}
+  end: {type: Date, required: true}
+}
+Event = new Schema {
+  entity      : { 
+    type      : {type: String, required: true, enum: choices.entities._enum}
+    id        : {type: ObjectId, required: true}
+    name      : {type: String}
+  }
+  locationId  : {type: ObjectId}
+  location    : {
+    name      : {type: String}
+    street1   : {type: String, required: true}
+    street2   : {type: String}
+    city      : {type: String, required: true}
+    state     : {type: String, required: true}
+    zip       : {type: Number, required: true}
+    country   : {type: String, enum: countries.codes, required: true, default: "us"}
+    phone     : {type: String}
+    fax       : {type: String}
+    lat       : {type: Number}
+    lng       : {type: Number}
+  }
+  dates       : {
+    requested : {type: Date, required: true}
+    responded : {type: Date, required: true}
+    actual    : {type: Date, required: true}
+  }
+  hours       : [EventDateRange]
+  pledge      : {type: Number, min: 0, max: 100, required: true}
+  externalUrl : {type: Url}
+  rsvp        : [ObjectId]
+  rsvpUsers   : {}
+}
+
+#####################
+# Events Requests ###
+#####################
 EventRequest = new Schema {
   userEntity          : {
     type              : {type: String, required: true, enum: choices.entities._enum}
@@ -658,6 +697,7 @@ exports.Media               = mongoose.model 'Media', Media
 exports.ClientInvitation    = mongoose.model 'ClientInvitation', ClientInvitation
 exports.Tag                 = mongoose.model 'Tag', Tag
 exports.EventRequest        = mongoose.model 'EventRequest', EventRequest
+exports.Event               = mongoose.model 'Event', Event
 
 exports.schemas = {
   DailyDeal: DailyDeal
@@ -673,4 +713,5 @@ exports.schemas = {
   ClientInvitation: ClientInvitation
   Tag: Tag
   EventRequest: EventRequest
+  Event: Event
 }
