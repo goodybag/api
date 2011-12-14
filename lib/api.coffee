@@ -267,7 +267,7 @@ class Consumers extends API
     if Object.isString(eventId)
       eventId = new ObjectId(eventId)
 
-    @model.findAndModify {_id = id}, [], {$push:{"events.ids": eventId}, $inc: {honorScore: amount}}, {new: true, safe: true}, callback
+    @model.findAndModify {_id:  id}, [], {$push:{"events.ids": eventId}, $inc: {honorScore: amount}}, {new: true, safe: true}, callback
 
     
   @setEventPending: @__setEventPending
