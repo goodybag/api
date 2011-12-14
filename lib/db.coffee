@@ -317,8 +317,9 @@ Poll = new Schema {
   }
   showStats       : {type: Boolean, required: true} #whether to display the stats to the user or not
   displayName     : {type: Boolean, required: true}
-  displayMedia    : {type: String, required: true, default: choices.polls.displayMedia.NO, enum: choices.polls.displayMedia._enum}
+  displayMedia    : {type: Boolean, required: true}
   media: {
+    when          : {type: String, required: true, enum: choices.polls.media.when._enum } #when to display
     url           : {type: Url, required: true} #video or image
     thumb         : {type: Url}
     guid          : {type: String}

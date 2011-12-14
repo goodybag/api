@@ -466,7 +466,6 @@ class Polls extends API
   
   @add = (data, amount, callback)->
     instance = new @model(data)
-    
    # transactions: {
    #    ids           : [ObjectId]
    #    history       : {}
@@ -541,6 +540,18 @@ class Polls extends API
             poll[k] = v
           poll.save callback
       return
+    return
+
+  @all = (entityType, entityId, skip, limit, callback)->
+    options = {
+      entityType: entityType,
+      entityId: entityId, 
+      skip: skip, 
+      limit: limit
+    }
+    query = @optionParser(options)
+    query.sort('dates.start', -1)
+    query.exec callback
     return
 
   @pending = (entityType, entityId, skip, limit, callback)->
@@ -642,48 +653,51 @@ class Polls extends API
       Polls.removePollPrivateFields(error, poll, callback)
     #TODO: transaction of funds.. per response gain to consumer..
 
-  @next = (userId, callback)->
-    if Object.isString(userId)
-      userId = new ObjectId(userId)
-    query = @_query
-    query.where('responses.users').ne(userId)
-    #endDate..
-    #remove fields
+  @next = (consumerId, callback)->
+    if Object.isString(consumerId)
+      consumerId = new ObjectId(consumerId)
+    query = @_query()
+    query.where('responses.consumers').ne(consumerId)
+    #endDate..startDate..
+    #transactionState
+    #where not author..
     query.fields({
-        _id           : 1,
-        question      : 1,
-        choices       : 1,
-        displayName   : 1,
-        displayMedia  : 1,
-        "entity.name" : 1,
-        media         : 1
+        _id                 : 1,
+        question            : 1,
+        choices             : 1,
+        displayName         : 1,
+        displayMedia        : 1,
+        "entity.name"       : 1,
+        media               : 1,
+        "funds.perResponse" : 1
     });
     query.exec (error, poll)->
-      if error? || !poll?
+      if error?
         callback error
         return
-      Polls.removePollPrivateFields(error, poll, callback)
+      Polls.removePollPrivateFields(error, poll[0], callback)
       return
 
-  @answered = (userId, skip, limit)->
-    if Object.isString(userId)
-      userId = new ObjectId(userId)
-    query = $_query
-    query.where('responses.users',userId)
+  @answered = (consumerId, skip, limit, callback)->
+    if Object.isString(consumerId)
+      consumerId = new ObjectId(consumerId)
+    query = @_query()
+    query.where('responses.consumers',consumerId)
     query.fields({
-        _id           : 1,
-        question      : 1,
-        choices       : 1,
-        displayName   : 1,
-        displayMedia  : 1,
-        "entity.name" : 1,
-        media         : 1
+        _id                 : 1,
+        question            : 1,
+        choices             : 1,
+        displayName         : 1,
+        displayMedia        : 1,
+        "entity.name"       : 1,
+        media               : 1,
+        "funds.perResponse" : 1
     });
-    query.exec (error, poll)->
-      if error? || !poll?
+    query.exec (error, polls)->
+      if error?
         callback error
         return
-      Polls.removePollPrivateFields(error, poll, callback)
+      Polls.removePollPrivateFields(error, polls, callback)
       return
 
   @removePollPrivateFields = (error, polls, callback)->
