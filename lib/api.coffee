@@ -4,8 +4,10 @@ generatePassword = require 'password-generator'
 hashlib = require 'hashlib'
 util = require 'util'
 
-db = require './db'
 globals = require 'globals'
+db = require './db'
+tp = require './transactions' #transaction processor 
+
 ObjectId = require('mongoose').Types.ObjectId;
 
 utils = globals.utils
@@ -13,13 +15,10 @@ choices = globals.choices
 defaults = globals.defaults
 errors = globals.errors
 
-DailyDeal = db.DailyDeal
 Client = db.Client
 Consumer = db.Consumer
 Business = db.Business
-Deal = db.Deal
 Media = db.Media
-FlipAd = db.FlipAd
 Poll = db.Poll
 Discussion = db.Discussion
 Response = db.Response
@@ -97,9 +96,54 @@ class API
   @getByEntity: (entityType, entityId, id, callback)->
     @model.findOne {_id: id, 'entity.type': entityType ,'entity.id': entityId}, callback
     return
+
   
+  @createUserEvent: (eventType, entityType, entityId, eventData)->
+    event = {}
+    event.eventType = eventType
+    event.entity = {
+      type: entityType
+      id: entityId
+    }
+    event.data = eventData
+    event.state = choices.eventStates.PENDING
+    event.timestamp = new Date()
+    event.attempts = 0
+
+    return event
+
+  @createOrgEvent: (eventType, orgEntityType, orgEntityId, userEntityType, userEntityId, eventData)->
+    event = {}
+    event.eventType = eventType
+    event.entity = {
+      type: orgEntityType
+      id: orgEntityId
+    }
+    event.byEntity = {
+      type: userEntityType
+      id: userEntityId
+    }
+    event.data = eventData
+    event.state = choices.eventStates.PENDING
+    event.timestamp = new Date()
+    event.attempts = 0
+
+    return event
+
+  @createEventsObj: (event)->
+    eventId = new ObjectId()
+    eventIdStr = eventId.toString()
+      
+    events = {}
+    events.history = {}
+
+    events.ids = [eventId]
+    events.history[eventIdStr] = event
+
+    return events
+    
   # EVENTENGINE STATE
-  @_setEventPending: (id, eventId, callback)->
+  @__setEventPending: (id, eventId, callback)->
     if Object.isString(id)
       id = new ObjectId(id)
 
@@ -162,71 +206,142 @@ class API
     @model.collection.findAndModify {_id: id}, [], {$set: $set}, {new: true, safe: true}, callback
     return
   
-  # TRANSACTION STATE
-  @__setTransactionPending: (id, transactionId, callback)->
-    if Object.isString(id)
-      id = new ObjectId(id)
+  #TRANSACTIONS
+  @createTransaction: (state, action, data, direction, entity)->
+    transaction = {
+      id: new ObjectId()
+      state: state
+      action: action
+      error: {}
+      dates: {
+        created: new Date()
+        lastModified: new Date()
+      }
+      data: data
+      direction: direction
+      entity: entity
+    }
 
+    return transaction
+
+  @__setTransactionPending: (id, transactionId, locked, callback)->
+    if Object.isString(id)
+      id = new ObjectId(id
+    
     if Object.isString(transactionId)
       transactionId = new ObjectId(transactionId)
 
-    transactionIdStr = transactionId.toString()
-
-    $set: {}
-    $set["transactions.currentId"] = transactionId
-    $set["transactions.currentState"] = state
-    $set["transactions.history."+transactionIdStr+".state"] = state
-    @model.collection.findAndModify {_id: id}, [], {$set: $set}, {new: true, safe: true}, callback
-    return
+    $query = {
+      _id: id
+      "transactions.log": {
+        $elemMatch: {
+          "id": transactionsId
+          "state":{
+            $nin: [choices.transactions.states.PENDING, choices.transactions.states.PROCESSING, choices.transactions.states.PROCESSED, choices.transactions.states.ERROR]
+          }
+        }
+      }
+    }
+    
+    $set = {
+      "transactions.log.$.state": choices.transactions.states.PENDING
+      "transactions.log.$.dates.lastModified": new Date()
+      "transactions.locked": locked
+    }
+    
+    @model.findAndModify $query, [], {$set: $set}, {new: true, safe: true}, callback
 
   @__setTransactionProcessing: (id, transactionId, callback)->
     if Object.isString(id)
-      id = new ObjeπctId(id)
-
-    if Object.isString(transactionId)
-      transactionId = new ObjectId(transactionId)
-
-    transactionIdStr = transactionId.toString()
-
-    $set: {}
-    $set["transactions.currentState"] = state
-    $set["transactions.history."+transactionIdStr+".state"] = state
-    @model.collection.findAndModify {_id: id}, [], {$set: $set}, {new: true, safe: true}, callback
-    return
-
-  @__setTransactionProcessed: (id, transactionId, amount, callback)->
-    if Object.isString(id)
       id = new ObjectId(id)
-
-    if Object.isString(transactionId)
-      transactionId = new ObjectId(transactionId)
-
-    transactionIdStr = transactionId.toString()
-
-    $set: {}
-    $set["transactions.currentState"] = state
-    $set["transactions.history."+transactionIdStr+".state"] = state
-    $set["transactions.history."+transactionIdStr+".amount"] = amount
-    @model.collection.findAndModify {_id: id}, [], {$set: $set}, $inc: {"transactions.currentBalance": amount, "funds.allocated": amount, "funds.remaining": amount}, {new: true, safe: true}, callback
-    return
-
-  @__setTransactionError: (id, transactionId, errorObj, callback)->
-    if !callback?
-      callback = errorObj
       
-    if Object.isString(id)
-      id = new ObjectId(id)
-
     if Object.isString(transactionId)
       transactionId = new ObjectId(transactionId)
+      
+    $query = {
+      _id: id
+      "transactions.log": {
+        $elemMatch: {
+          "id": transactionsId
+          "state":{
+            $nin: [choices.transactions.states.PROCESSING, choices.transactions.states.PROCESSED, choices.transactions.states.ERROR]
+          }
+        }
+      }
+    }
+    
+    $set = {
+      "transactions.log.$.state": choices.transactions.states.PROCESSING
+      "transactions.log.$.dates.lastModified": new Date()
+    }
+    
+    @model.findAndModify query, [], {$set: $set}, {new: true, safe: true}, callback
 
-    transactionIdStr = transactionId.toString()
+  @__setTransactionProcessed: (id, transactionId, removeLock, modifierDoc, callback)->
+    if Object.isString(id)
+      id = new ObjectId(id)
+    
+    if Object.isString(transactionId)
+      transactionId = new ObjectId(transactionId)
+  
+    $query = {
+      _id: id
+      "transactions.log": {
+        $elemMatch: {
+          "id": transactionsId
+          "state":{
+            $nin: [choices.transactions.states.PROCESSED, choices.transactions.states.ERROR]
+          }
+        }
+      }
+    }
+      
+    $set = {
+      "transactions.log.$.state": choices.transactions.states.PROCESSED
+      "transactions.log.$.dates.lastModified": new Date()
+      "transactions.log.$.dates.completed": new Date()
+    }
 
-    $set: {}
-    $set["transactions.currentState"] = state
-    $set["transactions.history."+transactionIdStr+".error"] = errorObj
-    @model.collection.findAndModify {_id: id}, [], {$set: $set}, {new: true, safe: true}, callback
-    return
+    $update = {} 
+
+    Object.merge($update, modifierDoc)
+    Object.merge($update, {$set: $set})
+
+    if removeLock?
+      $set["transactions.locked"] = false
+
+    @model.findAndModify query, [], {$set: $set}, {new: true, safe: true}, callback
+
+  @__setTransactionError: (id, transactionId, errorObj, removeLock, callback)->
+    if Object.isString(id)
+      id = new ObjectId(id)
+    
+    if Object.isString(transactionId)
+      transactionId = new ObjectId(transactionId)
+      
+    $query = {
+      _id: id
+      "transactions.log": {
+        $elemMatch: {
+          "id": transactionsId
+          "state":{
+            $nin: [choices.transactions.states.PROCESSED, choices.transactions.states.ERROR]
+          }
+        }
+      }
+    }
+    
+    $set = {
+      "transactions.log.$.state": choices.transactions.states.ERROR
+      "transactions.log.$.dates.lastModified": new Date()
+      "transactions.log.$.dates.completed": new Date()
+      "transactions.log.$.error": errorObj
+    }
+    
+    if removeLock?
+      $set["transactions.locked"] = false
+
+      @model.findAndModify query, [], {$set: $set}, {new: true, safe: true}, callback
 
 
 class Consumers extends API
@@ -490,125 +605,16 @@ class Businesses extends API
             data.members = clients
             callback null, data
 
-  @deductFunds: (id, documentType, documentId, transactionId, amount, callback)->
+  @deductFunds: (id, transactionId, amount, callback)->
     if Object.isString(id)
       id = new ObjectId(id)
     
-    if Object.isString(documentId)
-      documentId = new ObjectId(documentId)
-      
     if Object.isString(transactionId)
       transactionId = new ObjectId(transactionId)
-      
-  # transactions: {
-  #   ids           : [ObjectId]
-  #   history       : {}
-  # 
-  #   # Example of transaction history object
-  #   # history: {
-  #   #   transactionId: { #transactionId is a string representation of the ObjectId
-  #   #     document: {
-  #   #       type          : {type: String, required: true, enum: choices.transactions.types._enum}
-  #   #       id            : {type: ObjectId, required: true}
-  #   #     }
-  #   #     amount: {type: Number}
-  #   #     timestamp: {type: Date, required: true, default: new Date( (new Date()).toUTCString() )}
-  #   #   }
-  #   # }
-  # 
-  # }
-
-    transaction = {}
-
-    transaction.document = {}
-    transaction.document.type = documentType
-    transaction.document.id = documentId
-
-    transaction.amount = amount
-    transaction.timestamp = new Date( (new Date()).toUTCString() )
-
-    transactionIdStr = transactionId.toString()
-    $set = {}
-    $set['transactions.history.'+transactionIdStr] = transaction
-
-    console.log {_id: id, 'funds.remaining': {$gte: amount}, 'transactions.ids': {$ne: transactionId}}
-    console.log util.inspect {$set: $set, $inc: {'funds.remaining': amount }}
-
-    @model.collection.findAndModify {_id: id, 'funds.remaining': {$gte: amount}, 'transactions.ids': {$ne: transactionId}}, [], {$set: $set, $inc: {'funds.remaining': -1*amount }}, {new: true, safe: true}, callback
-
-
-class DailyDeals extends API
-  @model = DailyDeal
-  
-  #currently only supports groupon, more abstraction needed to support more deals
-  @add: (data, callback)->
-    deal = new Deal();
-    for own k,v of data
-      deal[k] = v
-    # @model.collection.update 
-    delete deal.doc._id #need to delete otherwise: Mod on _id not allowed
-    @model.update {did:deal['did']}, deal.doc, {upsert: true}, callback #upsert
-    return
     
-  @remove = (did, callback)->
-    @model.remove {'did': did}, callback
-    return
-    
-  @getDeal: (did, callback)->
-    @model.findOne {did: did}, {data: 0, dislike: 0}, callback
-    return
-  
-  #options: city, start, end, limit, skip
-  @getDeals: (options, callback)->
-    query = @_query()
+    @model.collection.findAndModify {_id: id, 'funds.remaining': {$gte: amount}, 'transactions.ids': {$ne: transactionId}}, [], {$addToSet: {"transactions.ids": transactionId}, $inc: {'funds.remaining': -1*amount }}, {new: true, safe: true}, callback
 
-    if typeof(options) == 'function'
-      callback = options
-    else
-      if options.city?
-        query.where('city', options.city)
 
-      if options.start? and options.end?
-        query.range options.start, options.end
-      else if options.start?
-        query.where('dates.start').gte(options.start)
-      else if options.end?
-        query.where('dates.end').lte(options.end)
-      else
-        query.where('dates.end').gt(new Date( (new Date()).toUTCString() ))
-
-      if options.limit?
-        query.limit(options.limit)
-
-      if options.skip?
-        query.skip(options.skip)
-    query.select({data: 0, dislike: 0}).exec callback
-    return
-
-  @like: (did, user, callback)->
-    voters = {}
-    voters['voters.'+user] = 1
-    @model.collection.update  {did: did}, {$addToSet:{like: user}, $pull:{dislike: user}, $set:voters}, callback
-    return
-
-  @dislike: (did, user, callback)->
-    voters = {}
-    voters['voters.'+user] = -1
-    @model.collection.update  {did: did}, {$addToSet:{dislike: user}, $pull:{like: user}, $set:voters}, callback
-    return
-
-  @neutral: (did, user, callback)->
-    voters = {}
-    voters['voters.'+user] = 1 #for unsetting
-    @model.collection.update  {did: did}, {$pull:{dislike: user, like: user}, $unset:voters}, callback
-    return
-
-  @setEventPending: @__setEventPending
-  @setEventProcessing: @__setEventProcessing
-  @setEventProcessed: @__setEventProcessed
-  @setEventError: @__setEventError
-
-    
 class Polls extends API
   @model = Poll
 
@@ -622,68 +628,27 @@ class Polls extends API
     query.where('transaction.state', state) if options.state?
     return query
   
+  # @add = (data, amount, event, callback)-> #come back to this one, first transactions need to work
   @add = (data, amount, callback)->
     instance = new @model(data)
-   # transactions: {
-   #    ids           : [ObjectId]
-   #    history       : {}
-   #  
-   #    # Example of a transaction history object
-   #    # history = {
-   #    #   transactionId: {
-   #    #     state: {type: String, required: true, enum: choices.transactions.state._enum, default: choices.transactions.state.PENDING}
-   #    #     created: {type: Date, required: true, default: new Date( (new Date()).toUTCString() )}
-   #    #     lastModified: {type: Date, required: true, default: new Date( (new Date()).toUTCString() )}
-   #    #     amount: {type: Number, required: true, default: 0.0}
-   #    #   }
-   #    # }
-   #  
-   #    currentState  : {type: String, required: true, enum: choices.transactions.state._enum, default: choices.transactions.state.PENDING}
-   #    currentId     : {type: ObjectId}
-   #  
-   #    currentBalance: {type: Number, required: true}
-   #    newBalance    : {type: Number}
-   # }
 
+    transactionData = {
+      amount: amount
+    }
 
-    transaction = {}
-    transaction.state = choices.transactions.state.PENDING
-    transaction.created = new Date()
-    transaction.lastModified = new Date()
+    transaction = @createTransaction (choices.transactions.states.PENDING, choices.transactions.actions.POLL_CREATE, transactionData, choices.transactions.directions.INBOUND, instance.entity)
     
-    transactionId = new ObjectId()
-    transactionIdStr = transactionId.toString()
+    instance.transactions.ids = [transaction.id]
+    instance.transactions.logs = [transaction]
 
-    instance.transactions.ids = [transactionId]
-
-    instance.transactions.history = {}
-    instance.transactions.history[transactionIdStr] = transaction
-
-    instance.transactions.currentId = transactionId
-    instance.transactions.currentState = choices.transactions.state.PENDING
-
-    instance.transactions.currentBalance = 0.0
-    instance.transactions.newBalance = amount
-
-    #console.log instance
-    #console.log amount
+    #instance.events = @_createEventsObj event
 
     instance.save (error, poll)->
       callback error, poll
       if error?
         return
       else
-        amount = poll.transactions.newBalance - poll.transactions.currentBalance
-        Businesses.deductFunds poll.entity.id, choices.transactions.types.POLL, poll.id, poll.transactions.currentId, poll.transactions.newBalance, (error, business)->
-          if error?
-            return
-          else
-            polls.setTransactionProcessed instance.transactions.id, amount, (error, poll)->
-              return
-            return
-    #load default transaction stuff (maybe create a separate function to do transaction setup)
-    #instance.transaction.state = choices.transactions.state.PENDING #This is the default setting
-    #instance.save callback
+        tp.process(poll, transaction)
     return
   
   @update: (entityType, entityId, pollId, data, callback)->
@@ -755,8 +720,10 @@ class Polls extends API
   @answer = (pollId, consumerId, answers, callback)->
     if Object.isString(pollId)
       pollId = new ObjectId(pollId)
+
     if Object.isString(consumerId)
       consumerId = new ObjectId(consumerId)
+      
     minAnswer = Math.min.apply(Math,answers)
     maxAnswer = Math.max.apply(Math,answers)
     if(minAnswer < 0 || isNaN(minAnswer) || isNaN(maxAnswer))
@@ -769,17 +736,27 @@ class Polls extends API
         numChoices        : {$gt : maxAnswer},
         "responses.consumers" : {$ne : consumerId}
     }
+    
     inc = new Object()
     inc["responses.remaining"] = -1;
+    
     i=0
     while i<answers.length
       inc["responses.choiceCounts."+answers[i]] = 1;
       i++
+      
     set = new Object()
     set["responses.log."+consumerId] = {
         answers   : answers,
         timestamp : timestamp
     }
+    
+    # CREATE EVENT
+    event = @createUserEvent choices.eventTypes.POLL_ANSWERED, choices.entities.CONSUMER, consumerId
+    eventId = new ObjectId()
+    eventIdStr = eventId.toString()
+    set["events.history.#{eventIdStr}"] = event
+    
     update = {
         $inc  : inc,
         $push : {
@@ -787,10 +764,12 @@ class Polls extends API
                 consumerId : consumerId
                 timestamp  : timestamp
             }
-            "responses.consumers" : consumerId,
-        },
+            "responses.consumers" : consumerId
+            "events.ids": eventId
+        }
         $set  : set
     }
+    
     fieldsToReturn = {
         _id                      : 1,
         question                 : 1,
@@ -939,8 +918,8 @@ class Discussions extends API
    #    currentState  : {type: String, required: true, enum: choices.transactions.state._enum, default: choices.transactions.state.PENDING}
    #    currentId     : {type: ObjectId}
    #  
-   #    currentBalance: {type: Number, required: true}
-   #    newBalance    : {type: Number}
+   #    currentAllocated: {type: Number, required: true}
+   #    newAllocated    : {type: Number}
    # }
 
 
@@ -960,16 +939,16 @@ class Discussions extends API
     instance.transactions.currentId = transactionId
     instance.transactions.currentState = choices.transactions.state.PENDING
 
-    instance.transactions.currentBalance = 0.0
-    instance.transactions.newBalance = amount
+    instance.transactions.currentAllocated = 0.0
+    instance.transactions.newAllocated = amount
 
     instance.save (error, discussion)->
       callback error, discussion
       if error?
         return
       else
-        amount = discussion.transactions.newBalance - discussion.transactions.currentBalance
-        Businesses.deductFunds discussion.entity.id, choices.transactions.types.DISCUSSION, discussion.id, discussion.transactions.currentId, discussion.transactions.newBalance, (error, business)->
+        amount = discussion.transactions.newAllocated - discussion.transactions.currentAllocated
+        Businesses.deductFunds discussion.entity.id, choices.transactions.types.DISCUSSION, discussion.id, discussion.transactions.currentId, discussion.transactions.newAllocated, (error, business)->
           if error?
             return
           else
@@ -1045,190 +1024,6 @@ class Responses extends API
   @setEventError: @__setEventError
 
   
-class FlipAds extends API
-  @model = FlipAd
-
-  @optionParser = (options, q)->
-    query = @_optionParser(options, q)
-
-    query.where('entity.type', options.entityType) if options.entityType?
-    query.where('entity.id', options.entityId) if options.entityId?
-    query.where('dates.start').gte(options.start) if options.start?
-    query.where('dates.end').gte(options.start) if options.end?
-    query.where('transaction.state', state) if options.state?
-    
-    return query
-
-  @add = (data, callback)->
-    instance = new @model(data)
-    
-    #load default transaction stuff (maybe create a separate function to do transaction setup)
-    #instance.transaction.state = choices.transactions.state.PENDING #This is the default setting
-    instance.save callback
-    return
-    
-  @pending: (entityType, entityId, skip, limit, callback)->
-    options = {
-      entityType: entityType,
-      entityId: entityId, 
-      skip: skip, 
-      limit: limit
-    }
-    query = @optionParser(options)
-    query.where('dates.start').gt(new Date())
-    query.sort('dates.start', -1)
-    query.exec callback
-    return
-
-  @active: (entityType, entityId, skip, limit, callback)->
-    options = {
-      entityType: entityType,
-      entityId: entityId, 
-      skip: skip, 
-      limit: limit
-    }
-    query = @optionParser(options)
-    query.where('dates.start').lte(new Date())
-    query.where('dates.end').gt(new Date())
-    query.sort('dates.start', -1)
-    query.exec callback
-    return
-    
-  @completed: (entityType, entityId, skip, limit, callback)->
-    options = {
-      entityType: entityType,
-      entityId: entityId, 
-      skip: skip, 
-      limit: limit
-    }
-    query = @optionParser(options)
-    query.where('dates.end').lte(new Date())
-    query.sort('dates.start', -1)
-    query.exec callback
-    return
-  
-  @updateUrlByGuid: (entityType, entityId, guid, url, thumb, callback)->
-    @model.collection.update  {'entity.type': entityType, 'entity.id': entityId, 'media.guid': guid}, {$set:{'media.url': url, 'media.thumb': thumb}}, {safe: true}, callback
-    return
-
-
-class Deals extends API
-  @model = Deal
-
-  @optionParser = (options, q)->
-    query = @_optionParser(options, q)
-
-    query.where('entity.type', options.entityType) if options.entityType?
-    query.where('entity.id', options.entityId) if options.entityId?
-    query.where('dates.start').gte(options.start) if options.start?
-    query.where('dates.end').gte(options.start) if options.end?
-    query.where('transaction.state', state) if options.state?
-    
-    return query
-
-  @add = (data, callback)->
-    switch data.type
-      when choices.deals.type.VOUCHER
-        if utils.isBlank(data.item)
-          callback new errors.ValidationError {"item":"required"}
-          return
-      
-      when choices.deals.type.BXGXF
-        if utils.isBlank(data.item)
-          callback new errors.ValidationError {"item":"required"}
-          return
-        if utils.isBlank(data.item2)
-          callback new errors.ValidationError {"item2":"required"}
-          return
-          
-      when choices.deals.type.PERCENT_ALL
-        if utils.isBlank(data.discount) || parseInt(data.discount) > 100
-          callback new errors.ValidationError {"discount":["required", "invalid"]}
-          return
-      
-      when choices.deals.type.PERCENT_MIN
-        if utils.isBlank(data.discount) || parseInt(data.discount) > 100
-          callback new errors.ValidationError {"discount":["required", "invalid"]}
-          return
-      
-      when choices.deals.type.PERCENT_ITEM
-        if utils.isBlank(data.item)
-          callback new errors.ValidationError {"item":"required"}
-          return
-        if utils.isBlank(data.discount) || parseInt(data.discount) > 100
-          callback new errors.ValidationError {"discount":"required"}
-          return
-        
-      when choices.deals.type.DOLLAR_ALL
-        if utils.isBlank(data.discount) || parseFloat(data.discount) > parseFloat(data.value)
-          callback new errors.ValidationError {"discount":["required","invalid"]}
-          return
-      
-      when choices.deals.type.DOLLAR_MIN
-        if utils.isBlank(data.discount) || parseFloat(data.discount) > parseFloat(data.value)
-          callback new errors.ValidationError {"discount":["required","invalid"]}
-          return
-      
-      when choices.deals.type.DOLLAR_ITEM
-        if utils.isBlank(data.item)
-          callback new errors.ValidationError {"item":"required"}
-          return
-        if utils.isBlank(data.discount) || parseFloat(data.discount) > parseFloat(data.value)
-          callback new errors.ValidationError {"discount":["required","invalid"]}
-          return
-
-    instance = new @model(data)
-    
-    #load default transaction stuff (maybe create a separate function to do transaction setup)
-    #instance.transaction.state = choices.transactions.state.PENDING #This is the default setting
-    instance.save callback
-    return
-  
-  @pending: (entityType, entityId, skip, limit, callback)->
-    options = {
-      entityType: entityType,
-      entityId: entityId, 
-      skip: skip, 
-      limit: limit
-    }
-    query = @optionParser(options)
-    query.where('dates.start').gt(new Date())
-    query.sort('dates.start', -1)
-    query.exec callback
-    return
-
-  @active: (entityType, entityId, skip, limit, callback)->
-    options = {
-      entityType: entityType,
-      entityId: entityId, 
-      skip: skip, 
-      limit: limit
-    }
-    query = @optionParser(options)
-    query.where('dates.start').lte(new Date())
-    query.where('dates.end').gt(new Date())
-    query.sort('dates.start', -1)
-    query.exec callback
-    return
-    
-  @completed: (entityType, entityId, skip, limit, callback)->
-    options = {
-      entityType: entityType,
-      entityId: entityId, 
-      skip: skip, 
-      limit: limit
-    }
-    query = @optionParser(options)
-    query.where('dates.end').lte(new Date())
-    query.sort('dates.start', -1)
-    query.exec callback
-    return
-
-  @updateMediaUrlByGuid: (entityType, entityId, guid, url, thumb, callback)->
-    @model.collection.update  {'entity.type': entityType, 'entity.id': entityId, 'media.guid': guid}, {$set:{'media.url': url, 'media.thumb': thumb}}, {safe: true}, callback
-    return
-
-
 class Medias extends API
   @model = Media
   
@@ -1437,12 +1232,9 @@ exports.Clients = Clients
 exports.Consumers = Consumers
 exports.Businesses = Businesses
 exports.Medias = Medias
-exports.FlipAds = FlipAds
 exports.Polls = Polls
 exports.Discussions = Discussions
 exports.Responses = Responses
-exports.Deals = Deals
-exports.DailyDeals = DailyDeals
 exports.ClientInvitations = ClientInvitations
 exports.Tags = Tags
 exports.EventRequests = EventRequests
