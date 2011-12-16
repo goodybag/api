@@ -1,14 +1,14 @@
 exports = module.exports
 
-generatePassword = require 'password-generator'
-hashlib = require 'hashlib'
-util = require 'util'
+generatePassword = require "password-generator"
+hashlib = require "hashlib"
+util = require "util"
 
-globals = require 'globals'
-db = require './db'
-tp = require './transactions' #transaction processor 
+globals = require "globals"
+db = require "./db"
+tp = require "./transactions" #transaction processor 
 
-ObjectId = require('mongoose').Types.ObjectId;
+ObjectId = require("mongoose").Types.ObjectId;
 
 utils = globals.utils
 choices = globals.choices
@@ -35,10 +35,10 @@ class API
   @model = null
   constructor: ()->
     #nothing to say
-  
+
   @_query: ()->
     return @model.find() #instance of query object
-  
+
   @optionParser = (options, q)->
     return @_optionParser(options, q)
 
@@ -55,15 +55,15 @@ class API
       query.sort(options.sort)
 
     return query
-  
+
   @add = (data, callback)->
     return @_add(data, callback)
-  
+
   @_add = (data, callback)->
     instance = new @model(data)
     instance.save callback
     return
-  
+
   @update: (id, data, callback)->
     @model.findById id, (err, obj)->
       for own k,v of data
@@ -72,14 +72,14 @@ class API
 
   @remove = (id, callback)->
     return @_remove(id, callback)
-  
+
   @_remove = (id, callback)->
     @model.remove {'_id': id}, callback
     return
-    
+
   @one = (id, callback)->
     return @_one(id, callback)
-    
+
   @_one = (id, callback)->
     @model.findOne {_id: id}, callback
     return
@@ -97,7 +97,8 @@ class API
     @model.findOne {_id: id, 'entity.type': entityType ,'entity.id': entityId}, callback
     return
 
-  
+
+  #EVENT ENGINE
   @createUserEvent: (eventType, entityType, entityId, eventData)->
     event = {}
     event.eventType = eventType
@@ -219,14 +220,18 @@ class API
       }
       data: data
       direction: direction
-      entity: entity
+      entity: {
+        type: entity.type
+        id: entity.id
+      }
     }
 
     return transaction
 
+  #TRANSACTION STATE
   @__setTransactionPending: (id, transactionId, locked, callback)->
     if Object.isString(id)
-      id = new ObjectId(id
+      id = new ObjectId(id)
     
     if Object.isString(transactionId)
       transactionId = new ObjectId(transactionId)
@@ -235,7 +240,7 @@ class API
       _id: id
       "transactions.log": {
         $elemMatch: {
-          "id": transactionsId
+          "id": transactionId
           "state":{
             $nin: [choices.transactions.states.PENDING, choices.transactions.states.PROCESSING, choices.transactions.states.PROCESSED, choices.transactions.states.ERROR]
           }
@@ -249,7 +254,7 @@ class API
       "transactions.locked": locked
     }
     
-    @model.findAndModify $query, [], {$set: $set}, {new: true, safe: true}, callback
+    @model.collection.findAndModify $query, [], {$set: $set}, {new: true, safe: true}, callback
 
   @__setTransactionProcessing: (id, transactionId, callback)->
     if Object.isString(id)
@@ -262,7 +267,7 @@ class API
       _id: id
       "transactions.log": {
         $elemMatch: {
-          "id": transactionsId
+          "id": transactionId
           "state":{
             $nin: [choices.transactions.states.PROCESSING, choices.transactions.states.PROCESSED, choices.transactions.states.ERROR]
           }
@@ -275,7 +280,7 @@ class API
       "transactions.log.$.dates.lastModified": new Date()
     }
     
-    @model.findAndModify query, [], {$set: $set}, {new: true, safe: true}, callback
+    @model.collection.findAndModify $query, [], {$set: $set}, {new: true, safe: true}, callback
 
   @__setTransactionProcessed: (id, transactionId, removeLock, modifierDoc, callback)->
     if Object.isString(id)
@@ -288,7 +293,7 @@ class API
       _id: id
       "transactions.log": {
         $elemMatch: {
-          "id": transactionsId
+          "id": transactionId
           "state":{
             $nin: [choices.transactions.states.PROCESSED, choices.transactions.states.ERROR]
           }
@@ -305,14 +310,14 @@ class API
     $update = {} 
 
     Object.merge($update, modifierDoc)
-    Object.merge($update, {$set: $set})
+    Object.merge($update.$set, $set)
 
     if removeLock?
       $set["transactions.locked"] = false
 
-    @model.findAndModify query, [], {$set: $set}, {new: true, safe: true}, callback
+    @model.collection.findAndModify $query, [], $update, {new: true, safe: true}, callback
 
-  @__setTransactionError: (id, transactionId, errorObj, removeLock, callback)->
+  @__setTransactionError: (id, transactionId, errorObj, removeLock, modifierDoc, callback)->
     if Object.isString(id)
       id = new ObjectId(id)
     
@@ -323,7 +328,7 @@ class API
       _id: id
       "transactions.log": {
         $elemMatch: {
-          "id": transactionsId
+          "id": transactionId
           "state":{
             $nin: [choices.transactions.states.PROCESSED, choices.transactions.states.ERROR]
           }
@@ -337,11 +342,16 @@ class API
       "transactions.log.$.dates.completed": new Date()
       "transactions.log.$.error": errorObj
     }
+
+    $update = {} 
+
+    Object.merge($update, modifierDoc)
+    Object.merge($update.$set, $set)
     
     if removeLock?
       $set["transactions.locked"] = false
 
-      @model.findAndModify query, [], {$set: $set}, {new: true, safe: true}, callback
+      @model.collection.findAndModify $query, [], $update, {new: true, safe: true}, callback
 
 
 class Consumers extends API
@@ -636,10 +646,10 @@ class Polls extends API
       amount: amount
     }
 
-    transaction = @createTransaction (choices.transactions.states.PENDING, choices.transactions.actions.POLL_CREATE, transactionData, choices.transactions.directions.INBOUND, instance.entity)
+    transaction = @createTransaction(choices.transactions.states.PENDING, choices.transactions.actions.POLL_CREATE, transactionData, choices.transactions.directions.INBOUND, instance.entity)
     
     instance.transactions.ids = [transaction.id]
-    instance.transactions.logs = [transaction]
+    instance.transactions.log = [transaction]
 
     #instance.events = @_createEventsObj event
 
@@ -858,6 +868,7 @@ class Polls extends API
         i++
     callback null, polls #array or one poll
     return
+
     
   @setEventPending: @__setEventPending
   @setEventProcessing: @__setEventProcessing
