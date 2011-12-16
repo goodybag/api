@@ -595,7 +595,7 @@ class Polls extends API
     query.exec callback
     return
 
-  @answer = (pollId, consumerId, answers, callback)->
+  @answer = (consumerId, pollId, answers, callback)->
     if Object.isString(pollId)
       pollId = new ObjectId(pollId)
     if Object.isString(consumerId)
@@ -608,9 +608,9 @@ class Polls extends API
     timestamp = new Date
     
     query = {
-        _id               : pollId,
-        numChoices        : {$gt : maxAnswer},
-        "responses.consumers" : {$ne : consumerId}
+        _id                   : pollId,
+        numChoices            : {$gt : maxAnswer}, #makes sure all answers selected exist
+        "responses.consumers" : {$ne : consumerId} #makes sure consumer has not already answered
     }
     inc = new Object()
     inc["responses.remaining"] = -1;
@@ -626,7 +626,7 @@ class Polls extends API
     update = {
         $inc  : inc,
         $push : {
-            date  : {
+            "responses.dates"  : {
                 consumerId : consumerId
                 timestamp  : timestamp
             }
@@ -648,7 +648,7 @@ class Polls extends API
         dates                    : 1,
         "funds.perResponse"      : 1
     }
-    fieldsToReturn["responses.log."+consumerId.toString]
+    fieldsToReturn["responses.log.#{consumerId}"] = 1
     
     @model.collection.findAndModify query, [], update, {new:true, safe:true}, fieldsToReturn, (error, poll)->
       Polls.removePollPrivateFields(error, poll, callback)
@@ -659,6 +659,7 @@ class Polls extends API
       consumerId = new ObjectId(consumerId)
     query = @_query()
     query.where('responses.consumers').ne(consumerId)
+    query.limit(1)
     #endDate..startDate..
     #transactionState
     #where not author..
@@ -676,7 +677,7 @@ class Polls extends API
       if error?
         callback error
         return
-      Polls.removePollPrivateFields(error, poll[0], callback)
+      Polls.removePollPrivateFields(error, poll, callback)
       return
 
   @answered = (consumerId, skip, limit, callback)->
@@ -684,7 +685,7 @@ class Polls extends API
       consumerId = new ObjectId(consumerId)
     query = @_query()
     query.where('responses.consumers',consumerId)
-    query.fields({
+    fieldsToReturn = {
         _id                 : 1,
         question            : 1,
         choices             : 1,
@@ -693,7 +694,10 @@ class Polls extends API
         "entity.name"       : 1,
         media               : 1,
         "funds.perResponse" : 1
-    });
+    }
+    fieldsToReturn["responses.log.#{consumerId}"] = 1
+    query.fields(fieldsToReturn)
+    query.sort("responses.log.#{consumerId}.timestamp",-1)
     query.exec (error, polls)->
       if error?
         callback error
@@ -1377,3 +1381,7 @@ exports.ClientInvitations = ClientInvitations
 exports.Tags = Tags
 exports.EventRequests = EventRequests
 exports.Events = Events
+
+Consumers.register "mehta@goodybag.com", "password", (error,data)->
+  console.log(error)
+  console.log(data)
