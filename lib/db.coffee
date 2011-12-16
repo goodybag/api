@@ -372,9 +372,10 @@ Discussion = new Schema {
   details             : {type: String}
   tags                : [String]
   media: {
-    url               : {type: Url, required: true} #video or image
-    thumb             : {type: Url}
-    guid              : {type: String}
+    when          : {type: String, enum: choices.polls.media.when._enum}
+    url           : {type: Url, required: true} #video or image
+    thumb         : {type: Url}
+    guid          : {type: String}
   }
   dates: {
     created           : {type: Date, required: true, default: new Date( (new Date()).toUTCString() )}

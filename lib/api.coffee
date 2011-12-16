@@ -727,7 +727,7 @@ class Polls extends API
     query.exec callback
     return
 
-  @answer = (pollId, consumerId, answers, callback)->
+  @answer = (consumerId, pollId, answers, callback)->
     if Object.isString(pollId)
       pollId = new ObjectId(pollId)
 
@@ -742,9 +742,9 @@ class Polls extends API
     timestamp = new Date
     
     query = {
-        _id               : pollId,
-        numChoices        : {$gt : maxAnswer},
-        "responses.consumers" : {$ne : consumerId}
+        _id                   : pollId,
+        numChoices            : {$gt : maxAnswer}, #makes sure all answers selected exist
+        "responses.consumers" : {$ne : consumerId} #makes sure consumer has not already answered
     }
     
     inc = new Object()
@@ -770,7 +770,7 @@ class Polls extends API
     update = {
         $inc  : inc,
         $push : {
-            date  : {
+            "responses.dates"  : {
                 consumerId : consumerId
                 timestamp  : timestamp
             }
@@ -794,7 +794,7 @@ class Polls extends API
         dates                    : 1,
         "funds.perResponse"      : 1
     }
-    fieldsToReturn["responses.log."+consumerId.toString]
+    fieldsToReturn["responses.log.#{consumerId}"] = 1
     
     @model.collection.findAndModify query, [], update, {new:true, safe:true}, fieldsToReturn, (error, poll)->
       Polls.removePollPrivateFields(error, poll, callback)
@@ -805,6 +805,7 @@ class Polls extends API
       consumerId = new ObjectId(consumerId)
     query = @_query()
     query.where('responses.consumers').ne(consumerId)
+    query.limit(1)
     #endDate..startDate..
     #transactionState
     #where not author..
@@ -822,7 +823,7 @@ class Polls extends API
       if error?
         callback error
         return
-      Polls.removePollPrivateFields(error, poll[0], callback)
+      Polls.removePollPrivateFields(error, poll, callback)
       return
 
   @answered = (consumerId, skip, limit, callback)->
@@ -830,7 +831,7 @@ class Polls extends API
       consumerId = new ObjectId(consumerId)
     query = @_query()
     query.where('responses.consumers',consumerId)
-    query.fields({
+    fieldsToReturn = {
         _id                 : 1,
         question            : 1,
         choices             : 1,
@@ -839,7 +840,10 @@ class Polls extends API
         "entity.name"       : 1,
         media               : 1,
         "funds.perResponse" : 1
-    });
+    }
+    fieldsToReturn["responses.log.#{consumerId}"] = 1
+    query.fields(fieldsToReturn)
+    query.sort("responses.log.#{consumerId}.timestamp",-1)
     query.exec (error, polls)->
       if error?
         callback error
@@ -1133,7 +1137,7 @@ class Events extends API
         callback error, events
 
   @soonestEvent = (callback)->
-    query = @model.findOne().sort 'dates.actual', -1
+    query = @model.findOne().sort 'dates.actual', 1
     query.exec (error, event)->
       if error?
         callback error
@@ -1150,52 +1154,36 @@ class Events extends API
       else
         callback error, event
 
-  @one = (eventId, callback)->
-    @model.findOne {_id: eventId}, (error, event)->
-      if error?
-        callback error
-      else
-        callback error, event
-
   @isUserRsvpd = (eventId, userId, callback)->
-    query = @model.findOne {_id: eventId}
-    query.where "rsvpUsers.#{userId}", true
-    query.exec (error, event)->
+    @model.findOne {_id: eventId, rsvp: userId}, (error, event)->
       if error?
         callback error
       else
         callback error, true
 
   @unRsvp = (eventId, userId, callback)->
-    @model.findOne {_id: eventId}, (error, event)->
-      if error?
-        callback error
-      else
-        index = event.rsvp.indexOf(userId)
-        if index == -1
-          callback error, event
-        else
-          event.rsvp.splice index, 1
-          if event.rsvpUsers[userId]?
-            delete event.rsvpUsers[userId]
-          event.save callback
+    if Object.isString eventId
+      eventId = new ObjectId eventId
+    if Object.isString userId
+      userId = new ObjectId userId
+    query = {_id: eventId}
+    update = {$pop: {rsvp: userId}}
+    options = {remove: false, new: true, upsert: false}
+    @model.collection.findAndModify query, [], update, options, callback
 
   @rsvp = (eventId, userId, callback)->
-    @model.findOne {_id: eventId}, (error, event)->
-      if error?
-        callback error
-      else
-        # Just return the event as if we were saving if it's already in the list
-        if event.rsvp.indexOf(userId) > -1
-          callback error, event
-        else
-          event.rsvp.push userId
-          event.rsvpUsers[userId] = true
-          event.save callback
+    if Object.isString eventId
+      eventId = new ObjectId eventId
+    if Object.isString userId
+      userId = new ObjectId userId
+    query = {_id: eventId}
+    update = {$push: {rsvp: userId}}
+    options = {remove: false, new: true, upsert: false}
+    @model.collection.findAndModify query, [], update, options, callback
 
   # Get dates specified but support pagination
   @getByDateDescLimit = (params, limit, page, callback)->
-    query = @model.find(params).sort 'dates.actual', -1
+    query = @model.find(params).sort 'dates.actual', 1
     query.limit limit
     query.skip(limit * page)
     query.exec callback
