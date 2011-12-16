@@ -1271,7 +1271,7 @@ class Events extends API
         callback error, events
 
   @soonestEvent = (callback)->
-    query = @model.findOne().sort 'dates.actual', -1
+    query = @model.findOne().sort 'dates.actual', 1
     query.exec (error, event)->
       if error?
         callback error
@@ -1288,52 +1288,36 @@ class Events extends API
       else
         callback error, event
 
-  @one = (eventId, callback)->
-    @model.findOne {_id: eventId}, (error, event)->
-      if error?
-        callback error
-      else
-        callback error, event
-
   @isUserRsvpd = (eventId, userId, callback)->
-    query = @model.findOne {_id: eventId}
-    query.where "rsvpUsers.#{userId}", true
-    query.exec (error, event)->
+    @model.findOne {_id: eventId, rsvp: userId}, (error, event)->
       if error?
         callback error
       else
         callback error, true
 
   @unRsvp = (eventId, userId, callback)->
-    @model.findOne {_id: eventId}, (error, event)->
-      if error?
-        callback error
-      else
-        index = event.rsvp.indexOf(userId)
-        if index == -1
-          callback error, event
-        else
-          event.rsvp.splice index, 1
-          if event.rsvpUsers[userId]?
-            delete event.rsvpUsers[userId]
-          event.save callback
+    if Object.isString eventId
+      eventId = new ObjectId eventId
+    if Object.isString userId
+      userId = new ObjectId userId
+    query = {_id: eventId}
+    update = {$pop: {rsvp: userId}}
+    options = {remove: false, new: true, upsert: false}
+    @model.collection.findAndModify query, [], update, options, callback
 
   @rsvp = (eventId, userId, callback)->
-    @model.findOne {_id: eventId}, (error, event)->
-      if error?
-        callback error
-      else
-        # Just return the event as if we were saving if it's already in the list
-        if event.rsvp.indexOf(userId) > -1
-          callback error, event
-        else
-          event.rsvp.push userId
-          event.rsvpUsers[userId] = true
-          event.save callback
+    if Object.isString eventId
+      eventId = new ObjectId eventId
+    if Object.isString userId
+      userId = new ObjectId userId
+    query = {_id: eventId}
+    update = {$push: {rsvp: userId}}
+    options = {remove: false, new: true, upsert: false}
+    @model.collection.findAndModify query, [], update, options, callback
 
   # Get dates specified but support pagination
   @getByDateDescLimit = (params, limit, page, callback)->
-    query = @model.find(params).sort 'dates.actual', -1
+    query = @model.find(params).sort 'dates.actual', 1
     query.limit limit
     query.skip(limit * page)
     query.exec callback
