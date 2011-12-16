@@ -130,7 +130,29 @@ Consumer = new Schema {
   }               
   created         : {type: Date, default: new Date( (new Date()).toUTCString() ), index: true}
   logins          : []
+  honorScore      : {type: Number, default: 0}
   charities       : {}
+  
+  events: {
+    ids           : [ObjectId]
+    history       : {}
+    
+    #Example of events history:
+    # history: {
+    #   eventId: {
+    #     eventType: {type: String, required: true, enum: choices.eventTypes._enum}
+    #     entity: { #We support various types of users creating discussions (currently businesses and consumers can create discussions)
+    #       type: {type: String, required: true, enum: choices.entities._enum}
+    #       id: {type: ObjectId, required: true}
+    #       name: {type: String}
+    #     }
+    #     state: {type: String, default: choices.eventStates._enum}
+    #     timestamp: {type: Date, default: new Date( (new Date()).toUTCString() ), index: true}
+    #     data: {}
+    #     attempts: 0
+    #   }
+    # }
+  }
 }
 
 #compound indexes
@@ -188,6 +210,28 @@ Client = new Schema {
   }
   dates: {
     created     : {type: Date, required: true, default: new Date( (new Date()).toUTCString() )}
+  }
+  
+  events: {
+    ids           : [ObjectId]
+    history       : {}
+    
+    #Example of events history:
+    # history: {
+    #   eventId: {
+    #     eventType: {type: String, required: true, enum: choices.eventTypes._enum}
+    #     entity: { #We support various types of users creating discussions (currently businesses and consumers can create discussions)
+    #       type: {type: String, required: true, enum: choices.entities._enum}
+    #       id: {type: ObjectId, required: true}
+    #       name: {type: String}
+    #     }
+    #     state: {type: String, default: choices.eventStates._enum}
+    #     timestamp: {type: Date, default: new Date( (new Date()).toUTCString() ), index: true}
+    #     data: {}
+    #     error: {}
+    #     attempts: 0
+    #   }
+    # }
   }
 }
 
@@ -285,6 +329,27 @@ Business = new Schema {
     # }
 
   }
+
+  events: {
+    ids           : [ObjectId]
+    history       : {}
+    
+    #Example of events history:
+    # history: {
+    #   eventId: {
+    #     eventType: {type: String, required: true, enum: choices.eventTypes._enum}
+    #     entity: { #We support various types of users creating discussions (currently businesses and consumers can create discussions)
+    #       type: {type: String, required: true, enum: choices.entities._enum}
+    #       id: {type: ObjectId, required: true}
+    #       name: {type: String}
+    #     }
+    #     state: {type: String, default: choices.eventStates._enum}
+    #     timestamp: {type: Date, default: new Date( (new Date()).toUTCString() ), index: true}
+    #     data: {}
+    #     attempts: 0
+    #   }
+    # }
+  }
 }
 
 #indexes
@@ -319,7 +384,7 @@ Poll = new Schema {
   displayName     : {type: Boolean, required: true}
   displayMedia    : {type: Boolean, required: true}
   media: {
-    when          : {type: String, enum: choices.polls.media.when._enum}
+    when          : {type: String, required: true, enum: choices.polls.media.when._enum } #when to display
     url           : {type: Url, required: true} #video or image
     thumb         : {type: Url}
     guid          : {type: String}
@@ -354,6 +419,27 @@ Poll = new Schema {
     
     currentBalance: {type: Number, required: true, default: 0.0}
     newBalance    : {type: Number, required: true, default: 0.0}
+  }
+
+  events: {
+    ids           : [ObjectId]
+    history       : {}
+    
+    #Example of events history:
+    # history: {
+    #   eventId: {
+    #     eventType: {type: String, required: true, enum: choices.eventTypes._enum}
+    #     entity: { #We support various types of users creating discussions (currently businesses and consumers can create discussions)
+    #       type: {type: String, required: true, enum: choices.entities._enum}
+    #       id: {type: ObjectId, required: true}
+    #       name: {type: String}
+    #     }
+    #     state: {type: String, default: choices.eventStates._enum}
+    #     timestamp: {type: Date, default: new Date( (new Date()).toUTCString() ), index: true}
+    #     data: {}
+    #     attempts: 0
+    #   }
+    # }
   }
 
 }
@@ -410,6 +496,27 @@ Discussion = new Schema {
     currentBalance: {type: Number, required: true, default: 0.0}
     newBalance    : {type: Number, required: true, default: 0.0}
   }
+
+  events: {
+    ids           : [ObjectId]
+    history       : {}
+    
+    #Example of events history:
+    # history: {
+    #   eventId: {
+    #     eventType: {type: String, required: true, enum: choices.eventTypes._enum}
+    #     entity: { #We support various types of users creating discussions (currently businesses and consumers can create discussions)
+    #       type: {type: String, required: true, enum: choices.entities._enum}
+    #       id: {type: ObjectId, required: true}
+    #       name: {type: String}
+    #     }
+    #     state: {type: String, default: choices.eventStates._enum}
+    #     timestamp: {type: Date, default: new Date( (new Date()).toUTCString() ), index: true}
+    #     data: {}
+    #     attempts: 0
+    #   }
+    # }
+  }
 }
 
 #index
@@ -452,6 +559,28 @@ Response = new Schema {
   parent          : {type: ObjectId} #was this in response to a previous response? which one?
   dates: {
     created       : {type: Date, default: new Date( (new Date()).toUTCString() )}
+  }
+
+  events: {
+    ids           : [ObjectId]
+    history       : {}
+    
+    #Example of events history:
+    # history: {
+    #   eventId: {
+    #     eventType: {type: String, required: true, enum: choices.eventTypes._enum}
+    #     entity: { #We support various types of users creating discussions (currently businesses and consumers can create discussions)
+    #       type: {type: String, required: true, enum: choices.entities._enum}
+    #       id: {type: ObjectId, required: true}
+    #       name: {type: String}
+    #     }
+    #     state: {type: String, default: choices.eventStates._enum}
+    #     timestamp: {type: Date, default: new Date( (new Date()).toUTCString() ), index: true}
+    #     state: {type: String, default: choices.eventStates._enum}
+    #     data: {}
+    #     attempts: 0
+    #   }
+    # }
   }
 }
 
@@ -570,6 +699,27 @@ Media = new Schema {
   dates: {
     created   : {type: Date, required: true, default: new Date( (new Date()).toUTCString() )}
   }
+
+  events: {
+    ids           : [ObjectId]
+    history       : {}
+    
+    #Example of events history:
+    # history: {
+    #   eventId: {
+    #     eventType: {type: String, required: true, enum: choices.eventTypes._enum}
+    #     entity: { #We support various types of users creating discussions (currently businesses and consumers can create discussions)
+    #       type: {type: String, required: true, enum: choices.entities._enum}
+    #       id: {type: ObjectId, required: true}
+    #       name: {type: String}
+    #     }
+    #     state: {type: String, default: choices.eventStates._enum}
+    #     timestamp: {type: Date, default: new Date( (new Date()).toUTCString() ), index: true}
+    #     data: {}
+    #     attempts: 0
+    #   }
+    # }
+  }
 }
 
 #indexes
@@ -593,6 +743,27 @@ ClientInvitation = new Schema {
     created       : {type: Date, default: new Date( (new Date()).toUTCString() )}
     expires       : {type: Date}
   }
+
+  events: {
+    ids           : [ObjectId]
+    history       : {}
+    
+    #Example of events history:
+    # history: {
+    #   eventId: {
+    #     eventType: {type: String, required: true, enum: choices.eventTypes._enum}
+    #     entity: { #We support various types of users creating discussions (currently businesses and consumers can create discussions)
+    #       type: {type: String, required: true, enum: choices.entities._enum}
+    #       id: {type: ObjectId, required: true}
+    #       name: {type: String}
+    #     }
+    #     state: {type: String, default: choices.eventStates._enum}
+    #     timestamp: {type: Date, default: new Date( (new Date()).toUTCString() ), index: true}
+    #     data: {}
+    #     attempts: 0
+    #   }
+    # }
+  }
 }
 
 #unique index on businessId + email address is required
@@ -602,19 +773,44 @@ ClientInvitation = new Schema {
 # Stream ###########
 ####################
 Stream = new Schema {
+  eventType     : {type: String, required: true, enum: choices.eventTypes._enum}
+  eventId       : {type: ObjectId, required: true} #unique
   entity: {
-    type       : {type: String, required: true, enum: ['business', 'consumer']},
-    id         : {type: ObjectId, required: true}
+    type        : {type: String, required: true, enum: choices.entities._enum},
+    id          : {type: ObjectId, required: true}
+    name        : {type: String}
   }
-  type         : {type: String, required: true, enum: ['']}
-  action       : {type: String, required: true, enum: ['']}
-  dateTime     : {type: Date, default: Date.now}
-  data         : {}
+  documentId    : {type: ObjectId, required: true}
+  messages      : [{type: String}]
+  dates: {
+    event       : {type: Date, required: true} #event date/time
+    created     : {type: Date, default: new Date( (new Date()).toUTCString() )} #timestamp added to the stream
+  }
+  data          : {}
+
+  events: {
+    ids           : [ObjectId]
+    history       : {}
+    
+    #Example of events history:
+    # history: {
+    #   eventId: {
+    #     eventType: {type: String, required: true, enum: choices.eventTypes._enum}
+    #     entity: { #We support various types of users creating discussions (currently businesses and consumers can create discussions)
+    #       type: {type: String, required: true, enum: choices.entities._enum}
+    #       id: {type: ObjectId, required: true}
+    #       name: {type: String}
+    #     }
+    #     state: {type: String, default: choices.eventStates._enum}
+    #     timestamp: {type: Date, default: new Date( (new Date()).toUTCString() ), index: true}
+    #     data: {}
+    #     attempts: 0
+    #   }
+    # }
+  }
 }
 
 #indexes
-Stream.index('entity': 1, 'id': 1, 'datetime': 1, 'type':1)
-Stream.index('datetime': 1)
 
 
 ####################
@@ -626,23 +822,68 @@ Tag = new Schema {
 
 Tag.index('name': 1)
 
-####################
-#Events Requests ###
-####################
+############
+# Events ###
+############
+EventDateRange = new Schema {
+  start: {type: Date, required: true}
+  end: {type: Date, required: true}
+}
+
+Event = new Schema {
+  entity: { 
+    type      : {type: String, required: true, enum: choices.entities._enum}
+    id        : {type: ObjectId, required: true}
+    name      : {type: String}
+  }
+  
+  locationId  : {type: ObjectId}
+  location    : {
+    name      : {type: String}
+    street1   : {type: String, required: true}
+    street2   : {type: String}
+    city      : {type: String, required: true}
+    state     : {type: String, required: true}
+    zip       : {type: Number, required: true}
+    country   : {type: String, enum: countries.codes, required: true, default: "us"}
+    phone     : {type: String}
+    fax       : {type: String}
+    lat       : {type: Number}
+    lng       : {type: Number}
+  }
+  
+  dates: {
+    requested : {type: Date, required: true}
+    responded : {type: Date, required: true}
+    actual    : {type: Date, required: true}
+  }
+  
+  hours       : [EventDateRange]
+  pledge      : {type: Number, min: 0, max: 100, required: true}
+  externalUrl : {type: Url}
+  rsvp        : [ObjectId]
+  rsvpUsers   : {}
+}
+
+#####################
+# Events Requests ###
+#####################
 EventRequest = new Schema {
-  userEntity          : {
-    type              : {type: String, required: true, enum: choices.entities._enum}
-    id                : {type: ObjectId, required: true}
-    name              : {type: String}
+  userEntity: {
+    type                : {type: String, required: true, enum: choices.entities._enum}
+    id                  : {type: ObjectId, required: true}
+    name                : {type: String}
   }
-  organizationEntity  : {
-    type              : {type: String, required: true, enum: choices.entities._enum}
-    id                : {type: ObjectId, required: true}
-    name              : {type: String}
+  
+  organizationEntity: {
+    type                : {type: String, required: true, enum: choices.entities._enum}
+    id                  : {type: ObjectId, required: true}
+    name                : {type: String}
   }
-  date                : {
-    requested         : {type: Date, default: Date.now}
-    responded         : {type: Date}
+  
+  date: {
+    requested           : {type: Date, default: Date.now}
+    responded           : {type: Date}
   }
 }
 
@@ -659,6 +900,8 @@ exports.Media               = mongoose.model 'Media', Media
 exports.ClientInvitation    = mongoose.model 'ClientInvitation', ClientInvitation
 exports.Tag                 = mongoose.model 'Tag', Tag
 exports.EventRequest        = mongoose.model 'EventRequest', EventRequest
+exports.Stream              = mongoose.model 'Stream', Stream
+exports.Event               = mongoose.model 'Event', Event
 
 exports.schemas = {
   DailyDeal: DailyDeal
@@ -674,4 +917,6 @@ exports.schemas = {
   ClientInvitation: ClientInvitation
   Tag: Tag
   EventRequest: EventRequest
+  Stream: Stream
+  Event: Event
 }
