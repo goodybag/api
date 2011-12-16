@@ -797,18 +797,57 @@ class Polls extends API
     fieldsToReturn["responses.log.#{consumerId}"] = 1
     
     @model.collection.findAndModify query, [], update, {new:true, safe:true}, fieldsToReturn, (error, poll)->
-      Polls.removePollPrivateFields(error, poll, callback)
+      if error?
+        callback error
+        return
+      Polls.removePollPrivateFields(poll, callback)
+      return
     #TODO: transaction of funds.. per response gain to consumer..
+  
+  @skip = (consumerId, pollId, callback)->
+    if Object.isString(consumerId)
+      consumerId = new ObjectId(consumerId)
+    query = @_query()
+    query.where('_id', pollId)
+    query.where('entity.id').ne(consumerId)
+    query.where('responses.consumers').ne(consumerId)
+    query.where('responses.skipConsumers').ne(consumerId)
+    query.where('responses.max':100)
+    #endDate..startDate..
+    #transactionState
+    #where not author..
+    query.update {$push:{"responses.skipConsumers":consumerId},$inc:{"responses.skipCount":1}}, (error, success)->
+      callback error, success # 1 or 0
+      return
+
+  @flag = (consumerId, pollId, callback)->
+    if Object.isString(consumerId)
+      consumerId = new ObjectId(consumerId)
+    query = @_query()
+    query.where('_id', pollId)
+    query.where('entity.id').ne(consumerId)
+    query.where('responses.consumers').ne(consumerId)
+    query.where('responses.skipConsumers').ne(consumerId)
+    query.where('responses.flagConsumers').ne(consumerId)
+    query.where('responses.max':100)
+    #endDate..startDate..
+    #transactionState
+    #where not author..
+    query.update {$push:{"responses.flagConsumers":consumerId},$inc:{"responses.flagCount":1}}, (error, success)->
+      callback error, success # 1 or 0
+      return
 
   @next = (consumerId, callback)->
     if Object.isString(consumerId)
       consumerId = new ObjectId(consumerId)
     query = @_query()
+    query.where('entity.id').ne(consumerId)
     query.where('responses.consumers').ne(consumerId)
+    query.where('responses.skipConsumers').ne(consumerId)
+    query.where('responses.flagConsumers').ne(consumerId)
     query.limit(1)
     #endDate..startDate..
     #transactionState
-    #where not author..
     query.fields({
         _id                 : 1,
         question            : 1,
@@ -823,7 +862,7 @@ class Polls extends API
       if error?
         callback error
         return
-      Polls.removePollPrivateFields(error, poll, callback)
+      Polls.removePollPrivateFields(poll, callback)
       return
 
   @answered = (consumerId, skip, limit, callback)->
@@ -848,10 +887,10 @@ class Polls extends API
       if error?
         callback error
         return
-      Polls.removePollPrivateFields(error, polls, callback)
+      Polls.removePollPrivateFields(polls, callback)
       return
 
-  @removePollPrivateFields = (error, polls, callback)->
+  @removePollPrivateFields = (polls, callback)->
     #arrayCheck
     if !Object.isArray(polls)
       if(!polls.displayName)
@@ -1239,3 +1278,7 @@ exports.Tags = Tags
 exports.EventRequests = EventRequests
 exports.Events = Events
 exports.Streams = Streams
+
+
+Polls.skip '4ee960c75ee798d72350cca1', '4ee9237bb00c855b2f000002', (error, face)->
+  return

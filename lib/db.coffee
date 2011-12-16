@@ -315,21 +315,25 @@ Poll = new Schema {
   choices             : [type: String, required: true]
   numChoices          : {type: Number, required: true}
   responses: {
-    remaining         : {type: Number, required: true} #decrement each response
-    max               : {type: Number, required: true}
-    consumers         : [type: ObjectId] #append ObjectId(consumerId) each response
-    log               : {}               #append consumerId:{answers:[1,2],timestamp:Date}
-    dates             : []               #append {consumerId:ObjId,timestamp:Date} -- for sorting by date
-    choiceCounts      : [type: Number, required: true] #increment each choice chosen
+    remaining     : {type: Number,   required: true} #decrement each response
+    max           : {type: Number,   required: true}
+    consumers     : [type: ObjectId, required: true, default: new Array()] #append ObjectId(consumerId) each response
+    log           : {}                             #append consumerId:{answers:[1,2],timestamp:Date}
+    dates         : []                             #append {consumerId:ObjId,timestamp:Date} -- for sorting by date
+    choiceCounts  : [type: Number,   required: true, default: new Array()] #increment each choice chosen, default should be a zero array..
+    flagConsumers : [type: ObjectId, required: true, default: new Array()]
+    flagCount     : {type: Number,   required: true, default: 0}
+    skipConsumers : [type: ObjectId, required: true, default: new Array()]
+    skipCount     : {type: Number,   required: true, default: 0}
   }
   showStats           : {type: Boolean, required: true} #whether to display the stats to the user or not
   displayName         : {type: Boolean, required: true}
   displayMedia        : {type: Boolean, required: true}
   media: {
-    when              : {type: String, required: true, enum: choices.polls.media.when._enum } #when to display
-    url               : {type: Url, required: true} #video or image
-    thumb             : {type: Url}
-    guid              : {type: String}
+    when          : {type: String, required: true, enum: choices.polls.media.when._enum } #when to display
+    url           : {type: Url,    required: true} #video or image
+    thumb         : {type: Url}
+    guid          : {type: String}
   }
   dates: {
     created           : {type: Date, required: true, default: new Date( (new Date()).toUTCString() )}
@@ -455,6 +459,46 @@ Response = new Schema {
   }
 }
 
+####################
+# FipAd ############
+####################
+FlipAd = new Schema {
+  entity: { #We support multile users creating content (right now, we don't allow users to create flipAds, but we may)
+    type          : {type: String, required: true, enum: choices.entities._enum}
+    id            : {type: ObjectId, required: true}
+    name          : {type: String}
+  }
+  campaignName    : {type: String, required: true}
+  title           : {type: String, required: true}
+  description     : {type: String}
+  type            : {type: String, required: true, enum: choices.media.type._enum}
+  media: {
+    url           : {type: Url, required: true} #video or image
+    thumb         : {type: Url}
+    guid          : {type: String}
+    duration      : {type: Number} #useful for videos, in number of seconds (e.g. 48.42)
+  }
+  dates: {
+    created       : {type: Date, required: true, default: new Date( (new Date()).toUTCString() )}
+    start         : {type: Date, required: true}
+    end           : {type: Date}
+  }
+  views: {
+    unique        : {type: Number, required: true, default: 0} #this gets incremented only if it was the first time
+    overall       : {type: Number, required: true, default: 0} #this gets incremented on every view
+  }
+  viewers         : [ObjectId] #the users who have viewed this video
+  funds: {
+    allocated     : {type: Number, required: true, default: 0}
+    remaining     : {type: Number, required: true, default: 0}
+  }
+  transaction: {
+    state         : {type: String, required: true, enum: choices.transactions.states._enum, default: choices.transactions.states.PENDING}
+    error         : {type: String} #only populated if there is an error in the transaction i.e. insufficient funds
+    created       : {type: Date, required: true, default: new Date( (new Date()).toUTCString() )}
+    lastModified  : {type: Date, required: true, default: new Date( (new Date()).toUTCString() )}
+  }
+}
 
 ####################
 # Media ############
