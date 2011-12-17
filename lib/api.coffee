@@ -707,6 +707,22 @@ class Polls extends API
       limit: limit
     }
     query = @optionParser(options)
+    query.fields({
+        _id                   : 1,
+        entity                : 1,
+        type                  : 1,
+        question              : 1,        
+        choices               : 1,
+        "responses.remaining" : 1,
+        "responses.max"       : 1,
+        flagCount             : 1,
+        skipCount             : 1,
+        dates                 : 1,
+        funds                 : 1,
+        state                 : 1,
+        media                 : 1,
+        "funds.perResponse"   : 1
+    });
     query.sort('dates.start', -1)
     query.exec callback
     return
@@ -720,6 +736,22 @@ class Polls extends API
     }
     query = @optionParser(options)
     query.where('dates.start').gt(new Date())
+    query.fields({
+        _id                   : 1,
+        entity                : 1,
+        type                  : 1,
+        question              : 1,        
+        choices               : 1,
+        "responses.remaining" : 1,
+        "responses.max"       : 1,
+        flagCount             : 1,
+        skipCount             : 1,
+        dates                 : 1,
+        funds                 : 1,
+        state                 : 1,
+        media                 : 1,
+        "funds.perResponse"   : 1
+    });
     query.sort('dates.start', -1)
     query.exec callback
     return
@@ -734,6 +766,22 @@ class Polls extends API
     query = @optionParser(options)
     query.where('dates.start').lte(new Date())
     query.where('dates.end').gt(new Date())
+    query.fields({
+        _id                   : 1,
+        entity                : 1,
+        type                  : 1,
+        question              : 1,        
+        choices               : 1,
+        "responses.remaining" : 1,
+        "responses.max"       : 1,
+        flagCount             : 1,
+        skipCount             : 1,
+        dates                 : 1,
+        funds                 : 1,
+        state                 : 1,
+        media                 : 1,
+        "funds.perResponse"   : 1
+    });
     query.sort('dates.start', -1)
     query.exec callback
     return
@@ -747,6 +795,22 @@ class Polls extends API
     }
     query = @optionParser(options)
     query.where('dates.end').lte(new Date())
+    query.fields({
+        _id                   : 1,
+        entity                : 1,
+        type                  : 1,
+        question              : 1,        
+        choices               : 1,
+        "responses.remaining" : 1,
+        "responses.max"       : 1,
+        flagCount             : 1,
+        skipCount             : 1,
+        dates                 : 1,
+        funds                 : 1,
+        state                 : 1,
+        media                 : 1,
+        "funds.perResponse"   : 1
+    });
     query.sort('dates.start', -1)
     query.exec callback
     return
@@ -766,9 +830,15 @@ class Polls extends API
     timestamp = new Date
     
     query = {
-        _id                   : pollId,
-        numChoices            : {$gt : maxAnswer}, #makes sure all answers selected exist
-        "responses.consumers" : {$ne : consumerId} #makes sure consumer has not already answered
+        _id                       : pollId,
+        "entity.id"               : {$ne : consumer.id} #can't answer a question you authored
+        numChoices                : {$gt : maxAnswer}   #makes sure all answers selected exist
+        "responses.consumers"     : {$ne : consumerId}  #makes sure consumer has not already answered
+        "responses.skipConsumers" : {$ne : consumerId}  #makes sure consumer has not already skipped..
+        "responses.flagConsumers" : {$ne : consumerId}  #makes sure consumer has not already flagged..
+        "dates.start"             : {$lte: new Date()}  #makes sure poll has started
+        "dates.end"               : {$gt : new Date()}  #makes sure poll has not ended
+        "state"                   : choices.transactions.states.PROCESSED #poll is processed and ready to launch
     }
     
     inc = new Object()
@@ -836,14 +906,14 @@ class Polls extends API
     if Object.isString(consumerId)
       consumerId = new ObjectId(consumerId)
     query = @_query()
-    query.where('_id', pollId)
-    query.where('entity.id').ne(consumerId)
-    query.where('responses.consumers').ne(consumerId)
-    query.where('responses.skipConsumers').ne(consumerId)
-    query.where('responses.max':100)
-    #endDate..startDate..
-    #transactionState
-    #where not author..
+    query.where('entity.id').ne(consumerId)               #not author
+    query.where('responses.consumers'    ).ne(consumerId) #not already answerd 
+    query.where('responses.skipConsumers').ne(consumerId) #not already skipped
+    query.where('responses.flagConsumers').ne(consumerId) #not already flagged
+    query.where('dates.start').lte(new Date())            #poll has started
+    query.where('dates.end').gt(new Date())               #poll has not ended
+    query.where('state',choices.transactions.states.PROCESSED)    #poll is processed (paid for) and ready to launch
+
     query.update {$push:{"responses.skipConsumers":consumerId},$inc:{"responses.skipCount":1}}, (error, success)->
       callback error, success # 1 or 0
       return
@@ -852,15 +922,14 @@ class Polls extends API
     if Object.isString(consumerId)
       consumerId = new ObjectId(consumerId)
     query = @_query()
-    query.where('_id', pollId)
-    query.where('entity.id').ne(consumerId)
-    query.where('responses.consumers').ne(consumerId)
-    query.where('responses.skipConsumers').ne(consumerId)
-    query.where('responses.flagConsumers').ne(consumerId)
-    query.where('responses.max':100)
-    #endDate..startDate..
-    #transactionState
-    #where not author..
+    query.where('entity.id').ne(consumerId)               #not author
+    query.where('responses.consumers'    ).ne(consumerId) #not already answerd 
+    query.where('responses.skipConsumers').ne(consumerId) #not already skipped
+    query.where('responses.flagConsumers').ne(consumerId) #not already flagged
+    query.where('dates.start').lte(new Date())            #poll has started
+    query.where('dates.end').gt(new Date())               #poll has not ended
+    query.where('state',choices.transactions.states.PROCESSED)    #poll is processed (paid for) and ready to launch
+
     query.update {$push:{"responses.flagConsumers":consumerId},$inc:{"responses.flagCount":1}}, (error, success)->
       callback error, success # 1 or 0
       return
@@ -869,13 +938,15 @@ class Polls extends API
     if Object.isString(consumerId)
       consumerId = new ObjectId(consumerId)
     query = @_query()
-    query.where('entity.id').ne(consumerId)
-    query.where('responses.consumers').ne(consumerId)
-    query.where('responses.skipConsumers').ne(consumerId)
-    query.where('responses.flagConsumers').ne(consumerId)
-    query.limit(1)
-    #endDate..startDate..
-    #transactionState
+    query.where('entity.id').ne(consumerId)               #not author
+    query.where('responses.consumers'    ).ne(consumerId) #not already answerd 
+    query.where('responses.skipConsumers').ne(consumerId) #not already skipped
+    query.where('responses.flagConsumers').ne(consumerId) #not already flagged
+    query.where('dates.start').lte(new Date())            #poll has started
+    query.where('dates.end').gt(new Date())               #poll has not ended
+    query.where('state',choices.transactions.states.PROCESSED)    #poll is processed (paid for) and ready to launch
+    query.limit(1)                                        #you only want the next ONE
+
     query.fields({
         _id                 : 1,
         question            : 1,
@@ -910,6 +981,7 @@ class Polls extends API
         "funds.perResponse" : 1
     }
     fieldsToReturn["responses.log.#{consumerId}"] = 1
+    
     query.fields(fieldsToReturn)
     query.sort("responses.log.#{consumerId}.timestamp",-1)
     query.exec (error, polls)->
@@ -921,15 +993,14 @@ class Polls extends API
       return
 
   @removePollPrivateFields = (polls)->
-    #arrayCheck
-    if !Object.isArray(polls)
+    if !Object.isArray(polls) #if polls is a single poll object
       if(!polls.displayName)
         delete polls.entity
       if(!polls.displayMedia)
         delete media
       if(!polls.showStats && polls.responses?)
         delete polls.responses.choiceCounts 
-    else
+    else                      #else polls is an array of poll objects
       i=0
       while i<polls.length
         if(!polls[i].displayName)
