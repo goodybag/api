@@ -306,14 +306,15 @@ class API
       "transactions.log.$.dates.lastModified": new Date()
       "transactions.log.$.dates.completed": new Date()
     }
+    
+    if removeLock?
+      $set["transactions.locked"] = false
 
     $update = {} 
+    $update.$set = {}
 
     Object.merge($update, modifierDoc)
     Object.merge($update.$set, $set)
-
-    if removeLock?
-      $set["transactions.locked"] = false
 
     @model.collection.findAndModify $query, [], $update, {new: true, safe: true}, callback
 
@@ -342,17 +343,31 @@ class API
       "transactions.log.$.dates.completed": new Date()
       "transactions.log.$.error": errorObj
     }
-
-    $update = {} 
-
-    Object.merge($update, modifierDoc)
-    Object.merge($update.$set, $set)
     
     if removeLock?
       $set["transactions.locked"] = false
 
-      @model.collection.findAndModify $query, [], $update, {new: true, safe: true}, callback
+    $update = {} 
+    $update.$set = {}
 
+    Object.merge($update, modifierDoc)
+    Object.merge($update.$set, $set)
+    
+    @model.collection.findAndModify $query, [], $update, {new: true, safe: true}, callback
+
+  @checkIfTransactionExists: (id, transactionId, callback)->
+    if Object.isString(id)
+      id = new ObjectId(id)
+      
+    if Object.isString(transactionId)
+      transactionId = new ObjectId(transactionId)
+    
+    $query = {
+      _id: id
+      "transactions.ids": transactionId
+    }
+
+    @model.findOne $query, callback
 
 class Consumers extends API
   @model = Consumer
@@ -394,6 +409,14 @@ class Consumers extends API
 
     @model.findAndModify {_id:  id}, [], {$push:{"events.ids": eventId}, $inc: {honorScore: amount}}, {new: true, safe: true}, callback
 
+  @deductFunds: (id, transactionId, amount, callback)->
+    if Object.isString(id)
+      id = new ObjectId(id)
+    
+    if Object.isString(transactionId)
+      transactionId = new ObjectId(transactionId)
+    
+    @model.collection.findAndModify {_id: id, 'funds.remaining': {$gte: amount}, 'transactions.ids': {$ne: transactionId}}, [], {$addToSet: {"transactions.ids": transactionId}, $inc: {'funds.remaining': -1*amount }}, {new: true, safe: true}, callback
     
   @setEventPending: @__setEventPending
   @setEventProcessing: @__setEventProcessing
@@ -648,6 +671,7 @@ class Polls extends API
 
     transaction = @createTransaction(choices.transactions.states.PENDING, choices.transactions.actions.POLL_CREATE, transactionData, choices.transactions.directions.INBOUND, instance.entity)
     
+    instance.transactions.locked = true
     instance.transactions.ids = [transaction.id]
     instance.transactions.log = [transaction]
 

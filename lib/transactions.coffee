@@ -35,7 +35,7 @@ pollCreate = (document, transaction)->
       console.log "DEDUCT FUNDS".green
       if transaction.entity.type is choices.entities.BUSINESS
         api.Businesses.deductFunds transaction.entity.id, transaction.id, transaction.data.amount, (error, business)->
-          console.log "BID: #{business._id}".green
+          #console.log "BID: #{business._id}".green
           if error? #determine what type of error it is and then whether to setTransactionError or ignore and let the poller pick it up later (the later is probably the case)
             callback(error)
           else if !business? #if the business object doesn't exist then either the transaction occured previously, there aren't enough funds, or the business doesn't exist
@@ -58,7 +58,7 @@ pollCreate = (document, transaction)->
           return
       else if transaction.entity.type is choices.entities.CONSUMER
         api.Consumers.deductFunds transaction.entity.id, transaction.id, transaction.data.amount, (error, consumer)->
-          console.log "CID: #{consumer._id}".green
+          #console.log "CID: #{consumer._id}".green
           if error? #determine what type of error it is and then whether to setTransactionError or ignore and let the poller pick it up later (the later is probably the case)
             callback(error)
           else if !consumer? #if the consumer object doesn't exist then either the transaction occured previously, or the consumer doesn't exist
