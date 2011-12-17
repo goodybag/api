@@ -800,7 +800,11 @@ class Polls extends API
       if error?
         callback error
         return
-      Polls.removePollPrivateFields(poll, callback)
+      if !poll?
+        callback new ValidationError({"poll":"Invalid poll, Invalid answer, You are owner of the poll, or You've already answered."});
+        return
+      Polls.removePollPrivateFields(poll)
+      callback null, poll
       return
     #TODO: transaction of funds.. per response gain to consumer..
   
@@ -862,7 +866,8 @@ class Polls extends API
       if error?
         callback error
         return
-      Polls.removePollPrivateFields(poll, callback)
+      Polls.removePollPrivateFields(poll)
+      callback null, poll 
       return
 
   @answered = (consumerId, skip, limit, callback)->
@@ -887,10 +892,11 @@ class Polls extends API
       if error?
         callback error
         return
-      Polls.removePollPrivateFields(polls, callback)
+      Polls.removePollPrivateFields(polls)
+      callback null, polls
       return
 
-  @removePollPrivateFields = (polls, callback)->
+  @removePollPrivateFields = (polls)->
     #arrayCheck
     if !Object.isArray(polls)
       if(!polls.displayName)
@@ -909,7 +915,6 @@ class Polls extends API
         if(!polls[i].showStats)
           delete polls[i].responses.choiceCounts 
         i++
-    callback null, polls #array or one poll
     return
 
     
