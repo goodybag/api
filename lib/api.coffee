@@ -3,6 +3,7 @@ exports = module.exports
 generatePassword = require "password-generator"
 hashlib = require "hashlib"
 util = require "util"
+async = require "async"
 
 globals = require "globals"
 db = require "./db"
@@ -431,6 +432,15 @@ class Consumers extends API
     
     @model.collection.findAndModify {_id: id, 'funds.remaining': {$gte: amount}, 'transactions.ids': {$ne: transactionId}}, [], {$addToSet: {"transactions.ids": transactionId}, $inc: {'funds.remaining': -1*amount }}, {new: true, safe: true}, callback
     
+  @depositFunds: (id, transactionId, amount, callback)->
+    if Object.isString(id)
+      id = new ObjectId(id)
+    
+    if Object.isString(transactionId)
+      transactionId = new ObjectId(transactionId)
+    
+    @model.collection.findAndModify {_id: id, 'transactions.ids': {$ne: transactionId}}, [], {$addToSet: {"transactions.ids": transactionId}, $inc: {'funds.remaining': amount, 'funds.allocated': amount }}, {new: true, safe: true}, callback
+
   @setEventPending: @__setEventPending
   @setEventProcessing: @__setEventProcessing
   @setEventProcessed: @__setEventProcessed
@@ -588,7 +598,6 @@ class Businesses extends API
         group = business.clientGroups[clientId] #the group the client is in
         updateDoc['$pull']['groups.'+group] = clientId
         updateDoc['$unset']['clientGroups.'+clientId] = 1
-        console.log 
         self.model.collection.update {_id: id}, updateDoc, callback
   
   @updateIdentity: (id, data, callback)->
@@ -776,75 +785,123 @@ class Polls extends API
     if(minAnswer < 0 || isNaN(minAnswer) || isNaN(maxAnswer))
       callback new errors.ValidationError({"answers":"Out of Range"})
       return
-    timestamp = new Date
-    
-    query = {
-        _id                   : pollId,
-        numChoices            : {$gt : maxAnswer}, #makes sure all answers selected exist
-        "responses.consumers" : {$ne : consumerId} #makes sure consumer has not already answered
-    }
-    
-    inc = new Object()
-    inc["responses.remaining"] = -1;
-    
-    i=0
-    while i<answers.length
-      inc["responses.choiceCounts."+answers[i]] = 1;
-      i++
-      
-    set = new Object()
-    set["responses.log."+consumerId] = {
-        answers   : answers,
-        timestamp : timestamp
-    }
-    
-    # CREATE EVENT
-    event = @createUserEvent choices.eventTypes.POLL_ANSWERED, choices.entities.CONSUMER, consumerId
-    eventId = new ObjectId()
-    eventIdStr = eventId.toString()
-    set["events.history.#{eventIdStr}"] = event
-    
-    update = {
-        $inc  : inc,
-        $push : {
-            "responses.dates"  : {
-                consumerId : consumerId
-                timestamp  : timestamp
-            }
-            "responses.consumers" : consumerId
-            "events.ids": eventId
+    timestamp = new Date()
+
+    perResponse = 0.0
+
+    self = this
+    async.series {
+      findPerResponse: (cb)->
+        # We need to find the poll first just to get the perResponse amount for transactions
+        self.model.findOne {_id: pollId}, {funds: 1}, (error, poll)->
+          if error?
+            cb error
+            return
+          else if !poll?
+            cb new ValidationError({"poll":"Invalid poll."});
+            return
+          else
+            perResponse = poll.funds.perResponse
+            cb()
+
+      save: (cb)->
+        
+        inc = new Object()
+        set = new Object()
+        push = new Object()
+        
+        transactionData = {
+          amount: perResponse
         }
-        $set  : set
-    }
+
+        entity = {
+          type: choices.entities.CONSUMER,
+          id: consumerId
+        }
+
+        # CREATE TRANSACTION
+        transaction = self.createTransaction(choices.transactions.states.PENDING, choices.transactions.actions.POLL_ANSWER, transactionData, choices.transactions.directions.OUTBOUND, entity)
     
-    fieldsToReturn = {
-        _id                      : 1,
-        question                 : 1,
-        choices                  : 1,
-        "responses.choiceCounts" : 1,
-      # "responses.log.consumerId: 1, # below
-        showStats                : 1,
-        displayName              : 1,
-        displayMedia             : 1,
-        "entity.name"            : 1,
-        media                    : 1,
-        dates                    : 1,
-        "funds.perResponse"      : 1
-    }
-    fieldsToReturn["responses.log.#{consumerId}"] = 1
+        set["transactions.ids"] = transaction.id
+        push["transactions.log"] = transaction
+        inc["funds.remaining"] = -1*perResponse
+
+        # CREATE EVENT
+        event = self.createUserEvent choices.eventTypes.POLL_ANSWERED, choices.entities.CONSUMER, consumerId
+        eventId = new ObjectId()
+        eventIdStr = eventId.toString()
+        set["events.history.#{eventIdStr}"] = event
+        push["events.ids"] = eventId
     
-    @model.collection.findAndModify query, [], update, {new:true, safe:true}, fieldsToReturn, (error, poll)->
+
+        inc["responses.remaining"] = -1;
+    
+        i=0
+        while i<answers.length
+          inc["responses.choiceCounts."+answers[i]] = 1;
+          i++
+      
+        set["responses.log."+consumerId] = {
+            answers   : answers,
+            timestamp : timestamp
+        }
+    
+        push["responses.dates"] = {
+          consumerId: consumerId
+          timestamp: timestamp
+        }
+        push["responses.consumers"] = consumerId
+
+        update = {
+          $inc  : inc
+          $push : push
+          $set  : set
+        }
+    
+        fieldsToReturn = {
+          _id                      : 1,
+          question                 : 1,
+          choices                  : 1,
+          "responses.choiceCounts" : 1,
+        # "responses.log.consumerId: 1, # below
+          showStats                : 1,
+          displayName              : 1,
+          displayMedia             : 1,
+          "entity.name"            : 1,
+          media                    : 1,
+          dates                    : 1,
+          "funds.perResponse"      : 1
+        }
+        fieldsToReturn["responses.log.#{consumerId}"] = 1
+    
+        query = {
+          _id                   : pollId,
+          numChoices            : {$gt : maxAnswer}, #makes sure all answers selected exist
+          "responses.consumers" : {$ne : consumerId} #makes sure consumer has not already answered
+        }
+
+        self.model.collection.findAndModify query, [], update, {new:true, safe:true}, fieldsToReturn, (error, poll)->
+          if error?
+            cb error
+            return
+          if !poll?
+            cb new ValidationError({"poll":"Invalid poll, Invalid answer, You are owner of the poll, or You've already answered."});
+            return
+          Polls.removePollPrivateFields(poll)
+          cb null, poll
+          tp.process(poll, transaction)
+          return
+    },
+    (error, results)->
       if error?
-        callback error
+        callback(error)
         return
-      if !poll?
-        callback new ValidationError({"poll":"Invalid poll, Invalid answer, You are owner of the poll, or You've already answered."});
-        return
-      Polls.removePollPrivateFields(poll)
-      callback null, poll
-      return
-    #TODO: transaction of funds.. per response gain to consumer..
-  
+      else if results.save?
+        callback(null, results.save)
+      else
+        callback(null, null)
+
+        
   @skip = (consumerId, pollId, callback)->
     if Object.isString(consumerId)
       consumerId = new ObjectId(consumerId)

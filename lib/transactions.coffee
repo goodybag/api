@@ -19,7 +19,7 @@ pollCreate = (document, transaction)->
   #4 update polls collection to set that transaction as processed
 
   console.log "Create Poll Question".green
-  console.log "\nPID: #{document._id}\nTID: #{transaction.id}\n".green
+  console.log "\nPID: #{document._id}\nTID: #{transaction.id}\n#{transaction.direction}\n".green
   async.series {
     setProcessing: (callback)->
       #console.log document
@@ -27,9 +27,12 @@ pollCreate = (document, transaction)->
       api.Polls.setTransactionProcessing document._id, transaction.id, true, (error, poll)->
         if error? #determine what type of error it is and then whether to setTransactionError or ignore and let the poller pick it up later (the later is probably the case)
           callback(error)
+        else if !poll? #if poll doesn't exist
+          callback({name: "NullError", message: "Document Does Not Exist"})
         else
           callback()
         return
+
         
     deductFunds: (callback)->
       console.log "DEDUCT FUNDS".green
@@ -48,11 +51,13 @@ pollCreate = (document, transaction)->
                 error = {
                   message: "there were insufficient funds"
                 }
+                console.log "SET ERROR".green
                 api.Polls.setTransactionError document._id, transaction.id, true, true, error, {}, (error, poll)->
                   if error?
                     callback(error)
                   else
-                    callback()
+                    callback({name: "TransactionError", messge: "There were insufficient funds"})
+
           else #transaction went through
             callback()
           return
@@ -71,11 +76,12 @@ pollCreate = (document, transaction)->
                 error = {
                   message: "there were insufficient funds"
                 }
+                console.log "SET ERROR".green
                 api.Polls.setTransactionError document._id, transaction.id, true, true, error, {}, (error, poll)->
                   if error?
                     callback(error)
                   else
-                    callback()
+                    callback({name: "TransactionError", messge: "There were insufficient funds"})
 
     setProcessed: (callback)->
       console.log "SET PROCESSED".green
@@ -107,7 +113,7 @@ pollAnswer = (document, transaction)->
   #1 deduct transactions from entity and place transactionId in transactions.ids list
   #4 update polls collection to set that transaction as processed
   console.log "User Answered Poll Question".green
-  console.log "\nPID: #{document._id}\nTID: #{transaction.id}\n".green
+  console.log "\nPID: #{document._id}\nTID: #{transaction.id}\n#{transaction.direction}\n".green
 
   async.series {
     setProcessing: (callback)->
@@ -115,6 +121,8 @@ pollAnswer = (document, transaction)->
       api.Polls.setTransactionProcessing document._id, transaction.id, false, (error, poll)->
         if error? #determine what type of error it is and then whether to setTransactionError or ignore and let the poller pick it up later (the later is probably the case)
           callback(error)
+        else if !poll? #if poll doesn't exist
+          callback({name: "NullError", message: "Document Does Not Exist"})
         else
           callback()
         return
@@ -139,11 +147,13 @@ pollAnswer = (document, transaction)->
                   "funds.remaining": transaction.data.amount
                 }
               }
+              console.log "SET ERROR".green
               api.Polls.setTransactionError document._id, transaction.id, false, true, $update, (error, poll)->
                 if error?
                   callback(error)
                 else
-                  callback()
+                  callback({name: "TransactionError", messge: "Unable to find consumer"})
+
         else
           callback()
         return
