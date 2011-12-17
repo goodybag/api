@@ -24,7 +24,7 @@ pollCreate = (document, transaction)->
     setProcessing: (callback)->
       #console.log document
       console.log "SET PROCESSING".green
-      api.Polls.setTransactionProcessing document._id, transaction.id, (error, poll)->
+      api.Polls.setTransactionProcessing document._id, transaction.id, true, (error, poll)->
         if error? #determine what type of error it is and then whether to setTransactionError or ignore and let the poller pick it up later (the later is probably the case)
           callback(error)
         else
@@ -48,7 +48,7 @@ pollCreate = (document, transaction)->
                 error = {
                   message: "there were insufficient funds"
                 }
-                api.Polls.setTransactionError document._id, transaction.id, error, true, (error, poll)->
+                api.Polls.setTransactionError document._id, transaction.id, true, true, error, {}, (error, poll)->
                   if error?
                     callback(error)
                   else
@@ -71,7 +71,7 @@ pollCreate = (document, transaction)->
                 error = {
                   message: "there were insufficient funds"
                 }
-                api.Polls.setTransactionError document._id, transaction.id, error, true, (error, poll)->
+                api.Polls.setTransactionError document._id, transaction.id, true, true, error, {}, (error, poll)->
                   if error?
                     callback(error)
                   else
@@ -86,7 +86,7 @@ pollCreate = (document, transaction)->
         }
       }
 
-      api.Polls.setTransactionProcessed document._id, transaction.id, true, $update, (error, poll)->
+      api.Polls.setTransactionProcessed document._id, transaction.id, true, true, $update, (error, poll)->
         if error?
           console.log "ERROR SETTING PROCESSED".red
           callback(error)
@@ -112,7 +112,7 @@ pollAnswer = (document, transaction)->
   async.series {
     setProcessing: (callback)->
       console.log "SET PROCESSING".green
-      api.Polls.setTransactionProcessing document._id, transaction.id, (error, poll)->
+      api.Polls.setTransactionProcessing document._id, transaction.id, false, (error, poll)->
         if error? #determine what type of error it is and then whether to setTransactionError or ignore and let the poller pick it up later (the later is probably the case)
           callback(error)
         else
@@ -139,7 +139,7 @@ pollAnswer = (document, transaction)->
                   "funds.remaining": transaction.data.amount
                 }
               }
-              api.Polls.setTransactionError document._id, transaction.id, error, true, $update, (error, poll)->
+              api.Polls.setTransactionError document._id, transaction.id, false, true, $update, (error, poll)->
                 if error?
                   callback(error)
                 else
