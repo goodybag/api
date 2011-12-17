@@ -356,6 +356,7 @@ Poll = new Schema {
     remaining         : {type: Number, required: true, default: 0.0}
   }
 
+  state               : {type: String, required: true, default: choices.transactions.states._enum}
   transactions: {
     ids               : [ObjectId]
     failed            : [ObjectId]

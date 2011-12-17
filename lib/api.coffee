@@ -229,7 +229,8 @@ class API
     return transaction
 
   #TRANSACTION STATE
-  @__setTransactionPending: (id, transactionId, locked, callback)->
+  #locking variable is to ask if this is a locking transaction or not (usually creates/updates are locking in our case)
+  @__setTransactionPending: (id, transactionId, locking, callback)->
     if Object.isString(id)
       id = new ObjectId(id)
     
@@ -253,16 +254,19 @@ class API
       "transactions.log.$.dates.lastModified": new Date()
       "transactions.locked": locked
     }
+
+    if locking is true
+      $set.state = choices.transactions.states.PENDING
     
     @model.collection.findAndModify $query, [], {$set: $set}, {new: true, safe: true}, callback
 
-  @__setTransactionProcessing: (id, transactionId, callback)->
+  @__setTransactionProcessing: (id, transactionId, locking, callback)->
     if Object.isString(id)
       id = new ObjectId(id)
       
     if Object.isString(transactionId)
       transactionId = new ObjectId(transactionId)
-      
+     
     $query = {
       _id: id
       "transactions.log": {
@@ -279,10 +283,13 @@ class API
       "transactions.log.$.state": choices.transactions.states.PROCESSING
       "transactions.log.$.dates.lastModified": new Date()
     }
+
+    if locking is true
+      $set.state = choices.transactions.states.PROCESSING
     
     @model.collection.findAndModify $query, [], {$set: $set}, {new: true, safe: true}, callback
 
-  @__setTransactionProcessed: (id, transactionId, removeLock, modifierDoc, callback)->
+  @__setTransactionProcessed: (id, transactionId, locking, removeLock, modifierDoc, callback)->
     if Object.isString(id)
       id = new ObjectId(id)
     
@@ -306,8 +313,11 @@ class API
       "transactions.log.$.dates.lastModified": new Date()
       "transactions.log.$.dates.completed": new Date()
     }
+
+    if locking is true
+      $set.state = choices.transactions.states.PROCESSED
     
-    if removeLock?
+    if removeLock is true
       $set["transactions.locked"] = false
 
     $update = {} 
@@ -318,7 +328,7 @@ class API
 
     @model.collection.findAndModify $query, [], $update, {new: true, safe: true}, callback
 
-  @__setTransactionError: (id, transactionId, errorObj, removeLock, modifierDoc, callback)->
+  @__setTransactionError: (id, transactionId, locking, removeLock, errorObj, modifierDoc, callback)->
     if Object.isString(id)
       id = new ObjectId(id)
     
@@ -343,8 +353,11 @@ class API
       "transactions.log.$.dates.completed": new Date()
       "transactions.log.$.error": errorObj
     }
-    
-    if removeLock?
+
+    if locking is true
+      $set.state = choices.transactions.states.ERROR
+
+    if removeLock is true
       $set["transactions.locked"] = false
 
     $update = {} 
