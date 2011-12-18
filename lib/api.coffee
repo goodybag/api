@@ -942,7 +942,7 @@ class Polls extends API
             cb error
             return
           else if !poll?
-            cb new ValidationError({"poll":"Invalid poll."});
+            cb new errors.ValidationError({"poll":"Invalid poll."});
             return
           else
             perResponse = poll.funds.perResponse
@@ -1019,17 +1019,24 @@ class Polls extends API
         fieldsToReturn["responses.log.#{consumerId}"] = 1
     
         query = {
-          _id                   : pollId,
-          numChoices            : {$gt : maxAnswer}, #makes sure all answers selected exist
-          "responses.consumers" : {$ne : consumerId} #makes sure consumer has not already answered
+            _id                       : pollId,
+            "entity.id"               : {$ne : consumerId} #can't answer a question you authored
+            numChoices                : {$gt : maxAnswer}   #makes sure all answers selected exist
+            "responses.consumers"     : {$ne : consumerId}  #makes sure consumer has not already answered
+            "responses.skipConsumers" : {$ne : consumerId}  #makes sure consumer has not already skipped..
+            "responses.flagConsumers" : {$ne : consumerId}  #makes sure consumer has not already flagged..
+            "dates.start"             : {$lte: new Date()}  #makes sure poll has started
+            # "dates.end"               : {$gt : new Date()}  #makes sure poll has not ended
+            "state"                   : choices.transactions.states.PROCESSED #poll is processed and ready to launch
         }
+        query.type = if answers.length==1 then "single" else "multiple" #prevent injection of multiple answers for a single poll..
 
         self.model.collection.findAndModify query, [], update, {new:true, safe:true}, fieldsToReturn, (error, poll)->
           if error?
             cb error
             return
           if !poll?
-            cb new ValidationError({"poll":"Invalid poll, Invalid answer, You are owner of the poll, or You've already answered."});
+            cb new errors.ValidationError({"poll":"Invalid poll, Invalid answer, You are owner of the poll, or You've already answered."});
             return
           Polls.removePollPrivateFields(poll)
           cb null, poll
@@ -1041,7 +1048,7 @@ class Polls extends API
         callback(error)
         return
       if !poll?
-        callback new ValidationError({"poll":"Invalid poll, Invalid answer, You are owner of the poll, or You've already answered."});
+        callback new errors.ValidationError({"poll":"Invalid poll, Invalid answer, You are owner of the poll, or You've already answered."});
         return
       Polls.removePollPrivateFields(poll)
       callback null, poll
@@ -1052,6 +1059,7 @@ class Polls extends API
     if Object.isString(consumerId)
       consumerId = new ObjectId(consumerId)
     query = @_query()
+    query.where('_id',pollId)
     query.where('entity.id').ne(consumerId)               #not author
     query.where('responses.consumers'    ).ne(consumerId) #not already answerd 
     query.where('responses.skipConsumers').ne(consumerId) #not already skipped
@@ -1068,6 +1076,7 @@ class Polls extends API
     if Object.isString(consumerId)
       consumerId = new ObjectId(consumerId)
     query = @_query()
+    query.where('_id',pollId)
     query.where('entity.id').ne(consumerId)               #not author
     query.where('responses.consumers'    ).ne(consumerId) #not already answerd 
     query.where('responses.skipConsumers').ne(consumerId) #not already skipped
