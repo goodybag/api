@@ -707,10 +707,10 @@ class Polls extends API
       if error?
         callback error, null
       else if !poll?
-        callback new errors.ValidationError({"query":"Poll does not exist."})
+        callback new errors.ValidationError({"poll":"Poll does not exist or Access Denied."})
       else
         if (poll.dates.start <= new Date() && poll.state!=choices.transactions.states.ERROR)
-          callback new errors.ValidationError({"startdate":"Can not edit a poll that is in progress or has completed."}), null
+          callback new errors.ValidationError({"poll":"Can not edit a poll that is in progress or that has completed."}), null
         else
           for own k,v of data
             poll[k] = v
@@ -1012,6 +1012,7 @@ class Polls extends API
     query.where('responses.consumers'    ).ne(consumerId) #not already answerd 
     query.where('responses.skipConsumers').ne(consumerId) #not already skipped
     query.where('responses.flagConsumers').ne(consumerId) #not already flagged
+    query.where('responses.remaining').gt(0)
     query.where('dates.start').lte(new Date())            #poll has started
     # query.where('dates.end').gt(new Date())               #poll has not ended
     query.where('state',choices.transactions.states.PROCESSED)    #poll is processed (paid for) and ready to launch
