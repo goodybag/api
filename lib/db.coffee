@@ -59,30 +59,6 @@ exports.disconnect = (callback)->
 #   }
 # }
 
-# Transactions Object
-# transactions: {
-#   ids: [ObjectId]
-#   locked: Boolean
-#   failed: [ObjectId]
-#   log: [{
-#     id: ObjectId
-#     state: enum(TRANSACTION_STATES)
-#     action: enum(TRANSACTION_ACTIONS)
-#     error: {
-#       message: String
-#     }
-#     dates:{
-#       created: Date
-#       completed: Date
-#       lastModified: Date
-#     }
-#     data: {}
-#     direction: enum(TRANSACTION_DIRECTIONS)
-#     entity: entity
-#     pollerId: ObjectId
-#   }]
-# }
-
 
 ##################
 # ENTITY #########
@@ -109,7 +85,6 @@ Entity = new Schema {
 #Transaction = new Schema {}
 
 Transaction = new Schema {
-  # id              : {type: TransactionId, required: true} #possibly switch to this
   id              : {type: ObjectId, required: true}
   state           : {type: String, required: true, enum: choices.transactions.states._enum}
   action          : {type: String, required: true, enum: choices.transactions.actions._enum}
@@ -134,6 +109,7 @@ Transaction = new Schema {
     name          : {type: String}
   }
 
+  attempts        : {type: Number, default: 0}
   pollerId        : {type: ObjectId}
 
 }
@@ -192,8 +168,8 @@ Consumer = new Schema {
     ids           : [ObjectId]
     failed        : [ObjectId]
     log           : [Transaction]
+    temp          : [Transaction]
     locked        : {type: Boolean}
-    attempts      : {type: Number, default: 0}
   } 
 
   events: {
@@ -229,8 +205,8 @@ Client = new Schema {
     ids         : [ObjectId]
     failed      : [ObjectId]
     log         : [Transaction]
+    temp        : [Transaction]
     locked      : {type: Boolean}
-    attempts    : {type: Number, default: 0}
   }
 
   events: {
@@ -298,9 +274,9 @@ Business = new Schema {
   transactions: {
     ids         : [ObjectId]
     failed      : [ObjectId]
-    log         : [Transaction]
+    log         : [Transaction] 
+    temp        : [Transaction]
     locked      : {type: Boolean}
-    attempts    : {type: Number, default: 0}
   }
 
   events: {
@@ -361,8 +337,8 @@ Poll = new Schema {
     ids               : [ObjectId]
     failed            : [ObjectId]
     log               : [Transaction]
+    temp              : [Transaction]
     locked            : {type: Boolean}
-    attempts          : {type: Number, default: 0}
   }
 
   events: {
@@ -408,8 +384,8 @@ Discussion = new Schema {
     ids               : [ObjectId]
     failed            : [ObjectId]
     log               : [Transaction]
+    temp              : [Transaction]
     locked            : {type: Boolean}
-    attempts          : {type: Number, default: 0}
   }
 
   events: {
@@ -460,8 +436,8 @@ Response = new Schema {
     ids           : [ObjectId]
     failed        : [ObjectId]
     log           : [Transaction]
+    temp          : [Transaction]
     locked        : {type: Boolean}
-    attempts      : {type: Number, default: 0}
   }
 
   events: {
@@ -546,8 +522,8 @@ Media = new Schema {
     ids       : [ObjectId]
     failed    : [ObjectId]
     log       : [Transaction]
+    temp      : [Transaction]
     locked    : {type: Boolean}
-    attempts  : {type: Number, default: 0}
   }
 }
 
@@ -577,8 +553,8 @@ ClientInvitation = new Schema {
     ids           : [ObjectId]
     failed        : [ObjectId]
     log           : [Transaction]
+    temp          : [Transaction]
     locked        : {type: Boolean}
-    attempts      : {type: Number, default: 0}
   }
   
   events: {
@@ -613,8 +589,8 @@ Stream = new Schema {
     ids         : [ObjectId]
     failed      : [ObjectId]
     log         : [Transaction]
+    temp        : [Transaction]
     locked      : {type: Boolean}
-    attempts    : {type: Number, default: 0}
   }
   
   events: {
@@ -636,8 +612,8 @@ Tag = new Schema {
     ids           : [ObjectId]
     failed        : [ObjectId]
     log           : [Transaction]
+    temp          : [Transaction]
     locked        : {type: Boolean}
-    attempts      : {type: Number, default: 0}
   }
 }
 
@@ -688,8 +664,8 @@ Event = new Schema {
     ids       : [ObjectId]
     failed    : [ObjectId]
     log       : [Transaction]
+    temp      : [Transaction]
     locked    : {type: Boolean}
-    attempts  : {type: Number, default: 0}
   }
 }
 
@@ -718,8 +694,8 @@ EventRequest = new Schema {
     ids                 : [ObjectId]
     failed              : [ObjectId]
     log                 : [Transaction]
+    temp                : [Transaction]
     locked              : {type: Boolean}
-    attempts            : {type: Number, default: 0}
   }
 }
 

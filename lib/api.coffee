@@ -3,6 +3,7 @@ exports = module.exports
 generatePassword = require "password-generator"
 hashlib = require "hashlib"
 util = require "util"
+async = require "async"
 
 globals = require "globals"
 db = require "./db"
@@ -94,10 +95,6 @@ class API
     return
   
   @getByEntity: (entityType, entityId, id, callback)->
-    if Object.isString(id)
-      id = new ObjectId(id)
-    if Object.isString(entityId)
-      entityId = new ObjectId(entityId)
     @model.findOne {_id: id, 'entity.type': entityType ,'entity.id': entityId}, callback
     return
 
@@ -232,6 +229,30 @@ class API
 
     return transaction
 
+  @moveTransactionToLog: (id, transaction, callback)->
+    if Object.isString(id)
+      id = new ObjectId(id)
+
+    $query = {
+      _id: id
+      "transactions.ids": transaction.id
+    }
+
+    $push = {
+      "transactions.log": transaction
+    }
+    
+    $pull = {
+      "transactions.temp": {id: transaction.id}
+    }
+    
+    $update = {
+      $push: $push
+      $pull: $pull
+    }
+
+    @model.collection.findAndModify $query, [], $update, {safe: true, new: true}, callback
+    
   #TRANSACTION STATE
   #locking variable is to ask if this is a locking transaction or not (usually creates/updates are locking in our case)
   @__setTransactionPending: (id, transactionId, locking, callback)->
@@ -277,7 +298,7 @@ class API
         $elemMatch: {
           "id": transactionId
           "state":{
-            $nin: [choices.transactions.states.PROCESSING, choices.transactions.states.PROCESSED, choices.transactions.states.ERROR]
+            $nin: [choices.transactions.states.PROCESSED, choices.transactions.states.ERROR]
           }
         }
       }
@@ -288,10 +309,14 @@ class API
       "transactions.log.$.dates.lastModified": new Date()
     }
 
+    $inc = {
+      "transactions.log.$.attempts": 1
+    }
+
     if locking is true
       $set.state = choices.transactions.states.PROCESSING
     
-    @model.collection.findAndModify $query, [], {$set: $set}, {new: true, safe: true}, callback
+    @model.collection.findAndModify $query, [], {$set: $set, $inc: $inc}, {new: true, safe: true}, callback
 
   @__setTransactionProcessed: (id, transactionId, locking, removeLock, modifierDoc, callback)->
     if Object.isString(id)
@@ -435,6 +460,15 @@ class Consumers extends API
     
     @model.collection.findAndModify {_id: id, 'funds.remaining': {$gte: amount}, 'transactions.ids': {$ne: transactionId}}, [], {$addToSet: {"transactions.ids": transactionId}, $inc: {'funds.remaining': -1*amount }}, {new: true, safe: true}, callback
     
+  @depositFunds: (id, transactionId, amount, callback)->
+    if Object.isString(id)
+      id = new ObjectId(id)
+    
+    if Object.isString(transactionId)
+      transactionId = new ObjectId(transactionId)
+    
+    @model.collection.findAndModify {_id: id, 'transactions.ids': {$ne: transactionId}}, [], {$addToSet: {"transactions.ids": transactionId}, $inc: {'funds.remaining': amount, 'funds.allocated': amount }}, {new: true, safe: true}, callback
+
   @setEventPending: @__setEventPending
   @setEventProcessing: @__setEventProcessing
   @setEventProcessed: @__setEventProcessed
@@ -592,7 +626,6 @@ class Businesses extends API
         group = business.clientGroups[clientId] #the group the client is in
         updateDoc['$pull']['groups.'+group] = clientId
         updateDoc['$unset']['clientGroups.'+clientId] = 1
-        console.log 
         self.model.collection.update {_id: id}, updateDoc, callback
   
   @updateIdentity: (id, data, callback)->
@@ -897,72 +930,115 @@ class Polls extends API
       callback new errors.ValidationError({"answers":"Out of Range"})
       return
     timestamp = new Date()
-    
-    query = {
-        _id                       : pollId,
-        "entity.id"               : {$ne : consumerId} #can't answer a question you authored
-        numChoices                : {$gt : maxAnswer}   #makes sure all answers selected exist
-        "responses.consumers"     : {$ne : consumerId}  #makes sure consumer has not already answered
-        "responses.skipConsumers" : {$ne : consumerId}  #makes sure consumer has not already skipped..
-        "responses.flagConsumers" : {$ne : consumerId}  #makes sure consumer has not already flagged..
-        "dates.start"             : {$lte: new Date()}  #makes sure poll has started
-        # "dates.end"               : {$gt : new Date()}  #makes sure poll has not ended
-        "state"                   : choices.transactions.states.PROCESSED #poll is processed and ready to launch
-    }
-    query.type = if answers.length==1 then "single" else "multiple" #prevent injection of multiple answers for a single poll..
-    
-    inc = new Object()
-    inc["responses.remaining"] = -1
-    
-    i=0
-    while i<answers.length
-      inc["responses.choiceCounts."+answers[i]] = 1
-      i++
-      
-    set = new Object()
-    set["responses.log."+consumerId] = {
-        answers   : answers,
-        timestamp : timestamp
-    }
-    
-    # CREATE EVENT
-    event = @createUserEvent choices.eventTypes.POLL_ANSWERED, choices.entities.CONSUMER, consumerId
-    eventId = new ObjectId()
-    eventIdStr = eventId.toString()
-    set["events.history.#{eventIdStr}"] = event
-    
-    update = {
-        $inc  : inc,
-        $push : {
-            "responses.dates"  : {
-                consumerId : consumerId
-                timestamp  : timestamp
-            }
-            "responses.consumers" : consumerId
-            "events.ids": eventId
+
+    perResponse = 0.0
+
+    self = this
+    async.series {
+      findPerResponse: (cb)->
+        # We need to find the poll first just to get the perResponse amount for transactions
+        self.model.findOne {_id: pollId}, {funds: 1}, (error, poll)->
+          if error?
+            cb error
+            return
+          else if !poll?
+            cb new ValidationError({"poll":"Invalid poll."});
+            return
+          else
+            perResponse = poll.funds.perResponse
+            cb()
+
+      save: (cb)->
+        
+        inc = new Object()
+        set = new Object()
+        push = new Object()
+        
+        transactionData = {
+          amount: perResponse
         }
-        $set  : set
-    }
+
+        entity = {
+          type: choices.entities.CONSUMER,
+          id: consumerId
+        }
+
+        # CREATE TRANSACTION
+        transaction = self.createTransaction(choices.transactions.states.PENDING, choices.transactions.actions.POLL_ANSWER, transactionData, choices.transactions.directions.OUTBOUND, entity)
     
-    fieldsToReturn = {
-        _id                      : 1,
-        question                 : 1,
-        choices                  : 1,
-        "responses.choiceCounts" : 1,
-      # "responses.log.consumerId: 1, # below
-        showStats                : 1,
-        displayName              : 1,
-        displayMedia             : 1,
-        "entity.name"            : 1,
-        media                    : 1,
-        dates                    : 1,
-        "funds.perResponse"      : 1
-    }
-    fieldsToReturn["responses.log.#{consumerId}"] = 1
+        push["transactions.ids"] = transaction.id
+        push["transactions.log"] = transaction
+        inc["funds.remaining"] = -1*perResponse
+
+        # CREATE EVENT
+        event = self.createUserEvent choices.eventTypes.POLL_ANSWERED, choices.entities.CONSUMER, consumerId
+        eventId = new ObjectId()
+        eventIdStr = eventId.toString()
+        set["events.history.#{eventIdStr}"] = event
+        push["events.ids"] = eventId
     
-    @model.collection.findAndModify query, [], update, {new:true, safe:true}, fieldsToReturn, (error, poll)->
+
+        inc["responses.remaining"] = -1;
+    
+        i=0
+        while i<answers.length
+          inc["responses.choiceCounts."+answers[i]] = 1;
+          i++
+      
+        set["responses.log."+consumerId] = {
+            answers   : answers,
+            timestamp : timestamp
+        }
+    
+        push["responses.dates"] = {
+          consumerId: consumerId
+          timestamp: timestamp
+        }
+        push["responses.consumers"] = consumerId
+
+        update = {
+          $inc  : inc
+          $push : push
+          $set  : set
+        }
+    
+        fieldsToReturn = {
+          _id                      : 1,
+          question                 : 1,
+          choices                  : 1,
+          "responses.choiceCounts" : 1,
+        # "responses.log.consumerId: 1, # below
+          showStats                : 1,
+          displayName              : 1,
+          displayMedia             : 1,
+          "entity.name"            : 1,
+          media                    : 1,
+          dates                    : 1,
+          "funds.perResponse"      : 1
+        }
+        fieldsToReturn["responses.log.#{consumerId}"] = 1
+    
+        query = {
+          _id                   : pollId,
+          numChoices            : {$gt : maxAnswer}, #makes sure all answers selected exist
+          "responses.consumers" : {$ne : consumerId} #makes sure consumer has not already answered
+        }
+
+        self.model.collection.findAndModify query, [], update, {new:true, safe:true}, fieldsToReturn, (error, poll)->
+          if error?
+            cb error
+            return
+          if !poll?
+            cb new ValidationError({"poll":"Invalid poll, Invalid answer, You are owner of the poll, or You've already answered."});
+            return
+          Polls.removePollPrivateFields(poll)
+          cb null, poll
+          tp.process(poll, transaction)
+          return
+    },
+    (error, results)->
       if error?
-        callback error
+        callback(error)
         return
       if !poll?
         callback new ValidationError({"poll":"Invalid poll, Invalid answer, You are owner of the poll, or You've already answered."});
@@ -1386,13 +1462,15 @@ class Events extends API
 
 
 class Streams extends API
-  @add: (eventType, eventId, timestamp, entity, documentId, messages, data, callback)->
+  @model = db.Stream
+
+  @add = (entity, eventType, eventId, timestamp, documentId, messages, data, callback)->
     if Object.isString(messages)
       messages = [messages]
       
     if Object.isFunction(data)
       callback = data
-      data = undefined
+      data = {}
     
     stream = {
       eventType : eventType
@@ -1407,7 +1485,7 @@ class Streams extends API
       }
     }
 
-    instance = @model(stream)
+    instance = new @model(stream)
 
     instance.save callback
     
@@ -1423,7 +1501,3 @@ exports.Tags = Tags
 exports.EventRequests = EventRequests
 exports.Events = Events
 exports.Streams = Streams
-
-
-Polls.skip '4ee960c75ee798d72350cca1', '4ee9237bb00c855b2f000002', (error, face)->
-  return
