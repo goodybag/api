@@ -229,6 +229,30 @@ class API
 
     return transaction
 
+  @moveTransactionToLog: (id, transaction, callback)->
+    if Object.isString(id)
+      id = new ObjectId(id)
+
+    $query = {
+      _id: id
+      "transactions.ids": transaction.id
+    }
+
+    $push = {
+      "transactions.log": transaction
+    }
+    
+    $pull = {
+      "transactions.temp": {id: transaction.id}
+    }
+    
+    $update = {
+      $push: $push
+      $pull: $pull
+    }
+
+    @model.collection.findAndModify $query, [], $update, {safe: true, new: true}, callback
+    
   #TRANSACTION STATE
   #locking variable is to ask if this is a locking transaction or not (usually creates/updates are locking in our case)
   @__setTransactionPending: (id, transactionId, locking, callback)->
@@ -274,7 +298,7 @@ class API
         $elemMatch: {
           "id": transactionId
           "state":{
-            $nin: [choices.transactions.states.PROCESSING, choices.transactions.states.PROCESSED, choices.transactions.states.ERROR]
+            $nin: [choices.transactions.states.PROCESSED, choices.transactions.states.ERROR]
           }
         }
       }
@@ -285,10 +309,14 @@ class API
       "transactions.log.$.dates.lastModified": new Date()
     }
 
+    $inc = {
+      "transactions.log.$.attempts": 1
+    }
+
     if locking is true
       $set.state = choices.transactions.states.PROCESSING
     
-    @model.collection.findAndModify $query, [], {$set: $set}, {new: true, safe: true}, callback
+    @model.collection.findAndModify $query, [], {$set: $set, $inc: $inc}, {new: true, safe: true}, callback
 
   @__setTransactionProcessed: (id, transactionId, locking, removeLock, modifierDoc, callback)->
     if Object.isString(id)
@@ -822,7 +850,7 @@ class Polls extends API
         # CREATE TRANSACTION
         transaction = self.createTransaction(choices.transactions.states.PENDING, choices.transactions.actions.POLL_ANSWER, transactionData, choices.transactions.directions.OUTBOUND, entity)
     
-        set["transactions.ids"] = transaction.id
+        push["transactions.ids"] = transaction.id
         push["transactions.log"] = transaction
         inc["funds.remaining"] = -1*perResponse
 
@@ -1340,13 +1368,15 @@ class Events extends API
 
 
 class Streams extends API
-  @add: (eventType, eventId, timestamp, entity, documentId, messages, data, callback)->
+  @model = db.Stream
+
+  @add = (entity, eventType, eventId, timestamp, documentId, messages, data, callback)->
     if Object.isString(messages)
       messages = [messages]
       
     if Object.isFunction(data)
       callback = data
-      data = undefined
+      data = {}
     
     stream = {
       eventType : eventType
@@ -1361,7 +1391,7 @@ class Streams extends API
       }
     }
 
-    instance = @model(stream)
+    instance = new @model(stream)
 
     instance.save callback
     
@@ -1377,7 +1407,3 @@ exports.Tags = Tags
 exports.EventRequests = EventRequests
 exports.Events = Events
 exports.Streams = Streams
-
-
-Polls.skip '4ee960c75ee798d72350cca1', '4ee9237bb00c855b2f000002', (error, face)->
-  return
