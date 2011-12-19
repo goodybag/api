@@ -1047,10 +1047,6 @@ class Polls extends API
       if error?
         callback(error)
         return
-      if !results?
-        callback new errors.ValidationError({"poll":"Invalid poll, Invalid answer, You are owner of the poll, or You've already answered."});
-        return
-      Polls.removePollPrivateFields(poll)
       callback null, results
       return
     #TODO: transaction of funds.. per response gain to consumer..
