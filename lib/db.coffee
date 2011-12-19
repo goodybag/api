@@ -699,6 +699,29 @@ EventRequest = new Schema {
   }
 }
 
+############
+# TapIns ###
+############
+TapIn = new Schema {
+  userEntity: {
+    type                : {type: String, required: true, enum: choices.entities._enum}
+    id                  : {type: ObjectId, required: true}
+    name                : {type: String}
+  }
+  
+  organizationEntity: {
+    type                : {type: String, required: true, enum: choices.entities._enum}
+    id                  : {type: ObjectId, required: true}
+    name                : {type: String}
+  }
+
+  locationId            : {type: ObjectId, required: true}
+  registerId            : {type: String, required: true}
+  date                  : {tpe: Date, required: true}
+  transactionAmount     : {type: Number, required: true}
+  donationAmount        : {type: Number, required: true}
+}
+
 exports.Consumer            = mongoose.model 'Consumer', Consumer
 exports.Client              = mongoose.model 'Client', Client
 exports.Business            = mongoose.model 'Business', Business
@@ -711,6 +734,7 @@ exports.Tag                 = mongoose.model 'Tag', Tag
 exports.EventRequest        = mongoose.model 'EventRequest', EventRequest
 exports.Stream              = mongoose.model 'Stream', Stream
 exports.Event               = mongoose.model 'Event', Event
+exports.TapIn               = mongoose.model 'TapIn', TapIn
 
 exports.schemas = {
   Consumer: Consumer
@@ -725,4 +749,5 @@ exports.schemas = {
   EventRequest: EventRequest
   Stream: Stream
   Event: Event
+  TapIn: TapIn
 }

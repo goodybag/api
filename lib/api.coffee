@@ -28,6 +28,7 @@ Tag = db.Tag
 EventRequest = db.EventRequest
 Event = db.Event
 Stream = db.Stream
+TapIn = db.TapIn
 
 #TODO:
 #Make sure that all necessary fields exist for each function before sending the query to the db
@@ -1394,6 +1395,27 @@ class Streams extends API
     instance = new @model(stream)
 
     instance.save callback
+
+class TapIns extends API
+  @model = db.TapIn
+
+  @optionParser = (options, q) ->
+    query = q || @_query()
+    query.where('entity.type', options.entityType) if options.entityType?
+    query.where('entity.id', options.entityId) if options.entityId?
+    query.where('dates.start').gte(options.start) if options.start?
+    query.where('dates.end').gte(options.start) if options.end?
+    query.where('transaction.state', state) if options.state?
+    return query
+  
+  @byUser = (userId, options, callback)->
+    if options.isFunction()
+      callback = options
+      options = {}
+    query = @optionParser options
+    query.where 'entity.id', userId
+    query.exec callback
+
     
 exports.Clients = Clients
 exports.Consumers = Consumers
@@ -1407,3 +1429,4 @@ exports.Tags = Tags
 exports.EventRequests = EventRequests
 exports.Events = Events
 exports.Streams = Streams
+exports.TapIns = TapIns
