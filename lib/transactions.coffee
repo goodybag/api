@@ -396,7 +396,7 @@ eventPollAnswered = (document, transaction)->
 
 eventEventRsvp = (document, transaction)->
   console.log "\nEVENT - User Rsvped for an event".green
-  console.log "\nPID: #{document._id}\nTID: #{transaction.id}\n#{transaction.direction}\n".green
+  console.log "\nEID: #{document._id}\nTID: #{transaction.id}\n#{transaction.direction}\n".green
 
   console.log "SET PROCESSING".green
   timestamp   = transaction.dates.created
