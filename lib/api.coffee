@@ -1279,11 +1279,6 @@ class Discussions extends API
   @getByEntity: (entityType, entityId, discussionId, callback)->
     @model.findOne {_id: discussionId, 'entity.type': entityType ,'entity.id': entityId}, callback
     return
-
-  @setEventPending: @__setEventPending
-  @setEventProcessing: @__setEventProcessing
-  @setEventProcessed: @__setEventProcessed
-  @setEventError: @__setEventError
     
   @setTransactonPending: @__setTransactionPending
   @setTransactionProcessing: @__setTransactionProcessing
@@ -1297,13 +1292,8 @@ class Responses extends API
   @count = (entityType, businessId, discussionId, callback)->
     @model.count {'entity.id':businessId, 'entity.type':entityType, discussionId: discussionId}, (error, count)->
       callback error, count
-
-  @setEventPending: @__setEventPending
-  @setEventProcessing: @__setEventProcessing
-  @setEventProcessed: @__setEventProcessed
-  @setEventError: @__setEventError
-
   
+      
 class Medias extends API
   @model = Media
   
@@ -1334,11 +1324,7 @@ class Medias extends API
   @getByGuid = (entityType, entityId, guid, callback)->
     @get {entityType: entityType, entityId: entityId, guid: guid}, callback
     #@get {'entity.type': entityType, 'entity.id': entityId, 'media.guid': guid}, callback
-  
-  @setEventPending: @__setEventPending
-  @setEventProcessing: @__setEventProcessing
-  @setEventProcessed: @__setEventProcessed
-  @setEventError: @__setEventError
+
 
 class ClientInvitations extends API
   @model = ClientInvitation
@@ -1357,11 +1343,6 @@ class ClientInvitations extends API
         callback null, invite #success
       return
 
-  @setEventPending: @__setEventPending
-  @setEventProcessing: @__setEventProcessing
-  @setEventProcessed: @__setEventProcessed
-  @setEventError: @__setEventError
-
 
 class Tags extends API
   @model = Tag
@@ -1379,11 +1360,6 @@ class Tags extends API
 
 class EventRequests extends API
   @model = EventRequest
-
-  @setEventPending: @__setEventPending
-  @setEventProcessing: @__setEventProcessing
-  @setEventProcessed: @__setEventProcessed
-  @setEventError: @__setEventError
 
 
 class Events extends API
@@ -1441,10 +1417,27 @@ class Events extends API
       eventId = new ObjectId eventId
     if Object.isString userId
       userId = new ObjectId userId
-    query = {_id: eventId}
-    update = {$push: {rsvp: userId}}
-    options = {remove: false, new: true, upsert: false}
-    @model.collection.findAndModify query, [], update, options, callback
+
+    entity = {
+      type: choices.entities.CONSUMER
+      id: userId
+    }
+    transactionData = {}
+    transaction = @createTransaction choices.transactions.states.PENDING, choices.transactions.actions.EVENT_EVENT_RSVPED, transactionData, choices.transactions.directions.OUTBOUND, entity
+    
+    $push = {
+      rsvp: userId
+      "transactions.ids": transaction.id
+      "transactions.log": transaction
+    }
+    
+    $query = {_id: eventId}
+    $update = {$push: $push}
+    $options = {remove: false, new: true, upsert: false}
+    @model.collection.findAndModify $query, [], $update, $options, (error, event)->
+      callback error, event
+      if !error?
+        tp.process(event, transaction)
 
   # Get dates specified but support pagination
   @getByDateDescLimit = (params, limit, page, callback)->
@@ -1464,12 +1457,16 @@ class Events extends API
       query.sort 'dates.actual', order
     query.exec callback
 
+  @setTransactonPending: @__setTransactionPending
+  @setTransactionProcessing: @__setTransactionProcessing
+  @setTransactionProcessed: @__setTransactionProcessed
+  @setTransactionError: @__setTransactionError
 
 
 class Streams extends API
   @model = db.Stream
 
-  @add = (entity, eventType, eventId, timestamp, documentId, messages, data, callback)->
+  @add = (entity, eventType, eventId, documentId, timestamp, messages, data, callback)->
     if Object.isString(messages)
       messages = [messages]
       
