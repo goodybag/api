@@ -283,6 +283,9 @@ Business = new Schema {
     ids         : [ObjectId]
     history     : {}
   }
+
+  #Lets us know if this business can supports tapins
+  tapins        : {type: Boolean}
 }
 
 
@@ -715,9 +718,8 @@ TapIn = new Schema {
     name                : {type: String}
   }
 
-  locationId            : {type: ObjectId, required: true}
   registerId            : {type: String, required: true}
-  date                  : {tpe: Date, required: true}
+  date                  : {type: Date, required: true}
   transactionAmount     : {type: Number, required: true}
   donationAmount        : {type: Number, required: true}
 }

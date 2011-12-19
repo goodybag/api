@@ -698,6 +698,11 @@ class Businesses extends API
     
     @model.collection.findAndModify {_id: id, 'funds.remaining': {$gte: amount}, 'transactions.ids': {$ne: transactionId}}, [], {$addToSet: {"transactions.ids": transactionId}, $inc: {'funds.remaining': -1*amount }}, {new: true, safe: true}, callback
 
+  @listWithTapins: (callback)->
+    query = @_query()
+    query.where('tapins', true)
+    query.exec callback
+
 class Polls extends API
   @model = Poll
 
@@ -1497,22 +1502,13 @@ class Streams extends API
 
 class TapIns extends API
   @model = db.TapIn
-
-  @optionParser = (options, q) ->
-    query = q || @_query()
-    query.where('entity.type', options.entityType) if options.entityType?
-    query.where('entity.id', options.entityId) if options.entityId?
-    query.where('dates.start').gte(options.start) if options.start?
-    query.where('dates.end').gte(options.start) if options.end?
-    query.where('transaction.state', state) if options.state?
-    return query
   
   @byUser = (userId, options, callback)->
-    if options.isFunction()
+    if Object.isFunction(options)
       callback = options
       options = {}
     query = @optionParser options
-    query.where 'entity.id', userId
+    query.where 'userEntity.id', userId
     query.exec callback
 
     
