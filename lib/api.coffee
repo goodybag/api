@@ -4,6 +4,7 @@ generatePassword = require "password-generator"
 hashlib = require "hashlib"
 util = require "util"
 async = require "async"
+wwwdude = require "node-wwwdude"
 
 globals = require "globals"
 db = require "./db"
@@ -416,14 +417,60 @@ class API
 class Consumers extends API
   @model = Consumer
 
-  @facebook: (data, callback)->
-    #TODO
+  @facebookLogin: (accessToken, callback)->
+    self = this
+    wwwClient = wwwdude.createClient({
+        contentParser: wwwdude.parsers.json
+    })
+    wwwClient.get("https://graph.facebook.com/me?access_token="+accessToken)
+    .on('success', (facebookData, res)->
+      if(facebookData.error?)
+        callback new errors.ValidationError {"facebook":facebookData.error.type+": "+facebookData.error.message}
+      else
+        consumer = {
+          firstName: facebookData.first_name,
+          lastName:  facebookData.last_name,
+          email:     facebookData.email,
+          facebook: {
+              me:          facebookData,
+              accessToken: accessToken
+          }
+          funds:     {
+              allocated:0,
+              remaining:0
+          }
+        }
+        consumer.facebook.me = facebookData
+        consumer.facebook.accessToken = accessToken
+        set = consumer
+        inc = {loginCount:1}
+        # self.model.update {email: consumer.email}, {$set: set}, {upsert:true}, (error, success)->
+        #   callback error, success
+        self.model.collection.findAndModify {email: consumer.email}, [], {$set: set, $inc: inc}, {upsert: true, new: true, }, (error, success)->
+          if(error?)
+            callback error # we need to convert these dberrors to something more friendly..
+          else
+            callback error, consumer
+        return
+      return
+    ).on('error', (error, res)->
+      callback error
+      return
+    ).on('http-error', (data, res)->
+      if(data.error?)
+        callback new errors.ValidationError {"facebook":data.error.type+": "+data.error.message}
+      else
+        callback new errors.ValidationError {"http":"HTTP Error"}
+      return
+    )
     return
 
   @register: (email, password, callback)->
     self = this
     query = @_query()
     query.where('email', email)
+    query.update {$push:{"responses.skipConsumers":consumerId},$inc:{"responses.skipCount":1}}, (error, success)->
+
     query.findOne (error, consumer)->
       if error?
         callback error #db error
@@ -475,7 +522,6 @@ class Consumers extends API
   @setEventProcessing: @__setEventProcessing
   @setEventProcessed: @__setEventProcessed
   @setEventError: @__setEventError
-
 
 class Clients extends API
   @model = Client

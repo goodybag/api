@@ -146,7 +146,7 @@ Location = new Schema {
 Consumer = new Schema {
   email           : {type: String, set: utils.toLower, validate: /^(([^<>()[\]\\.,;:\s@\"]+(\.[^<>()[\]\\.,;:\s@\"]+)*)|(\".+\"))@((\[[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\])|(([a-zA-Z\-0-9]+\.)+[a-zA-Z]{2,}))$/}
   password        : {type: String, validate:/.{5,}/}
-  fb: {           
+  facebook: {           
     access_token  : String
     base_domain   : String
     expires       : Number

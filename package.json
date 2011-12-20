@@ -20,6 +20,7 @@
     "poolr": "=0.0.4",
     "sugar": "=0.9.5",
     "password-generator": "=0.1.2",
-    "hashlib": "=1.0.1"
+    "hashlib": "=1.0.1",
+    "node-wwwdude" : "https://github.com/pfleidi/node-wwwdude/tarball/master"
   }
 }
