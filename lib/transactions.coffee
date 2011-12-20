@@ -7,24 +7,26 @@ choices = globals.choices
 
 process = (document, transaction)-> #this is just a router
   switch transaction.action
+
+    #FINANCIAL
     when choices.transactions.actions.POLL_CREATE
       pollCreate(document, transaction)
     when choices.transactions.actions.POLL_ANSWER
       pollAnswer(document, transaction)
+
+    #EVENTS
     when choices.transactions.actions.EVENT_POLL_CREATED
       eventPollCreated(document, transaction)
     when choices.transactions.actions.EVENT_POLL_ANSWERED
       eventPollAnswered(document, transaction)
+    when choices.transactions.actions.EVENT_EVENT_RSVPED
+      eventEventRsvp(document, transaction)
 
 #INBOUND
 pollCreate = (document, transaction)->
-  #1 deduct transactions from entity and place transactionId in transactions.ids list
-  #2 write that transaction completed in log ## WE ARE SKIPPING THIS FOR NOW WILL DETERMINE IF POSSIBLE LATER
-  #3 
-  #4 update polls collection to set that transaction as processed
-
-  console.log "Create Poll Question".green
+  console.log "\nCreate Poll Question".green
   console.log "\nPID: #{document._id}\nTID: #{transaction.id}\n#{transaction.direction}\n".green
+
   async.series {
     setProcessing: (callback)->
       #console.log document
@@ -153,9 +155,7 @@ pollCreate = (document, transaction)->
 
 #OUTBOUND
 pollAnswer = (document, transaction)->
-  #1 deduct transactions from entity and place transactionId in transactions.ids list
-  #4 update polls collection to set that transaction as processed
-  console.log "User Answered Poll Question".green
+  console.log "\nUser Answered Poll Question".green
   console.log "\nPID: #{document._id}\nTID: #{transaction.id}\n#{transaction.direction}\n".green
 
   async.series {
@@ -171,7 +171,7 @@ pollAnswer = (document, transaction)->
         return
     
     depositFunds: (callback)->
-      console.log "DEPOSIT FUNDS".green
+      console.log "\nDEPOSIT FUNDS".green
       api.Consumers.depositFunds transaction.entity.id, transaction.id, transaction.data.amount, (error, consumer)->
         if error?
           callback(error) #determine what type of error it is and then whether to setTransactionError or ignore and let the poller pick it up later (the later is probably the case)
@@ -252,7 +252,7 @@ pollAnswer = (document, transaction)->
 
 
 eventPollCreated = (document, transaction)->
-  console.log "EVENT - User CREATED Poll Question".green
+  console.log "\nEVENT - User CREATED Poll Question".green
   console.log "\nPID: #{document._id}\nTID: #{transaction.id}\n#{transaction.direction}\n".green
 
   console.log "SET PROCESSING".green
@@ -272,7 +272,7 @@ eventPollCreated = (document, transaction)->
       async.parallel {
         stream: (callback)->
           # ADD TO CONSUMER ACTIVITY STREAM
-          api.Streams.add entity, choices.eventTypes.POLL_CREATED, transaction.id, timestamp, document._id, "You created a poll - #{poll.question}", {}, (error, stream)-> #upsert with findAndModify
+          api.Streams.add entity, choices.eventTypes.POLL_CREATED, transaction.id, document._id, timestamp, "created a poll - #{poll.question}", {}, (error, stream)-> #upsert with findAndModify
             if error?
               console.log "ERROR CREATING STREAM DOCUMENT - IT MAY ALREADY EXIST".red
               #check if it exists - it will return an error if there is a unique index contraint set (one per transaction?)
@@ -296,7 +296,7 @@ eventPollCreated = (document, transaction)->
         if results?
           if completed
             console.log "SET PROCESSED".green
-            api.Polls.setTransactionProcessed document._id, transaction.id, false, {}, (error, poll)->
+            api.Polls.setTransactionProcessed document._id, transaction.id, false, false, {}, (error, poll)->
               if error?
                 console.log "ERROR SETTING PROCESSED".red
                 console.log error
@@ -323,7 +323,7 @@ eventPollCreated = (document, transaction)->
       return
   
 eventPollAnswered = (document, transaction)->
-  console.log "EVENT - User Answered Poll Question".green
+  console.log "\nEVENT - User Answered Poll Question".green
   console.log "\nPID: #{document._id}\nTID: #{transaction.id}\n#{transaction.direction}\n".green
 
   console.log "SET PROCESSING".green
@@ -344,7 +344,7 @@ eventPollAnswered = (document, transaction)->
       async.parallel {
         stream: (callback)->
           # ADD TO CONSUMER ACTIVITY STREAM
-          api.Streams.add entity, choices.eventTypes.POLL_ANSWERED, transaction.id, timestamp, document._id, "You answered a poll - #{poll.question}", {}, (error, stream)-> #upsert with findAndModify
+          api.Streams.add entity, choices.eventTypes.POLL_ANSWERED, transaction.id, document._id, timestamp, "answered a poll - #{poll.question}", {}, (error, stream)-> #upsert with findAndModify
             if error?
               console.log "ERROR CREATING STREAM DOCUMENT - IT MAY ALREADY EXIST".red
               #check if it exists - it will return an error if there is a unique index contraint set (one per transaction?)
@@ -368,7 +368,7 @@ eventPollAnswered = (document, transaction)->
         if results?
           if completed
             console.log "SET PROCESSED".green
-            api.Polls.setTransactionProcessed document._id, transaction.id, false, {}, (error, poll)->
+            api.Polls.setTransactionProcessed document._id, transaction.id, false, false, {}, (error, poll)->
               if error?
                 console.log "ERROR SETTING PROCESSED".red
                 console.log error
@@ -393,4 +393,74 @@ eventPollAnswered = (document, transaction)->
                   console.log {name: "TransactionError", messge: "Unable to find consumer"}
       # else #the event has either been processed or marked with an error, in either case we don't want to do any work on it, so move on
       return
+
+eventEventRsvp = (document, transaction)->
+  console.log "\nEVENT - User Rsvped for an event".green
+  console.log "\nEID: #{document._id}\nTID: #{transaction.id}\n#{transaction.direction}\n".green
+
+  console.log "SET PROCESSING".green
+  timestamp   = transaction.dates.created
+  entity      = transaction.entity
+
+  completed = true #successful
+  async.parallel {
+    stream: (callback)->
+      # ADD TO CONSUMER ACTIVITY STREAM
+      _writeToStream document, transaction, choices.eventTypes.EVENT_RSVPED, "RSVPed to attend an event at #{document.location.name}", {}, callback
+
+    # honor: (callback)->
+    #   # UPDATE HONOR SCORE
+    #   amount = 1.0
+    #   api.Consumers.updateHonorScore entity.id, eventId, amount, (error, consumer)-> #amount is positive to increment by or negative to decrement by
+    #     if error?
+    #       completed = false
+    #       callback error, false
+    #     else if consumer?
+    #       callback null, true
+  }, (error, results)->
+    if error?
+      completed = false
+    if results? #this means all the async callbacks have completed
+      if completed
+        console.log "SET PROCESSED".green
+        api.Events.setTransactionProcessed document._id, transaction.id, false, false, {}, (error, poll)->
+          if error?
+            console.log "ERROR SETTING PROCESSED".red
+            console.log error
+            return
+          else if !poll?
+            console.log "THE DOCUMENT WITH THAT TRANSACTION ID WAS NOT FOUND - POSSIBLY HANDLED ALREADY, IF NOT POLLER WILL TAKE CARE OF IT LATER".yellow
+            console.log {name: "TransactionWarning", message:"Unable to set state to processed. Transaction may have already been processed, quitting further processing"}
+            return
+          else
+            console.log "TRANSACITON PROCESSED".green
+            return
+      else #NOT COMPLETED
+        if transaction.attempts > 5 #if we fail more than 5 times then there is something wrong so error out
+          console.log "SET ERROR".green
+          api.Events.setTransactionError document._id, transaction.id, false, false, {}, (error, poll)->
+            if error?
+              callback(error)
+            else if !poll?
+              console.log "PROBLEM SETTING ERROR".red
+              console.log {name: "TransactionError", messge: "Unable to set transaction state to error in poll"}
+            else
+              console.log {name: "TransactionError", messge: "Unable to find consumer"}
+  # else #the event has either been processed or marked with an error, in either case we don't want to do any work on it, so move on
+  return
+
+_writeToStream = (document, transaction, eventType, message, data, callback)->
+  #@add = (entity, eventType, eventId, documentId, timestamp, data, callback)
+  api.Streams.add transaction.entity, eventType, transaction.id, document.id, transaction.dates.created, message, data, (error, stream)->
+    if error?
+      console.log "ERROR CREATING STREAM DOCUMENT - IT MAY ALREADY EXIST".red
+      #check if it exists - it will return an error if there is a unique index contraint set (one per transaction?)
+      callback error
+    else if !stream?
+      console.log "STREAM IS NULL".red
+      callback {name: "NullError", message: "Could Not Add To Stream"}
+    else
+      callback null, stream
+    
+
 exports.process = process

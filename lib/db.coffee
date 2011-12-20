@@ -572,33 +572,7 @@ ClientInvitation = new Schema {
 # Stream ###########
 ####################
 Stream = new Schema {
-  eventType     : {type: String, required: true, enum: choices.eventTypes._enum}
-  eventId       : {type: ObjectId, required: true} #unique
-  entity: {
-    type        : {type: String, required: true, enum: choices.entities._enum},
-    id          : {type: ObjectId, required: true}
-    name        : {type: String}
-  }
-  documentId    : {type: ObjectId, required: true}
-  messages      : [{type: String}]
-  dates: {
-    event       : {type: Date, required: true} #event date/time
-    created     : {type: Date, default: new Date( (new Date()).toUTCString() )} #timestamp added to the stream
-  }
-  data          : {}
 
-  transactions: {
-    ids         : [ObjectId]
-    failed      : [ObjectId]
-    log         : [Transaction]
-    temp        : [Transaction]
-    locked      : {type: Boolean}
-  }
-  
-  events: {
-    ids         : [ObjectId]
-    history     : {}
-  }
 }
 
 #indexes
