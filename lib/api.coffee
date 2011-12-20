@@ -1469,9 +1469,32 @@ class Events extends API
   @setTransactionProcessed: @__setTransactionProcessed
   @setTransactionError: @__setTransactionError
 
+class TapIns extends API
+  @model = db.TapIn
+  
+  @byUser = (userId, options, callback)->
+    if Object.isFunction(options)
+      callback = options
+      options = {}
+    query = @optionParser options
+    query.where 'userEntity.id', userId
+    query.exec callback
 
+class BusinessRequests extends API
+  @model = BusinessRequest
+
+  @add = (userId, business, callback)->
+    data =
+      userEntity:
+        type: choices.entities.CONSUMER
+        id: userId
+      businessName: business
+    instance = new @model data
+    instance.save callback
+
+    
 class Streams extends API
-  @model = db.Stream
+  @model = Stream
 
   @add = (entity, eventType, eventId, documentId, timestamp, message, data, callback)->
     if Object.isString(message)
@@ -1498,30 +1521,6 @@ class Streams extends API
 
     instance.save callback
 
-class TapIns extends API
-  @model = db.TapIn
-  
-  @byUser = (userId, options, callback)->
-    if Object.isFunction(options)
-      callback = options
-      options = {}
-    query = @optionParser options
-    query.where 'userEntity.id', userId
-    query.exec callback
-
-class BusinessRequest extends API
-  @model = db.BusinessRequest
-
-  @add = (userId, business, callback)->
-    data =
-      userEntity:
-        type: choices.entities.CONSUMER
-        id: userId
-      businessName: business
-    instance = new @model data
-    instance.save callback
-
-    
   @getLatest = (entity, limit, offset, callback)->
     query = @_query()
     query.limit limit
@@ -1570,4 +1569,4 @@ exports.EventRequests = EventRequests
 exports.Events = Events
 exports.Streams = Streams
 exports.TapIns = TapIns
-exports.BusinessRequests = BusinessRequest
+exports.BusinessRequests = BusinessRequests
