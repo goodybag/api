@@ -28,6 +28,8 @@ Tag = db.Tag
 EventRequest = db.EventRequest
 Event = db.Event
 Stream = db.Stream
+TapIn = db.TapIn
+BusinessRequest = db.BusinessRequest
 
 #TODO:
 #Make sure that all necessary fields exist for each function before sending the query to the db
@@ -696,6 +698,11 @@ class Businesses extends API
       transactionId = new ObjectId(transactionId)
     
     @model.collection.findAndModify {_id: id, 'funds.remaining': {$gte: amount}, 'transactions.ids': {$ne: transactionId}}, [], {$addToSet: {"transactions.ids": transactionId}, $inc: {'funds.remaining': -1*amount }}, {new: true, safe: true}, callback
+
+  @listWithTapins: (callback)->
+    query = @_query()
+    query.where('locations.tapins', true)
+    query.exec callback
 
 class Polls extends API
   @model = Poll
@@ -1490,6 +1497,30 @@ class Streams extends API
     instance = new @model(stream)
 
     instance.save callback
+
+class TapIns extends API
+  @model = db.TapIn
+  
+  @byUser = (userId, options, callback)->
+    if Object.isFunction(options)
+      callback = options
+      options = {}
+    query = @optionParser options
+    query.where 'userEntity.id', userId
+    query.exec callback
+
+class BusinessRequest extends API
+  @model = db.BusinessRequest
+
+  @add = (userId, business, callback)->
+    data =
+      userEntity:
+        type: choices.entities.CONSUMER
+        id: userId
+      businessName: business
+    instance = new @model data
+    instance.save callback
+
     
   @getLatest = (entity, limit, offset, callback)->
     query = @_query()
@@ -1538,3 +1569,5 @@ exports.Tags = Tags
 exports.EventRequests = EventRequests
 exports.Events = Events
 exports.Streams = Streams
+exports.TapIns = TapIns
+exports.BusinessRequests = BusinessRequest

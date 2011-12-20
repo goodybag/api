@@ -130,6 +130,8 @@ Location = new Schema {
     fax           : {type: String}
     lat           : {type: Number}
     lng           : {type: Number}
+    #Lets us know if this business can supports tapins
+    tapins        : {type: Boolean}
 }
 
 
@@ -699,6 +701,44 @@ EventRequest = new Schema {
   }
 }
 
+############
+# TapIns ###
+############
+TapIn = new Schema {
+  userEntity: {
+    type                : {type: String, required: true, enum: choices.entities._enum}
+    id                  : {type: ObjectId, required: true}
+    name                : {type: String}
+  }
+  
+  organizationEntity: {
+    type                : {type: String, required: true, enum: choices.entities._enum}
+    id                  : {type: ObjectId, required: true}
+    name                : {type: String}
+  }
+
+  registerId            : {type: String, required: true}
+  date                  : {type: Date, required: true}
+  transactionAmount     : {type: Number, required: true}
+  donationAmount        : {type: Number, required: true}
+}
+
+#######################
+# Business Requests ###
+#######################
+BusinessRequest = new Schema {
+  userEntity: {
+    type                : {type: String, required: true, enum: choices.entities._enum}
+    id                  : {type: ObjectId, required: true}
+    name                : {type: String}
+  }
+  businessName          : {type: String, require: true}
+  date: {
+    requested           : {type: Date, default: Date.now}
+    read                : {type: Date}
+  }
+}
+
 exports.Consumer            = mongoose.model 'Consumer', Consumer
 exports.Client              = mongoose.model 'Client', Client
 exports.Business            = mongoose.model 'Business', Business
@@ -711,6 +751,8 @@ exports.Tag                 = mongoose.model 'Tag', Tag
 exports.EventRequest        = mongoose.model 'EventRequest', EventRequest
 exports.Stream              = mongoose.model 'Stream', Stream
 exports.Event               = mongoose.model 'Event', Event
+exports.TapIn               = mongoose.model 'TapIn', TapIn
+exports.BusinessRequest     = mongoose.model 'BusinessRequest', BusinessRequest
 
 exports.schemas = {
   Consumer: Consumer
@@ -725,4 +767,6 @@ exports.schemas = {
   EventRequest: EventRequest
   Stream: Stream
   Event: Event
+  TapIn: TapIn
+  BusinessRequest: BusinessRequest
 }
