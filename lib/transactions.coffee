@@ -272,26 +272,8 @@ eventPollCreated = (document, transaction)->
       async.parallel {
         stream: (callback)->
           # ADD TO CONSUMER ACTIVITY STREAM
-          api.Streams.add entity, choices.eventTypes.POLL_CREATED, transaction.id, document._id, timestamp, "created a poll - #{poll.question}", {}, (error, stream)-> #upsert with findAndModify
-            if error?
-              console.log "ERROR CREATING STREAM DOCUMENT - IT MAY ALREADY EXIST".red
-              #check if it exists - it will return an error if there is a unique index contraint set (one per transaction?)
-              completed = false
-              callback error, false
-            else if !stream?
-              console.log "STREAM IS NULL".red
-              callback {name: "NullError", message: "Could Not Add To Stream"}
-            else
-              callback null, true
-        # honor: (callback)->
-        #   # UPDATE HONOR SCORE
-        #   amount = 1.0
-        #   api.Consumers.updateHonorScore entity.id, eventId, amount, (error, consumer)-> #amount is positive to increment by or negative to decrement by
-        #     if error?
-        #       completed = false
-        #       callback error, false
-        #     else if consumer?
-        #       callback null, true
+          _writeToStream document, transaction, choices.eventTypes.POLL_CREATED, "created a poll - {#{poll.question}}", {}, callback
+
       }, (error, results)->
         if results?
           if completed
@@ -344,26 +326,8 @@ eventPollAnswered = (document, transaction)->
       async.parallel {
         stream: (callback)->
           # ADD TO CONSUMER ACTIVITY STREAM
-          api.Streams.add entity, choices.eventTypes.POLL_ANSWERED, transaction.id, document._id, timestamp, "answered a poll - #{poll.question}", {}, (error, stream)-> #upsert with findAndModify
-            if error?
-              console.log "ERROR CREATING STREAM DOCUMENT - IT MAY ALREADY EXIST".red
-              #check if it exists - it will return an error if there is a unique index contraint set (one per transaction?)
-              completed = false
-              callback error, false
-            else if !stream?
-              console.log "STREAM IS NULL".red
-              callback {name: "NullError", message: "Could Not Add To Stream"}
-            else
-              callback null, true
-        # honor: (callback)->
-        #   # UPDATE HONOR SCORE
-        #   amount = 1.0
-        #   api.Consumers.updateHonorScore entity.id, eventId, amount, (error, consumer)-> #amount is positive to increment by or negative to decrement by
-        #     if error?
-        #       completed = false
-        #       callback error, false
-        #     else if consumer?
-        #       callback null, true
+          _writeToStream document, transaction, choices.eventTypes.POLL_ANSWERED, "answered a poll - {#{poll.question}}", {}, callback
+
       }, (error, results)->
         if results?
           if completed
@@ -406,17 +370,7 @@ eventEventRsvp = (document, transaction)->
   async.parallel {
     stream: (callback)->
       # ADD TO CONSUMER ACTIVITY STREAM
-      _writeToStream document, transaction, choices.eventTypes.EVENT_RSVPED, "RSVPed to attend an event at #{document.location.name}", {}, callback
-
-    # honor: (callback)->
-    #   # UPDATE HONOR SCORE
-    #   amount = 1.0
-    #   api.Consumers.updateHonorScore entity.id, eventId, amount, (error, consumer)-> #amount is positive to increment by or negative to decrement by
-    #     if error?
-    #       completed = false
-    #       callback error, false
-    #     else if consumer?
-    #       callback null, true
+      _writeToStream document, transaction, choices.eventTypes.EVENT_RSVPED, "RSVPed to attend an {event} at #{document.location.name}", {}, callback
   }, (error, results)->
     if error?
       completed = false
@@ -451,7 +405,7 @@ eventEventRsvp = (document, transaction)->
 
 _writeToStream = (document, transaction, eventType, message, data, callback)->
   #@add = (entity, eventType, eventId, documentId, timestamp, data, callback)
-  api.Streams.add transaction.entity, eventType, transaction.id, document.id, transaction.dates.created, message, data, (error, stream)->
+  api.Streams.add transaction.entity, eventType, transaction.id, document._id, transaction.dates.created, message, data, (error, stream)->
     if error?
       console.log "ERROR CREATING STREAM DOCUMENT - IT MAY ALREADY EXIST".red
       #check if it exists - it will return an error if there is a unique index contraint set (one per transaction?)

@@ -1466,9 +1466,9 @@ class Events extends API
 class Streams extends API
   @model = db.Stream
 
-  @add = (entity, eventType, eventId, documentId, timestamp, messages, data, callback)->
-    if Object.isString(messages)
-      messages = [messages]
+  @add = (entity, eventType, eventId, documentId, timestamp, message, data, callback)->
+    if Object.isString(message)
+      message = message
       
     if Object.isFunction(data)
       callback = data
@@ -1479,7 +1479,7 @@ class Streams extends API
       eventId   : eventId
       entity    : entity
       documentId: documentId
-      messages  : messages
+      message   : message
       data      : data
 
       dates: {
@@ -1490,6 +1490,41 @@ class Streams extends API
     instance = new @model(stream)
 
     instance.save callback
+    
+  @getLatest = (entity, limit, offset, callback)->
+    query = @_query()
+    query.limit limit
+    query.skip offset
+    query.sort "dates.event", -1
+    if entity?
+      query.where "entity.type", entity.type
+      query.where "entity.id", entity.id
+
+    query.exec (error, activities)->
+      if error?
+        callback error
+        return
+      else if activities.length <=0
+        callback error, {activities: [], consumers: []}
+        return
+
+      ids = []
+      for activity in activities
+        ids.push {_id: activity.entity.id}
+
+      # get the consumer's name, and other info if we need it
+      # currently only getting consumers, I will need to modify this to support
+      # both consumers and businesses, because businesses will also answer do
+      # things on the consumer side
+      cQuery = Consumers._query()
+      cQuery.or ids
+      cQuery.only "email"
+      cQuery.exec (error, consumers)->
+        if error?
+          callback error
+          return
+        callback error, {activities: activities, consumers: consumers}
+      
     
 exports.Clients = Clients
 exports.Consumers = Consumers
