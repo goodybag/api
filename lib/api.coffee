@@ -29,6 +29,7 @@ EventRequest = db.EventRequest
 Event = db.Event
 Stream = db.Stream
 TapIn = db.TapIn
+BusinessRequest = db.BusinessRequest
 
 #TODO:
 #Make sure that all necessary fields exist for each function before sending the query to the db
@@ -700,7 +701,7 @@ class Businesses extends API
 
   @listWithTapins: (callback)->
     query = @_query()
-    query.where('tapins', true)
+    query.where('locations.tapins', true)
     query.exec callback
 
 class Polls extends API
@@ -1511,6 +1512,18 @@ class TapIns extends API
     query.where 'userEntity.id', userId
     query.exec callback
 
+class BusinessRequest extends API
+  @model = db.BusinessRequest
+
+  @add = (userId, business, callback)->
+    data =
+      userEntity:
+        type: choices.entities.CONSUMER
+        id: userId
+      businessName: business
+    instance = new @model data
+    instance.save callback
+
     
 exports.Clients = Clients
 exports.Consumers = Consumers
@@ -1525,3 +1538,4 @@ exports.EventRequests = EventRequests
 exports.Events = Events
 exports.Streams = Streams
 exports.TapIns = TapIns
+exports.BusinessRequests = BusinessRequest
