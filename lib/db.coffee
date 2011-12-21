@@ -148,17 +148,11 @@ Consumer = new Schema {
   password        : {type: String, validate:/.{5,}/}
   facebook: {           
     access_token  : String
-    base_domain   : String
-    expires       : Number
-    secret        : String
-    session_key   : String
-    sig           : String
-    uid           : {type: String}
-    perms         : []
+    #id            : Number
   }               
   created         : {type: Date, default: new Date( (new Date()).toUTCString() )}
   logins          : []
-  honorScore      : {type: Number, default: 0}
+  honorScore      : {type: Number, required: true, default: 0}
   charities       : {}
 
   funds: {
