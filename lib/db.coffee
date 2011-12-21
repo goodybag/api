@@ -16,6 +16,7 @@ countries = globals.countries
 
 # connect to database
 db = mongoose.connect '127.0.0.1', 'goodybag', 1337, (err, conn)->
+#db = mongoose.connect "mongodb://root:oMy8tAgd64vMdmtqgpsk@hellonode-protoolz-db-0.dotcloud.com:20063/goodybag", (err, conn)->
   if err?
     console.log 'error connecting to db'
   #else
@@ -224,6 +225,7 @@ Client = new Schema {
 Business = new Schema {
   name          : {type: String, required: true}
   publicName    : {type: String, required: true}
+  type          : {type: String, required: true, enum: choices.businesses.types._enum}
   url           : {type: Url}
   email         : {type: Email}
 

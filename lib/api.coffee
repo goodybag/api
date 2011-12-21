@@ -4,7 +4,7 @@ generatePassword = require "password-generator"
 hashlib = require "hashlib"
 util = require "util"
 async = require "async"
-wwwdude = require "node-wwwdude"
+wwwdude = require "wwwdude"
 
 globals = require "globals"
 db = require "./db"
@@ -446,7 +446,7 @@ class Consumers extends API
         inc = {loginCount:1}
         # self.model.update {email: consumer.email}, {$set: set}, {upsert:true}, (error, success)->
         #   callback error, success
-        self.model.collection.findAndModify {email: consumer.email}, [], {$set: set, $inc: inc}, {upsert: true, new: true, }, (error, success)->
+        self.model.collection.findAndModify {email: consumer.email}, [], {$set: set, $inc: inc}, {upsert: true, new: true, safe:true }, (error, consumer)->
           if(error?)
             callback error # we need to convert these dberrors to something more friendly..
           else
