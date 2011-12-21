@@ -13,6 +13,8 @@ process = (document, transaction)-> #this is just a router
       pollCreate(document, transaction)
     when choices.transactions.actions.POLL_ANSWER
       pollAnswer(document, transaction)
+    when choices.transactions.actions.DISCUSSION_CREATE
+      discussionCreate(document, transaction)
 
     #EVENTS
     when choices.transactions.actions.EVENT_POLL_CREATED
@@ -20,7 +22,9 @@ process = (document, transaction)-> #this is just a router
     when choices.transactions.actions.EVENT_POLL_ANSWERED
       eventPollAnswered(document, transaction)
     when choices.transactions.actions.EVENT_EVENT_RSVPED
-      eventEventRsvp(document, transaction)
+      eventEventRsvped(document, transaction)
+    when choices.transactions.actions.EVENT_DISCUSSION_CREATED
+      eventDiscussionCreated(document, transaction)
 
 #INBOUND
 pollCreate = (document, transaction)->
@@ -251,6 +255,148 @@ pollAnswer = (document, transaction)->
       console.log error
 
 
+
+
+
+
+
+
+#INBOUND
+discussionCreate = (document, transaction)->
+  console.log "\nCreate Discussion Question".green
+  console.log "\nDID: #{document._id}\nTID: #{transaction.id}\n#{transaction.direction}\n".green
+
+  async.series {
+    setProcessing: (callback)->
+      #console.log document
+      console.log "SET PROCESSING".green
+      api.Discussions.setTransactionProcessing document._id, transaction.id, true, (error, poll)->
+        if error? #determine what type of error it is and then whether to setTransactionError or ignore and let the poller pick it up later (the later is probably the case)
+          callback(error)
+        else if !poll? #if poll doesn't exist
+          callback({name: "NullError", message: "Document Does Not Exist"})
+        else
+          callback()
+        return
+        
+    deductFunds: (callback)->
+      console.log "DEDUCT FUNDS".green
+      if transaction.entity.type is choices.entities.BUSINESS
+        api.Businesses.deductFunds transaction.entity.id, transaction.id, transaction.data.amount, (error, business)->
+          #console.log "BID: #{business._id}".green
+          if error? #determine what type of error it is and then whether to setTransactionError or ignore and let the poller pick it up later (the later is probably the case)
+            callback(error)
+          else if !business? #if the business object doesn't exist then either the transaction occured previously, there aren't enough funds, or the business doesn't exist
+            api.Businesses.checkIfTransactionExists transaction.entity.id, transaction.id, (error, business)->
+              if error?
+                callback(error)
+              else if business? #transaction already occured
+                console.log "TRANSACTION ALREADY COMPLETED"
+                callback()
+              else #either not enough funds or business does not exist - in either case report insufficient funds
+                error = {
+                  message: "there were insufficient funds"
+                }
+                console.log "SET ERROR".green
+                api.Discussions.setTransactionError document._id, transaction.id, true, true, error, {}, (error, poll)->
+                  if error?
+                    callback(error)
+                  else if !poll?
+                    console.log "PROBLEM SETTING ERROR".red
+                    callback({name: "TransactionError", messge: "Unable to set transaction state to error in discussion"})
+                  else
+                    callback({name: "TransactionError", messge: "There were insufficient funds"})
+          else #transaction went through
+            callback()
+          return
+
+      else if transaction.entity.type is choices.entities.CONSUMER
+        api.Consumers.deductFunds transaction.entity.id, transaction.id, transaction.data.amount, (error, consumer)->
+          #console.log "CID: #{consumer._id}".green
+          if error? #determine what type of error it is and then whether to setTransactionError or ignore and let the poller pick it up later (the later is probably the case)
+            callback(error)
+          else if !consumer? #if the consumer object doesn't exist then either the transaction occured previously, or the consumer doesn't exist
+            api.Consumers.checkIfTransactionExists transaction.entity.id, transaction.id, (error, consumer)->
+              if error?
+                callback(error)
+              else if consumer? #transaction already occured
+                console.log "TRANSACTION ALREADY COMPLETED"
+                callback()
+              else #either not enough funds or the consumer doesn't exist - in either case report insufficient funds
+                error = {
+                  message: "there were insufficient funds"
+                }
+                console.log "SET ERROR".green
+                api.Discussions.setTransactionError document._id, transaction.id, true, true, error, {}, (error, poll)->
+                  if error?
+                    callback(error)
+                  else if !poll?
+                    console.log "PROBLEM SETTING ERROR".red
+                    callback({name: "TransactionError", messge: "Unable to set transaction state to error in discussion"})
+                  else
+                    callback({name: "TransactionError", messge: "There were insufficient funds"})
+          else
+            callback()
+
+    setProcessed: (callback)->
+      console.log "SET PROCESSED".green
+      
+      #Create Discussion Created Event Transaction
+      eventTransaction = api.Discussions.createTransaction(
+        choices.transactions.states.PENDING
+        , choices.transactions.actions.EVENT_DISCUSSION_CREATED
+        , {}
+        , choices.transactions.directions.OUTBOUND
+        , transaction.entity
+      )
+      
+      $set = {
+        "funds.allocated": transaction.data.amount
+        "funds.remaining": transaction.data.amount
+      }
+
+      $push = {
+        "transactions.ids": eventTransaction.id
+        "transactions.temp": eventTransaction
+      }
+
+      $update = {
+        $set: $set
+        $push: $push
+      }
+      
+      api.Discussions.setTransactionProcessed document._id, transaction.id, true, true, $update, (error, poll)->
+        if error?
+          console.log "ERROR SETTING PROCESSED".red
+          callback(error)
+        else if !poll?
+          console.log "THE DOCUMENT WITH THAT TRANSACTION ID WAS NOT FOUND - POSSIBLY HANDLED ALREADY, IF NOT POLLER WILL TAKE CARE OF IT LATER".yellow
+          callback({name: "TransactionWarning", message:"Unable to set state to processed. Transaction may have already been processed, quitting further processing"})
+        else
+          console.log "TRANSACTION SUCCESSFUL".green
+          callback()
+          api.Discussions.moveTransactionToLog document._id, eventTransaction, (error, poll)->
+            if error?
+              console.log "ERROR MOVING TRANSACTION FROM TEMP TO LOG - POLLER WILL HAVE TO PICK UP".red
+            else if !poll?
+              console.log "LOOKS LIKE IT MAY HAVE BEEN MOVED ALREADY OR PROCESSED".yellow
+            else
+              console.log "SUCCESSFULLY MOVED TRANSACTION FROM TEMP TO LOG".green
+              process(document, eventTransaction)
+        return
+  }, 
+  (error, results)->
+    if error?
+      console.log "POLLER WILL RETRY LATER".red
+      console.log error
+    #console.log results
+
+
+
+
+
+
+
 eventPollCreated = (document, transaction)->
   console.log "\nEVENT - User CREATED Poll Question".green
   console.log "\nPID: #{document._id}\nTID: #{transaction.id}\n#{transaction.direction}\n".green
@@ -358,7 +504,64 @@ eventPollAnswered = (document, transaction)->
       # else #the event has either been processed or marked with an error, in either case we don't want to do any work on it, so move on
       return
 
-eventEventRsvp = (document, transaction)->
+
+
+eventDiscussionCreated = (document, transaction)->
+  console.log "\nEVENT - User CREATED Discussion Question".green
+  console.log "\nDID: #{document._id}\nTID: #{transaction.id}\n#{transaction.direction}\n".green
+
+  console.log "SET PROCESSING".green
+  api.Discussions.setTransactionProcessing document._id, transaction.id, false, (error, poll)->
+    if error? #determine what type of error it is and then whether to setTransactionError or ignore and let the poller pick it up later (the later is probably the case)
+      console.log error
+      return
+    else if !poll? #if poll doesn't exist
+      console.log {name: "NullError", message: "Could Not Find Poll"}
+      return
+    else
+      console.log "PROCESSING SET"
+      timestamp   = transaction.dates.created
+      entity      = transaction.entity
+
+      completed = true #successful
+      async.parallel {
+        stream: (callback)->
+          # ADD TO CONSUMER ACTIVITY STREAM
+          _writeToStream document, transaction, choices.eventTypes.DISCUSSION_CREATED, "created a poll - {#{poll.question}}", {}, callback
+
+      }, (error, results)->
+        if results?
+          if completed
+            console.log "SET PROCESSED".green
+            api.Discussions.setTransactionProcessed document._id, transaction.id, false, false, {}, (error, poll)->
+              if error?
+                console.log "ERROR SETTING PROCESSED".red
+                console.log error
+                return
+              else if !poll?
+                console.log "THE DOCUMENT WITH THAT TRANSACTION ID WAS NOT FOUND - POSSIBLY HANDLED ALREADY, IF NOT POLLER WILL TAKE CARE OF IT LATER".yellow
+                console.log {name: "TransactionWarning", message:"Unable to set state to processed. Transaction may have already been processed, quitting further processing"}
+                return
+              else
+                console.log "TRANSACITON PROCESSED".green
+                return
+          else #NOT COMPLETED
+            if transaction.attempts > 5 #if we fail more than 5 times then there is something wrong so error out
+              console.log "SET ERROR".green
+              api.Discussions.setTransactionError document._id, transaction.id, false, false, {}, (error, poll)->
+                if error?
+                  callback(error)
+                else if !poll?
+                  console.log "PROBLEM SETTING ERROR".red
+                  console.log {name: "TransactionError", messge: "Unable to set transaction state to error in poll"}
+                else
+                  console.log {name: "TransactionError", messge: "Unable to find consumer"}
+      # else #the event has either been processed or marked with an error, in either case we don't want to do any work on it, so move on
+      return
+
+
+
+eventEventRsvped = (document, transaction)->
   console.log "\nEVENT - User Rsvped for an event".green
   console.log "\nEID: #{document._id}\nTID: #{transaction.id}\n#{transaction.direction}\n".green
 

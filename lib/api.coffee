@@ -1251,60 +1251,24 @@ class Discussions extends API
     
   @add = (data, amount, callback)->
     instance = new @model(data)
+
+    transactionData = {
+      amount: amount
+    }
+
+    transaction = @createTransaction(choices.transactions.states.PENDING, choices.transactions.actions.DISCUSSION_CREATE, transactionData, choices.transactions.directions.INBOUND, instance.entity)
     
-   # transactions: {
-   #    ids           : [ObjectId]
-   #    history       : {}
-   #  
-   #    # Example of a transaction history object
-   #    # history = {
-   #    #   transactionId: {
-   #    #     state: {type: String, required: true, enum: choices.transactions.state._enum, default: choices.transactions.state.PENDING}
-   #    #     created: {type: Date, required: true, default: new Date( (new Date()).toUTCString() )}
-   #    #     lastModified: {type: Date, required: true, default: new Date( (new Date()).toUTCString() )}
-   #    #     amount: {type: Number, required: true, default: 0.0}
-   #    #   }
-   #    # }
-   #  
-   #    currentState  : {type: String, required: true, enum: choices.transactions.state._enum, default: choices.transactions.state.PENDING}
-   #    currentId     : {type: ObjectId}
-   #  
-   #    currentAllocated: {type: Number, required: true}
-   #    newAllocated    : {type: Number}
-   # }
+    instance.transactions.locked = true
+    instance.transactions.ids = [transaction.id]
+    instance.transactions.log = [transaction]
 
-
-    transaction = {}
-    transaction.state = choices.transactions.state.PENDING
-    transaction.created = new Date()
-    transaction.lastModified = new Date()
-    
-    transactionId = new ObjectId()
-    transactionIdStr = transactionId.toString()
-
-    instance.transactions.ids = [transactionId]
-
-    instance.transactions.history = {}
-    instance.transactions.history[transactionIdStr] = transaction
-
-    instance.transactions.currentId = transactionId
-    instance.transactions.currentState = choices.transactions.state.PENDING
-
-    instance.transactions.currentAllocated = 0.0
-    instance.transactions.newAllocated = amount
-
+    console.log instance.transactions.log
     instance.save (error, discussion)->
       callback error, discussion
       if error?
         return
       else
-        amount = discussion.transactions.newAllocated - discussion.transactions.currentAllocated
-        Businesses.deductFunds discussion.entity.id, choices.transactions.types.DISCUSSION, discussion.id, discussion.transactions.currentId, discussion.transactions.newAllocated, (error, business)->
-          if error?
-            return
-          else
-            Discussions.setTransactionProcessed instance.transactions.id, amount, (error, discussion)->
-              return
+        tp.process(discussion, transaction)
     return
     
   @pending: (entityType, entityId, skip, limit, callback)->
