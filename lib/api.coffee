@@ -417,8 +417,17 @@ class API
 class Consumers extends API
   @model = Consumer
 
+  @one: (consumerId, callback)->
+    self = this
+    super.one consumerId (error, consumer)->
+      if error?
+        callback error #eventually we will be changing these db errors..so leave the if error .. else
+      else
+        callback null, consumer
+
   @facebookLogin: (accessToken, callback)->
     self = this
+    accessToken = accessToken.split("&")
     wwwClient = wwwdude.createClient({
         contentParser: wwwdude.parsers.json
     })
@@ -427,31 +436,42 @@ class Consumers extends API
       if(facebookData.error?)
         callback new errors.ValidationError {"facebook":facebookData.error.type+": "+facebookData.error.message}
       else
+        fbid = facebookData.id
         consumer = {
           firstName: facebookData.first_name,
           lastName:  facebookData.last_name,
           email:     facebookData.email,
           facebook: {
-              me:          facebookData,
-              accessToken: accessToken
-          }
-          funds:     {
-              allocated:0,
-              remaining:0
+              me           : facebookData,
+              access_token : accessToken,
+              id           : fbid
           }
         }
-        consumer.facebook.me = facebookData
-        consumer.facebook.accessToken = accessToken
-        set = consumer
-        inc = {loginCount:1}
-        # self.model.update {email: consumer.email}, {$set: set}, {upsert:true}, (error, success)->
-        #   callback error, success
-        self.model.collection.findAndModify {email: consumer.email}, [], {$set: set, $inc: inc}, {upsert: true, new: true, safe:true }, (error, consumer)->
-          if(error?)
-            callback error # we need to convert these dberrors to something more friendly..
+        #self.model.update {"facebook.id": fbid}, {$set: consumer, $inc: {loginCount:1}}, {}, (error, success)->
+        self.model.collection.findAndModify {"facebook.id": fbid}, [], {$set: consumer, $inc: {loginCount:1}}, {new:true, safe:true}, (error, consumerUpdated)->
+          if error?
+            callback error
+          else if consumerUpdated? #if success>0
+            callback null, consumerUpdated #streamlined process for returning logins..
           else
-            callback error, consumer
-        return
+            query = self._query()
+            query.where("email", facebookData.email) #email account with
+            query.where("facebook").exists(false)    #no facebook
+            query.findOne (error, consumerWithEmail)->
+              if error?
+                callback error
+              else if consumerWithEmail?
+                callback new errors.ValidationError {"email":"Account with email already exists, please enter password."}
+              else
+                #self.model.update {"facebook.id": fbid}, {$set: consumer, $inc: {loginCount:1}}, {}, (error, success)->
+                consumerModel = new self.model consumer
+                consumerModel.save consumer, (error, success)->
+                  if error?
+                    callback error
+                  else #success is true
+                    callback null, consumer #slow process...for new fb regs..
+                  return
+          return
       return
     ).on('error', (error, res)->
       callback error
@@ -824,13 +844,11 @@ class Polls extends API
     return
 
   @all = (entityType, entityId, skip, limit, callback)->
-    options = {
-      entityType: entityType,
-      entityId: entityId, 
-      skip: skip, 
-      limit: limit
-    }
-    query = @optionParser(options)
+    query = @_query()
+    query.where("entity.type", entityType)
+    query.where("entity.id", entityId)
+    query.skip(skip)
+    query.limit(limit)
     query.fields({
         _id                   : 1,
         entity                : 1,
@@ -847,7 +865,7 @@ class Polls extends API
         state                 : 1,
         media                 : 1,
         "funds.perResponse"   : 1
-    });
+    })
     query.sort('dates.start', -1)
     query.exec callback
     return
@@ -1167,7 +1185,7 @@ class Polls extends API
       if error?
         callback error
         return
-      Polls.removePollPrivateFields(poll)
+      #Polls.removePollPrivateFields(poll)
       callback null, poll 
       return
 
