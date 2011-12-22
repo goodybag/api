@@ -300,6 +300,9 @@ Poll = new Schema {
   question            : {type: String, required: true}
   choices             : [type: String, required: true]
   numChoices          : {type: Number, required: true}
+  showStats           : {type: Boolean, required: true} #whether to display the stats to the user or not
+  displayName         : {type: Boolean, required: true}
+  displayMedia        : {type: Boolean, required: true}
   responses: {
     remaining     : {type: Number,   required: true} #decrement each response
     max           : {type: Number,   required: true}
@@ -312,9 +315,7 @@ Poll = new Schema {
     skipConsumers : [type: ObjectId, required: true, default: new Array()]
     skipCount     : {type: Number,   required: true, default: 0}
   }
-  showStats           : {type: Boolean, required: true} #whether to display the stats to the user or not
-  displayName         : {type: Boolean, required: true}
-  displayMedia        : {type: Boolean, required: true}
+  
   media: {
     when          : {type: String, required: true, enum: choices.polls.media.when._enum } #when to display
     url           : {type: Url,    required: true} #video or image
@@ -358,10 +359,21 @@ Discussion = new Schema {
     id                : {type: ObjectId, required: true}
     name              : {type: String}
   }
-  campaignName        : {type: String, required: true}
+  name                : {type: String, required: true}
   question            : {type: String, required: true}
   details             : {type: String}
   tags                : [String]
+  displayName         : {type: Boolean, required: true}
+  displayMedia        : {type: Boolean, required: true}
+  responses: {
+    remaining     : {type: Number,   required: true} #decrement each response
+    max           : {type: Number,   required: true}
+    consumers     : [type: ObjectId, required: true, default: new Array()] #append ObjectId(consumerId) each response
+    log           : {}                             #append consumerId:{answers:[1,2],timestamp:Date}
+    dates         : []                             #append {consumerId:ObjId,timestamp:Date} -- for sorting by date
+    flagConsumers : [type: ObjectId, required: true, default: new Array()]
+    flagCount     : {type: Number,   required: true, default: 0}
+  }
   media: {
     url               : {type: Url, required: true} #video or image
     thumb             : {type: Url}
