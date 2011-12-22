@@ -909,7 +909,7 @@ class Polls extends API
       limit: limit
     } 
     query = @optionParser(options)
-    query.where('responses.remaining').gt(0)
+    query.where('responses.remaining').gt(0)   #has responses remaining..
     query.where('dates.start').lte(new Date())
     # query.where('dates.end').gt(new Date())
     query.fields({
