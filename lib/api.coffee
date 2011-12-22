@@ -815,7 +815,7 @@ class Polls extends API
       else if !poll?
         callback new errors.ValidationError({"poll":"Poll does not exist or Access Denied."})
       else
-        if (poll.dates.start <= new Date() && poll.state!=choices.transactions.states.ERROR)
+        if poll.dates.start <= new Date() && (poll.state!=choices.transactions.states.ERROR || (entityType==choices.entities.CLIENT && poll.state!=choices.transactions.states.COMPLETED))
           callback new errors.ValidationError({"poll":"Can not edit a poll that is in progress or that has completed."}), null
         else
           for own k,v of data
@@ -1270,7 +1270,29 @@ class Discussions extends API
       else
         tp.process(discussion, transaction)
     return
-    
+  
+  @all = (entityType, entityId, skip, limit, callback)->
+    query = @_query()
+    query.where("entity.type", entityType)
+    query.where("entity.id", entityId)
+    query.skip(skip)
+    query.limit(limit)
+    query.fields({
+        _id                   : 1,
+        entity                : 1,
+        type                  : 1,
+        name                  : 1,
+        question              : 1,
+        flagCount             : 1,
+        dates                 : 1,
+        funds                 : 1,
+        state                 : 1,
+        media                 : 1
+    })
+    query.sort('dates.start', -1)
+    query.exec callback
+    return
+
   @pending: (entityType, entityId, skip, limit, callback)->
     options = {
       entityType: entityType,
