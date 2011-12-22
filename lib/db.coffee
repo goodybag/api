@@ -3,7 +3,6 @@ exports = module.exports
 mongoose = require 'mongoose'
 mongooseTypes = require 'mongoose-types'
 mongooseTypes.loadTypes(mongoose)
-mongoose.set('debug', true)
 
 Schema = mongoose.Schema
 ObjectId = mongoose.SchemaTypes.ObjectId
@@ -16,25 +15,15 @@ defaults = globals.defaults
 choices = globals.choices
 countries = globals.countries
 
+mongoose.set('debug', true)
+
 # connect to database
-db = mongoose.connect '127.0.0.1', 'goodybag', 1337, (err, conn)->
+db = mongoose.connect '127.0.0.1', 'goodybag', 1337, {auto_reconnect: true}, (err, conn)->
 #db = mongoose.connect "mongodb://root:oMy8tAgd64vMdmtqgpsk@hellonode-protoolz-db-0.dotcloud.com:20063/goodybag", (err, conn)->
   if err?
     console.log 'error connecting to db'
-  #else
-  # console.log 'successfully connected to db'
-
-# This is my fix for a bug that exists in mongoose that doesn't
-# expose these methods if using a named scope
-
-#add some missing cursor methods to model object
-['limit', 'skip', 'maxscan', 'snapshot'].forEach (method) ->
-  mongoose.Model[method] = (v)->
-    cQuery
-    if (cQuery = this._cumulativeQuery)
-      cQuery.options[method] = v
-    this
-
+  else
+    console.log 'successfully connected to db'
 
 exports.disconnect = (callback)->
   db.disconnect(callback)
