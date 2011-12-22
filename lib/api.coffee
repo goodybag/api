@@ -879,6 +879,7 @@ class Polls extends API
     }
     query = @optionParser(options)
     query.where('dates.start').gt(new Date())
+    query.where('responses.remaining').gt(0)
     query.fields({
         _id                   : 1,
         entity                : 1,
@@ -908,6 +909,7 @@ class Polls extends API
       limit: limit
     } 
     query = @optionParser(options)
+    query.where('responses.remaining').gt(0)
     query.where('dates.start').lte(new Date())
     # query.where('dates.end').gt(new Date())
     query.fields({
@@ -915,7 +917,7 @@ class Polls extends API
         entity                : 1,
         type                  : 1,
         name                  : 1,
-        question              : 1,        
+        question              : 1,
         choices               : 1,
         "responses.remaining" : 1,
         "responses.max"       : 1,
@@ -939,7 +941,8 @@ class Polls extends API
       limit: limit
     }
     query = @optionParser(options)
-    # query.where('dates.end').lte(new Date())
+
+    query.where('responses.remaining').lte(0)
     query.fields({
         _id                   : 1,
         entity                : 1,
@@ -1279,6 +1282,7 @@ class Discussions extends API
       limit: limit
     }
     query = @optionParser(options)
+    query.where("funds.remaining").gte(0)
     query.where('dates.start').gt(new Date())
     query.sort('dates.start', -1)
     query.exec callback
@@ -1292,9 +1296,9 @@ class Discussions extends API
       limit: limit
     } 
     query = @optionParser(options)
-    query.where('dates.start').lte(new Date())
-    # query.where('dates.end').gt(new Date())
-    query.sort('dates.start', -1)
+    query.where("funds.remaining").gte(0)
+    query.where("dates.start").lte(new Date())
+    query.sort("dates.start", -1)
     query.exec callback
     return
     
@@ -1306,7 +1310,7 @@ class Discussions extends API
       limit: limit
     }
     query = @optionParser(options)
-    # query.where('dates.end').lte(new Date())
+    query.where("funds.remaining").lte(0)
     query.sort('dates.start', -1)
     query.exec callback
     return

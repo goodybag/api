@@ -527,7 +527,7 @@ eventDiscussionCreated = (document, transaction)->
       async.parallel {
         stream: (callback)->
           # ADD TO CONSUMER ACTIVITY STREAM
-          _writeToStream document, transaction, choices.eventTypes.DISCUSSION_CREATED, "created a poll - {#{poll.question}}", {}, callback
+          _writeToStream document, transaction, choices.eventTypes.DISCUSSION_CREATED, "created a discussion - {#{poll.question}}", {}, callback
 
       }, (error, results)->
         if results?

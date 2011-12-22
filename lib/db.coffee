@@ -3,6 +3,8 @@ exports = module.exports
 mongoose = require 'mongoose'
 mongooseTypes = require 'mongoose-types'
 mongooseTypes.loadTypes(mongoose)
+mongoose.set('debug', true)
+
 Schema = mongoose.Schema
 ObjectId = mongoose.SchemaTypes.ObjectId
 Email = mongoose.SchemaTypes.Email
