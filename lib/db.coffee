@@ -132,6 +132,20 @@ Location = new Schema {
 ###################################################################
 
 
+##################################
+# PASSWORD RESET REQUEST #########
+##################################
+PasswordResetRequest = new Schema {
+  date        : {type: Date, default: new Date( (new Date()).toUTCString() )}
+  key         : {type: String, required: true, unique: true}
+  entity: {
+    type      : {type: String, required: true, enum: choices.entities._enum}
+    id        : {type: ObjectId, required: true}
+    name      : {type: String}
+  }
+  consumed    : {type: Boolean, default: false}
+}
+
 ####################
 # CONSUMER #########
 ####################
@@ -711,6 +725,7 @@ exports.Stream              = mongoose.model 'Stream', Stream
 exports.Event               = mongoose.model 'Event', Event
 exports.TapIn               = mongoose.model 'TapIn', TapIn
 exports.BusinessRequest     = mongoose.model 'BusinessRequest', BusinessRequest
+exports.PasswordResetRequest= mongoose.model 'PasswordResetRequest', PasswordResetRequest
 
 exports.schemas = {
   Consumer: Consumer
@@ -727,4 +742,5 @@ exports.schemas = {
   Event: Event
   TapIn: TapIn
   BusinessRequest: BusinessRequest
+  PasswordResetRequest: PasswordResetRequest
 }
