@@ -31,6 +31,7 @@ Event = db.Event
 Stream = db.Stream
 TapIn = db.TapIn
 BusinessRequest = db.BusinessRequest
+PasswordResetRequest = db.PasswordResetRequest
 
 #TODO:
 #Make sure that all necessary fields exist for each function before sending the query to the db
@@ -538,6 +539,24 @@ class Consumers extends API
     
     @model.collection.findAndModify {_id: id, 'transactions.ids': {$ne: transactionId}}, [], {$addToSet: {"transactions.ids": transactionId}, $inc: {'funds.remaining': amount, 'funds.allocated': amount }}, {new: true, safe: true}, callback
 
+  @updatePassword: (id, password, callback)->
+    if Object.isString(id)
+      id = new ObjectId(id)
+    
+    query = {_id: id}
+    update = {$set: {password: password}}
+    options = {remove: false, new: true, upsert: false}
+    @model.collection.findAndModify query, [], update, options, (error, user)->
+      if error?
+        callback error
+        return
+      if !user?
+        callback new errors.ValidationError {"_id": "_id does not exist"}
+        return
+      if user?
+        callback error, user
+      return
+
   @setEventPending: @__setEventPending
   @setEventProcessing: @__setEventProcessing
   @setEventProcessed: @__setEventProcessed
@@ -909,7 +928,7 @@ class Polls extends API
       limit: limit
     } 
     query = @optionParser(options)
-    query.where('responses.remaining').gt(0)
+    query.where('responses.remaining').gt(0)   #has responses remaining..
     query.where('dates.start').lte(new Date())
     # query.where('dates.end').gt(new Date())
     query.fields({
@@ -1609,6 +1628,63 @@ class Streams extends API
           return
         callback error, {activities: activities, consumers: consumers}
       
+class PasswordResetRequests extends API
+  @model: PasswordResetRequest
+
+  @consume: (id, callback)->
+    if Object.isString(id)
+      id = new ObjectId(id)
+    
+    query = {_id: id}
+    update = {$set: {consumed: true}}
+    options = {remove: false, new: true, upsert: false}
+    @model.collection.findAndModify query, [], update, options, (error, request)->
+      if error?
+        callback error
+        return
+      if !request?
+        callback new errors.ValidationError {"_id": "_id does not exist"}
+        return
+      if request?
+        callback error, request
+      return
+
+  @pending: (key, callback)->
+    minutes = new Date().getMinutes()
+    minutes -= globals.defaults.passwordResets.keyLife
+    date = new Date()
+    date.setMinutes minutes
+    options =
+      key: key
+      date: {$gt: date}
+      consumed: false
+    @model.findOne options, callback
+
+  @add: (type, email, callback)->
+    # determine user type
+    if type == choices.entities.CONSUMER
+      userModel = Consumers.model
+    else if type == choices.entities.CLIENT
+      userModel = Clients.model
+    else
+      callback new errors.ValidationError {
+        "type": "Not a valid entity type."
+      }
+      return
+      # find the user
+    userModel.findOne {email: email}, (error, user)=>
+      if error?
+        callback error
+        return
+      #found the user now submit the request
+      request =
+        entity:
+          type: type
+          id: user._id
+        key: hashlib.md5(globals.secretWord+email+(new Date().toString()))
+      instance = new @model request
+      instance.save callback
+        
     
 exports.Clients = Clients
 exports.Consumers = Consumers
@@ -1624,3 +1700,4 @@ exports.Events = Events
 exports.Streams = Streams
 exports.TapIns = TapIns
 exports.BusinessRequests = BusinessRequests
+exports.PasswordResetRequests = PasswordResetRequests
