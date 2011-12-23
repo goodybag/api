@@ -10,46 +10,31 @@ Email = mongoose.SchemaTypes.Email
 Url = mongoose.SchemaTypes.Url
 
 globals = require 'globals'
+loggers = require "./loggers"
 utils = globals.utils
 defaults = globals.defaults
 choices = globals.choices
 countries = globals.countries
 
-mongoose.set('debug', true)
+#Enable Database Logging
+mongoose.set 'debug', (collectionName, method, query, doc, options)->
+  if options?
+    options = ", "+JSON.stringify(options)
+  else
+    options = ""
+  loggers.db.verbose "db."+collectionName+"."+method+"("+JSON.stringify(query)+", "+JSON.stringify(doc)+options+")"
+
 
 # connect to database
 db = mongoose.connect '127.0.0.1', 'goodybag', 1337, {auto_reconnect: true}, (err, conn)->
 #db = mongoose.connect "mongodb://root:oMy8tAgd64vMdmtqgpsk@hellonode-protoolz-db-0.dotcloud.com:20063/goodybag", (err, conn)->
   if err?
     console.log 'error connecting to db'
-  else
-    console.log 'successfully connected to db'
+  #else
+    #console.log 'successfully connected to db'
 
 exports.disconnect = (callback)->
   db.disconnect(callback)
-
-
-
-
-#Example of events history:
-# history: {
-#   eventId: {
-#     eventType: {type: String, required: true, enum: choices.eventTypes._enum}
-#     entity: { #We support various types of users creating discussions (currently businesses and consumers can create campaigns)
-#       type: {type: String, required: true, enum: choices.entities._enum}
-#       id: {type: ObjectId, required: true}
-#     }
-#     byEntity: { #If it was done on behalf of an organization the user who is responsible for this event is in here
-#       type: {type: String, required: true, enum: choices.entities._enum}
-#       id: {type: ObjectId, required: true}
-#     }
-#     state: {type: String, default: choices.eventStates._enum}
-#     timestamp: {type: Date, default: new Date( (new Date()).toUTCString() ), index: true}
-#     data: {}
-#     error: {}
-#     attempts: 0
-#   }
-# }
 
 
 ##################
@@ -61,14 +46,6 @@ Entity = new Schema {
   name          : {type: String}
 }
 
-
-####################
-# TRANSACTION IDS ##
-####################
-# TransactionId = new Schema {
-#   collection  : {type: String, required: true, enum: choices.collections._enum}
-#   id          : {type: ObjectId, required: true}
-# }
 
 ####################
 # TRANSACTION ######
@@ -355,8 +332,6 @@ Discussion = new Schema {
   displayName         : {type: Boolean, required: true}
   displayMedia        : {type: Boolean, required: true}
   responses: {
-    remaining     : {type: Number,   required: true} #decrement each response
-    max           : {type: Number,   required: true}
     consumers     : [type: ObjectId, required: true, default: new Array()] #append ObjectId(consumerId) each response
     log           : {}                             #append consumerId:{answers:[1,2],timestamp:Date}
     dates         : []                             #append {consumerId:ObjId,timestamp:Date} -- for sorting by date
@@ -533,7 +508,7 @@ Stream = new Schema {
   eventType     : {type: String, required: true, enum: choices.eventTypes._enum}
   eventId       : {type: ObjectId, required: true} #unique
   entity: {
-    type        : {type: String, required: true, enum: choices.entities._enum},
+    type        : {type: String, required: true, enum: choices.entities._enum}
     id          : {type: ObjectId, required: true}
     name        : {type: String}
   }

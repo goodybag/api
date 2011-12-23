@@ -791,7 +791,7 @@ class Polls extends API
       amount: amount
     }
 
-    transaction = @createTransaction(choices.transactions.states.PENDING, choices.transactions.actions.POLL_CREATE, transactionData, choices.transactions.directions.INBOUND, instance.entity)
+    transaction = @createTransaction(choices.transactions.states.PENDING, choices.transactions.actions.POLL_CREATED, transactionData, choices.transactions.directions.INBOUND, instance.entity)
     
     instance.transactions.locked = true
     instance.transactions.ids = [transaction.id]
@@ -825,7 +825,7 @@ class Polls extends API
                 amount: amount
           }
 
-          transaction = self.createTransaction(choices.transactions.states.PENDING, choices.transactions.actions.POLL_CREATE, transactionData, choices.transactions.directions.INBOUND, poll.entity)
+          transaction = self.createTransaction(choices.transactions.states.PENDING, choices.transactions.actions.POLL_CREATED, transactionData, choices.transactions.directions.INBOUND, poll.entity)
         
           poll.transactions.locked = true
           poll.transactions.ids = [transaction.id]
@@ -1038,7 +1038,7 @@ class Polls extends API
         }
 
         # CREATE TRANSACTION
-        transaction = self.createTransaction(choices.transactions.states.PENDING, choices.transactions.actions.POLL_ANSWER, transactionData, choices.transactions.directions.OUTBOUND, entity)
+        transaction = self.createTransaction(choices.transactions.states.PENDING, choices.transactions.actions.POLL_ANSWERED, transactionData, choices.transactions.directions.OUTBOUND, entity)
     
         push["transactions.ids"] = transaction.id
         push["transactions.log"] = transaction
@@ -1259,7 +1259,7 @@ class Discussions extends API
       amount: amount
     }
 
-    transaction = @createTransaction(choices.transactions.states.PENDING, choices.transactions.actions.DISCUSSION_CREATE, transactionData, choices.transactions.directions.INBOUND, instance.entity)
+    transaction = @createTransaction(choices.transactions.states.PENDING, choices.transactions.actions.DISCUSSION_CREATED, transactionData, choices.transactions.directions.INBOUND, instance.entity)
     
     instance.transactions.locked = true
     instance.transactions.ids = [transaction.id]
