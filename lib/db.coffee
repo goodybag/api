@@ -369,8 +369,6 @@ Discussion = new Schema {
   displayName         : {type: Boolean, required: true}
   displayMedia        : {type: Boolean, required: true}
   responses: {
-    remaining     : {type: Number,   required: true} #decrement each response
-    max           : {type: Number,   required: true}
     consumers     : [type: ObjectId, required: true, default: new Array()] #append ObjectId(consumerId) each response
     log           : {}                             #append consumerId:{answers:[1,2],timestamp:Date}
     dates         : []                             #append {consumerId:ObjId,timestamp:Date} -- for sorting by date
