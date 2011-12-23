@@ -135,7 +135,7 @@ _deductFunds = (classFrom, initialTransactionClass, document, transaction, locki
       callback(null, doc)
     return
 
-_depositFunds: (classTo, initialTransactionClass, document, transaction, locking, removeLock, callback)->
+_depositFunds = (classTo, initialTransactionClass, document, transaction, locking, removeLock, callback)->
   prepend = "ID: #{document._id} - TID: #{transaction.id}"
   classTo.depositFunds transaction.entity.id, transaction.id, transaction.data.amount, (error, doc)->
     if error?
@@ -238,8 +238,9 @@ pollCreated = (document, transaction)->
 
 #OUTBOUND
 pollAnswered = (document, transaction)->
-  console.log "\nUser Answered Poll Question".green
-  console.log "\nPID: #{document._id}\nTID: #{transaction.id}\n#{transaction.direction}\n".green
+  prepend = "ID: #{document._id} - TID: #{transaction.id}"
+  logger.info "Creating transaction for answered poll question"
+  logger.info "#{prepend} - #{transaction.direction}"
 
   async.series {
     setProcessing: (callback)->
@@ -247,7 +248,7 @@ pollAnswered = (document, transaction)->
       return
     
     depositFunds: (callback)->
-      _depositFunds api.Consumers, api.Polls, document, transaction, false, false, callback
+      _depositFunds(api.Consumers, api.Polls, document, transaction, false, false, callback)
       return          
     setProcessed: (callback)->
       console.log "SET PROCESSED".green
@@ -344,7 +345,7 @@ eventPollCreated = (document, transaction)->
           #_writeToStream document, transaction, choices.eventTypes.POLL_CREATED, "created a poll - {#{document.question}}", {}, callback
           
           # THIS IS NON-TRANSACTIONAL AT THE MOMENT
-          api.Streams.add transaction.entity, choices.eventTypes.POLL_CREATED, transaction.id, document._id, transaction.dates.created, message, data, (error, stream)->
+          api.Streams.add transaction.entity, choices.eventTypes.POLL_CREATED, transaction.id, document._id, transaction.dates.created, message, {}, (error, stream)->
             callback()
             return
 
@@ -381,7 +382,7 @@ eventPollAnswered = (document, transaction)->
           #_writeToStream document, transaction, choices.eventTypes.POLL_ANSWERED, "answered a poll - {#{poll.question}}", {}, callback
 
           # THIS IS NON-TRANSACTIONAL AT THE MOMENT
-          api.Streams.add transaction.entity, choices.eventTypes.POLL_ANSWERED, transaction.id, document._id, transaction.dates.created, message, data, (error, stream)->
+          api.Streams.add transaction.entity, choices.eventTypes.POLL_ANSWERED, transaction.id, document._id, transaction.dates.created, message, {}, (error, stream)->
             callback()
             return
 
@@ -418,7 +419,7 @@ eventDiscussionCreated = (document, transaction)->
           #_writeToStream document, transaction, choices.eventTypes.DISCUSSION_CREATED, "created a discussion - {#{document.question}}", {}, callback
 
           # THIS IS NON-TRANSACTIONAL AT THE MOMENT
-          api.Streams.add transaction.entity, choices.eventTypes.DISCUSSION_CREATED, transaction.id, document._id, transaction.dates.created, message, data, (error, stream)->
+          api.Streams.add transaction.entity, choices.eventTypes.DISCUSSION_CREATED, transaction.id, document._id, transaction.dates.created, message, {}, (error, stream)->
             callback()
             return
 
@@ -455,7 +456,7 @@ eventEventRsvped = (document, transaction)->
           # _writeToStream document, transaction, choices.eventTypes.EVENT_RSVPED, "RSVPed to attend an {event} at #{document.location.name}", {}, callback
 
           # THIS IS NON-TRANSACTIONAL AT THE MOMENT
-          api.Streams.add transaction.entity, choices.eventTypes.EVENT_RSVPED, transaction.id, document._id, transaction.dates.created, message, data, (error, stream)->
+          api.Streams.add transaction.entity, choices.eventTypes.EVENT_RSVPED, transaction.id, document._id, transaction.dates.created, message, {}, (error, stream)->
             callback()
             return
 
