@@ -68,10 +68,13 @@ Transaction = new Schema {
     lastModified  : {type: Date, required: true, default: new Date( (new Date()).toUTCString() )}
   }
   
+  #EXTRA INFO GOES IN HERE
   data: {}
   
+  #INBOUND = DEPOST, OUTBOUND = WIDTHDRAWL
   direction       : {type: String, required: true, enum: choices.transactions.directions._enum}
   
+  #DEPOSIT OR DEDUCT FROM WHOM?
   entity: {
     type          : {type: String, required: true, enum: choices.entities._enum}
     id            : {type: ObjectId, required: true}
@@ -79,7 +82,7 @@ Transaction = new Schema {
   }
 
   attempts        : {type: Number, default: 0}
-  pollerId        : {type: ObjectId}
+  pollerId        : {type: ObjectId} #THIS IS FOR IF WE FAIL AND THE POLLER PICKS IT UP
 
 }
 

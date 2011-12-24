@@ -96,22 +96,6 @@ _setTransactionError = (clazz, document, transaction, locking, removeLock, error
       logger.info "#{prepend} set transaction state to error successfully"
       callback(null, doc)
 
-_checkIfTransactionExists = (clazz, document, transaction, locking, removeLock, callback)->
-  prepend = "ID: #{document._id} - TID: #{transaction.id}"
-  clazz.checkIfTransactionExists transaction.entity.id, transaction.id, (error, doc)->
-    if error?
-      logger.info "#{prepend} Searching for transaction: #{transaction.id} with #{transaction.entity.type}: #{transaction.entity.id} failed"
-      callback(error)
-    else if business? #transaction already occured
-      logger.info "#{prepend} transaction with #{transaction.entity.type}: #{transaction.entity.id} found"
-      callback(null, doc)
-    else #either not enough funds or entity does not exist - in either case report insufficient funds
-      logger.error "#{prepend} #{transaction.entity.type}: #{transaction.entity.id} did not have sufficient funds"
-      error = {
-        message: "there were insufficient funds"
-      }
-      _setTransactionError(clazz, document, transaction, locking, removeLock, error, {}, callback
-
 _deductFunds = (classFrom, initialTransactionClass, document, transaction, locking, removeLock, callback)->
   prepend = "ID: #{document._id} - TID: #{transaction.id}"
   classFrom.deductFunds transaction.entity.id, transaction.id, transaction.data.amount, (error, doc)->
@@ -120,16 +104,16 @@ _deductFunds = (classFrom, initialTransactionClass, document, transaction, locki
       callback(error)
     else if !doc? #if the entity  object doesn't exist then either the transaction occured previously, there aren't enough funds, or the entity doesn't exist
       logger.info "#{prepend} transaction may have occured, VERIFYING"
-      classFrom.checkIfTransactionExists transaction.entity.id, transaction.id, (error, trans)->
+      classFrom.checkIfTransactionExists transaction.entity.id, transaction.id, (error, doc2)->
         if error? #error querying, try again later
           callback(error)
-        else if trans? #transaction already occured
+        else if doc2? #transaction already occured
           logger.info "#{prepend} transaction already occured"
-          callback(null, trans)
+          callback(null, doc2)
         else #either not enough funds or the entity doesn't exist - in either case report insufficient funds
           logger.warn "#{prepend} There were insufficient funds"
-          error = {message: "there were insufficient funds"}
-          _setTransactionError initialTransactionClass, document, transaction, true, true, error, {}, callback
+          callback(null, null)
+
     else #transaction went through
       logger.info "#{prepend} Successfully deducted funds"
       callback(null, doc)
@@ -143,16 +127,15 @@ _depositFunds = (classTo, initialTransactionClass, document, transaction, lockin
       callback(error) #determine what type of error it is and then whether to setTransactionError or ignore and let the poller pick it up later (the later is probably the case)
     else if !doc? #if the consumer object doesn't exist then either the transaction occured previously, there aren't enough funds, or the entity doesn't exist
       logger.info "#{prepend} transaction may have occured, VERIFYING"
-      classTo.checkIfTransactionExists transaction.entity.id, transaction.id, (error, trans)->
+      classTo.checkIfTransactionExists transaction.entity.id, transaction.id, (error, doc2)->
         if error? #error querying, try again later
           callback(error)
-        else if trans? #transaction already occured
+        else if doc2? #transaction already occured
           logger.info "#{prepend} transaction already occured"
-          callback(null, trans)
+          callback(null, doc2)
         else #either not enough funds or the entity doesn't exist - in either case report insufficient funds
           logger.warn "#{prepend} There were insufficient funds"
-          error = {message: "there were insufficient funds"}
-          _setTransactionError initialTransactionClass, document, transaction, true, true, error, {}, callback
+          callback(null, null)
     else #transaction went through
       logger.info "#{prepend} Successfully deducted funds"
       callback(null, doc)
@@ -191,6 +174,7 @@ pollCreated = (document, transaction)->
   logger.info "Creating transaction for poll"
   logger.info "ID: #{document._id} - TID: #{transaction.id} - #{transaction.direction}"
 
+  setProcessed = true #setProcessed, unless something sets this to false
   async.series {
     setTransactionProcessing: (callback)->
       _setTransactionProcessing(api.Polls, document, transaction, true, callback)
@@ -198,14 +182,45 @@ pollCreated = (document, transaction)->
 
     deductFunds: (callback)->
       if transaction.entity.type is choices.entities.BUSINESS
-        _deductFunds(api.Businesses, api.Polls, document, transaction, true, true, callback)
+        _deductFunds api.Businesses, api.Polls, document, transaction, true, true, (error, doc)->
+          if error? #mongo errored out
+            callback(error)
+          else if doc?  #transaction was successful, so continue to set processed
+            callback(null, doc)
+          else #null, null passed in which meas insufficient funds, so set error, and exit
+            error = {message: "there were insufficient funds"}
+            _setTransactionError api.Polls, document, transaction, true, true, error, {}, (error, doc)->
+              #we don't care if it set or if it didn't set because:
+              # 1. if there was a mongo error then the poller will pick it up and work on it later
+              # 2. if it did set then fantastic, we will exit because we don't want to set to processed
+              # 3. if it did not set (no error, and no document updated) then we want to exit because
+              #    it is already in an error or processed state. In that case we want to do nothing
+              setProcessed = false
+              callback(null, null)
       else if transaction.entity.type is choices.entities.CONSUMER
-        _deductFunds(api.Consumers, api.Polls, document, transaction, true, true, callback)
+        _deductFunds api.Consumers, api.Polls, document, transaction, true, true, (error, doc)->
+          if error? #mongo errored out
+            callback(error)
+          else if doc?  #transaction was successful, so continue to set processed
+            callback(null, doc)
+          else #null, null passed in which meas insufficient funds, so set error, and exit
+            error = {message: "there were insufficient funds"}
+            _setTransactionError api.Polls, document, transaction, true, true, error, {}, (error, doc)->
+              #we don't care if it set or if it didn't set because:
+              # 1. if there was a mongo error then the poller will pick it up and work on it later
+              # 2. if it did set then fantastic, we will exit because we don't want to set to processed
+              # 3. if it did not set (no error, and no document updated) then we want to exit because
+              #    it is already in an error or processed state. In that case we want to do nothing
+              setProcessed = false
+              callback(null, null)
       else
         callback({name:"NullError", message: "Unsupported Entity Type: #{transaction.entity.type}"})
       return
 
     setProcessed: (callback)->
+      if setProcessed is false
+        callback(null, null) #we are not suppose to set to processed so exit cleanly
+        return
       #Create Poll Created Event Transaction
       eventTransaction = api.Polls.createTransaction(
         choices.transactions.states.PENDING
@@ -231,6 +246,8 @@ pollCreated = (document, transaction)->
       }
       
       _setTransactionProcessedAndCreateNew(api.Polls, document, transaction, eventTransaction, true, true, $update, callback)
+      #if it went through great, if it didn't go through then the poller will take care of it
+      #, no other state changes need to occur
   }, 
   (error, results)->
     if error?
@@ -242,15 +259,55 @@ pollAnswered = (document, transaction)->
   logger.info "Creating transaction for answered poll question"
   logger.info "#{prepend} - #{transaction.direction}"
 
+  setProcessed = true #setProcessed, unless something sets this to false
   async.series {
     setProcessing: (callback)->
       _setTransactionProcessing api.Polls, document, transaction, false, callback
       return
-    
+
+
     depositFunds: (callback)->
-      _depositFunds(api.Consumers, api.Polls, document, transaction, false, false, callback)
-      return          
+      if transaction.entity.type is choices.entities.BUSINESS
+        _depositFunds api.Businesses, api.Polls, document, transaction, false, false, (error, doc)->
+          if error? #mongo errored out
+            callback(error)
+          else if doc?  #transaction was successful, so continue to set processed
+            callback(null, doc)
+          else #null, null passed in which meas insufficient funds, so set error, and exit
+            error = {message: "there were insufficient funds"}
+            _setTransactionError api.Polls, document, transaction, false, false, error, {}, (error, doc)->
+              #we don't care if it set or if it didn't set because:
+              # 1. if there was a mongo error then the poller will pick it up and work on it later
+              # 2. if it did set then fantastic, we will exit because we don't want to set to processed
+              # 3. if it did not set (no error, and no document updated) then we want to exit because
+              #    it is already in an error or processed state. In that case we want to do nothing
+              setProcessed = false
+              callback(null, null)
+      else if transaction.entity.type is choices.entities.CONSUMER
+        _depositFunds api.Consumers, api.Polls, document, transaction, false, false, (error, doc)->
+          if error? #mongo errored out
+            callback(error)
+          else if doc?  #transaction was successful, so continue to set processed
+            callback(null, doc)
+          else #null, null passed in which meas insufficient funds, so set error, and exit
+            error = {message: "there were insufficient funds"}
+            _setTransactionError api.Polls, document, transaction, false, false, error, {}, (error, doc)->
+              #we don't care if it set or if it didn't set because:
+              # 1. if there was a mongo error then the poller will pick it up and work on it later
+              # 2. if it did set then fantastic, we will exit because we don't want to set to processed
+              # 3. if it did not set (no error, and no document updated) then we want to exit because
+              #    it is already in an error or processed state. In that case we want to do nothing
+              setProcessed = false
+              callback(null, null)
+      else
+        callback({name:"NullError", message: "Unsupported Entity Type: #{transaction.entity.type}"})
+      return
+
     setProcessed: (callback)->
+      if setProcessed is false
+        callback() #we are not suppose to set to processed so exit cleanly
+        return
+
       console.log "SET PROCESSED".green
       
       #Create Poll Created Event Transaction
@@ -272,6 +329,8 @@ pollAnswered = (document, transaction)->
       }
       
       _setTransactionProcessedAndCreateNew api.Polls, document, transaction, eventTransaction, false, false, $update, callback
+      #if it went through great, if it didn't go through then the poller will take care of it
+      #, no other state changes need to occur
   },
   (error, results)->
     if error?
@@ -283,6 +342,7 @@ discussionCreated = (document, transaction)->
   logger.info "Creating transaction for discussion"
   logger.info "ID: #{document._id} - TID: #{transaction.id} - #{transaction.direction}"
 
+  setProcessed = true #setProcessed, unless something sets this to false
   async.series {
     setTransactionProcessing: (callback)->
       _setTransactionProcessing(api.Discussions, document, transaction, true, callback)
@@ -290,14 +350,47 @@ discussionCreated = (document, transaction)->
 
     deductFunds: (callback)->
       if transaction.entity.type is choices.entities.BUSINESS
-        _deductFunds(api.Businesses, api.Discussions, document, transaction, true, true, callback)
+        _deductFunds api.Businesses, api.Discussions, document, transaction, true, true, (error, doc)->
+          if error? #mongo errored out
+            callback(error)
+          else if doc?  #transaction was successful, so continue to set processed
+            callback(null, doc)
+          else #null, null passed in which meas insufficient funds, so set error, and exit
+            error = {message: "there were insufficient funds"}
+            _setTransactionError api.Discussions, document, transaction, true, true, error, {}, (error, doc)->
+              #we don't care if it set or if it didn't set because:
+              # 1. if there was a mongo error then the poller will pick it up and work on it later
+              # 2. if it did set then fantastic, we will exit because we don't want to set to processed
+              # 3. if it did not set (no error, and no document updated) then we want to exit because
+              #    it is already in an error or processed state. In that case we want to do nothing
+              setProcessed = false
+              callback(null, null)
+
       else if transaction.entity.type is choices.entities.CONSUMER
-        _deductFunds(api.Consumers, api.Discussions, document, transaction, true, true, callback)
+        _deductFunds api.Consumers, api.Discussions, document, transaction, true, true, (error, doc)->
+          if error? #mongo errored out
+            callback(error)
+          else if doc?  #transaction was successful, so continue to set processed
+            callback(null, doc)
+          else #null, null passed in which meas insufficient funds, so set error, and exit
+            error = {message: "there were insufficient funds"}
+            _setTransactionError api.Discussions, document, transaction, true, true, error, {}, (error, doc)->
+              #we don't care if it set or if it didn't set because:
+              # 1. if there was a mongo error then the poller will pick it up and work on it later
+              # 2. if it did set then fantastic, we will exit because we don't want to set to processed
+              # 3. if it did not set (no error, and no document updated) then we want to exit because
+              #    it is already in an error or processed state. In that case we want to do nothing
+              setProcessed = false
+              callback(null, null)
+
       else
         callback({name:"NullError", message: "Unsupported Entity Type: #{transaction.entity.type}"})
       return
 
     setProcessed: (callback)->
+      if setProcessed is false
+        callback(null, null) #we are not suppose to set to processed so exit cleanly
+        return
       #Create Poll Created Event Transaction
       eventTransaction = api.Discussions.createTransaction(
         choices.transactions.states.PENDING
@@ -323,6 +416,8 @@ discussionCreated = (document, transaction)->
       }
       
       _setTransactionProcessedAndCreateNew(api.Discussions, document, transaction, eventTransaction, true, true, $update, callback)
+      #if it went through great, if it didn't go through then the poller will take care of it
+      #, no other state changes need to occur
   }, 
   (error, results)->
     if error?
