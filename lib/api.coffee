@@ -7,8 +7,12 @@ async = require "async"
 wwwdude = require "wwwdude"
 
 globals = require "globals"
+loggers = require "./loggers"
+
 db = require "./db"
 tp = require "./transactions" #transaction processor 
+
+logger = loggers.api
 
 ObjectId = require("mongoose").Types.ObjectId;
 
@@ -175,8 +179,7 @@ class API
     }
 
     if locking is true
-      $set.transactions = {}
-      $set.transactions.state = choices.transactions.states.PENDING
+      $set["transactions.state"] = choices.transactions.states.PENDING
     
     @model.collection.findAndModify $query, [], {$set: $set}, {new: true, safe: true}, callback
 
@@ -186,7 +189,7 @@ class API
       
     if Object.isString(transactionId)
       transactionId = new ObjectId(transactionId)
-     
+    
     $query = {
       _id: id
       "transactions.log": {
@@ -209,8 +212,7 @@ class API
     }
 
     if locking is true
-      $set.transactions = {}
-      $set.transactions.state = choices.transactions.states.PROCESSING
+      $set["transactions.state"] = choices.transactions.states.PROCESSING
     
     @model.collection.findAndModify $query, [], {$set: $set, $inc: $inc}, {new: true, safe: true}, callback
 
@@ -240,8 +242,7 @@ class API
     }
 
     if locking is true
-      $set.transactions = {}
-      $set.transactions.state = choices.transactions.states.PROCESSED
+      $set["transactions.state"] = choices.transactions.states.PROCESSED
     
     if removeLock is true
       $set["transactions.locked"] = false
@@ -251,6 +252,8 @@ class API
 
     Object.merge($update, modifierDoc)
     Object.merge($update.$set, $set)
+
+    console.log $update
 
     @model.collection.findAndModify $query, [], $update, {new: true, safe: true}, callback
 
@@ -281,8 +284,7 @@ class API
     }
 
     if locking is true
-      $set.transactions = {}
-      $set.transactions.state = choices.transactions.states.ERROR
+      $set["transactions.state"] = choices.transactions.states.ERROR
 
     if removeLock is true
       $set["transactions.locked"] = false
@@ -451,10 +453,6 @@ class Consumers extends API
         callback error, user
       return
 
-  @setEventPending: @__setEventPending
-  @setEventProcessing: @__setEventProcessing
-  @setEventProcessed: @__setEventProcessed
-  @setEventError: @__setEventError
 
 class Clients extends API
   @model = Client
@@ -522,11 +520,6 @@ class Clients extends API
       else
         callback new errors.ValidationError {'password':"Wrong Password"} #invalid login error
       return
-
-  @setEventPending: @__setEventPending
-  @setEventProcessing: @__setEventProcessing
-  @setEventProcessed: @__setEventProcessed
-  @setEventError: @__setEventError
 
 
 class Businesses extends API
@@ -683,6 +676,7 @@ class Businesses extends API
     query.where('locations.tapins', true)
     query.exec callback
 
+
 class Polls extends API
   @model = Poll
 
@@ -706,6 +700,7 @@ class Polls extends API
 
     transaction = @createTransaction(choices.transactions.states.PENDING, choices.transactions.actions.POLL_CREATED, transactionData, choices.transactions.directions.INBOUND, instance.entity)
     
+    instance.transactions.state = choices.transactions.states.PENDING #soley for reading purposes
     instance.transactions.locked = true
     instance.transactions.ids = [transaction.id]
     instance.transactions.log = [transaction]
@@ -720,52 +715,94 @@ class Polls extends API
         tp.process(poll, transaction)
     return
   
-  @update: (entityType, entityId, pollId, data, newAllocated, callback)->
+  @update: (entityType, entityId, pollId, data, newAllocated, perResponse, callback)->
     self = this
+
+    instance = new @model(data)
+
+    if Object.isString(pollId)
+      pollId = new ObjectId(pollId)
+
+    if Object.isString(entityId)
+      entityId = new ObjectId(entityId)
+    
+    if Object.isString(data.entity.id)
+      data.entity.id = new ObjectId(data.entity.id)
+    
+    updateDoc = {
+      entity: {
+        type          : data.entity.type
+        id            : data.entity.id
+        name          : data.entity.name
+      }
+      name            : data.name
+      type            : data.type
+      question        : data.question
+      choices         : data.choices
+      numChoices      : parseInt(data.numChoices)
+      responses: {
+        remaining     : parseInt(data.responses.max)
+        max           : parseInt(data.responses.max)
+        log           : data.responses.log
+        dates         : data.responses.dates
+        choiceCounts  : data.responses.choiceCounts
+      } 
+      showStats       : data.showStats
+      displayName     : data.displayName
+      displayMedia    : data.displayMedia
+
+      media: {
+        when          : data.media.when
+        url           : data.media.url
+        thumb         : data.media.thumb
+        guid          : data.media.guid
+      }
+    }
+    
+
+    entity = {
+      type: entityType
+      id: entityId
+    }
 
     transactionData = {
       amount: newAllocated
+      perResponse: perResponse
+    }
+    transaction = self.createTransaction choices.transactions.states.PENDING, choices.transactions.actions.POLL_UPDATED, transactionData, choices.transactions.directions.INBOUND, entity
+    
+    $set = {
+      "dates.start": new Date(data.dates.start) #this is so that we don't lose the create date
+      "transactions.locked": true
+      "transactions.state": choices.transactions.states.PENDING
+    }
+    $push = {
+      "transactions.ids": transaction.id
+      "transactions.log": transaction
     }
 
-    transaction = self.createTransaction choices.transactions.states.PENDING, choices.transactions.actions.POLL_UPDATED, transactionData, choices.transactions.directions.INBOUND, poll.entity
-    poll.transactions.locked = true
-    poll.transactions.ids = [transaction.id]
-    poll.transactions.log = [transaction]
+    logger.info data
+
+    for own k,v of updateDoc
+      console.log k
+      $set[k] = v
 
 
+    $update = {
+      $set: $set
+      $push: $push
+    }
 
-    @getByEntity entityType, entityId, pollId, (error, poll)->
+    console.log $update
+
+    @model.collection.findAndModify {_id: pollId, "transactions.locked": false}, [], $update, {safe: true, new: true}, (error, poll)->
       if error?
         callback error, null
       else if !poll?
         callback new errors.ValidationError({"poll":"Poll does not exist or Access Denied."})
       else
-        if poll.dates.start <= new Date() && (poll.state!=choices.transactions.states.ERROR || (entityType==choices.entities.CLIENT && poll.state!=choices.transactions.states.COMPLETED))
-          callback new errors.ValidationError({"poll":"Can not edit a poll that is in progress or that has completed."}), null
-        else
-          for own k,v of data
-            poll[k] = v
-
-          transactionData = {
-                amount: newAllocated
-          }
-
-          transaction = self.createTransaction(choices.transactions.states.PENDING, choices.transactions.actions.POLL_UPDATED, transactionData, choices.transactions.directions.INBOUND, poll.entity)
-        
-          poll.transactions.locked = true
-          poll.transactions.ids = [transaction.id]
-          poll.transactions.log = [transaction]
-
-          #poll.events = @_createEventsObj event
-
-          poll.save (error, poll)->
-            callback error, poll
-            if error?
-              return
-            else
-              tp.process(poll, transaction)
-            return
-      return
+        callback null, poll
+        tp.process(poll, transaction)
     return
 
   @all = (entityType, entityId, skip, limit, callback)->
@@ -803,7 +840,7 @@ class Polls extends API
     query.limit(limit)
     query.where('responses.remaining').gt(0)   #has responses remaining..
     query.where('dates.start').lte(new Date())
-    query.where('state', choices.transactions.states.PROCESSED)
+    query.where('transactions.state', choices.transactions.states.PROCESSED)
     # query.where('dates.end').gt(new Date())
     query.fields({
         _id                   : 1,
@@ -834,7 +871,7 @@ class Polls extends API
     query.limit(limit)
     query.where('dates.start').gt(new Date())
     query.where('responses.remaining').gt(0)
-    query.where('state', choices.transactions.states.PROCESSED)
+    query.where('transactions.state', choices.transactions.states.PROCESSED)
     query.fields({
         _id                   : 1,
         entity                : 1,
@@ -863,7 +900,7 @@ class Polls extends API
     query.skip(skip)
     query.limit(limit)
     query.where('responses.remaining').lte(0)
-    query.where('state', choices.transactions.states.PROCESSED)
+    query.where('transactions.state', choices.transactions.states.PROCESSED)
     query.fields({
         _id                   : 1,
         entity                : 1,
@@ -891,7 +928,7 @@ class Polls extends API
     query.where("entity.id", entityId)
     query.skip(skip)
     query.limit(limit)
-    query.or([{'state':'pending'}, {'state':'processing'}])
+    query.or([{'transactions.state':'pending'}, {'transactions.state':'processing'}])
     return
   
   @errored = (entityType, entityId, skip, limit, callback)->
@@ -900,7 +937,7 @@ class Polls extends API
     query.where("entity.id", entityId)
     query.skip(skip)
     query.limit(limit)
-    query.where('state','error')
+    query.where('transactions.state','error')
     return
 
   @answered = (consumerId, skip, limit, callback)->
@@ -982,14 +1019,6 @@ class Polls extends API
         push["transactions.ids"] = transaction.id
         push["transactions.log"] = transaction
         inc["funds.remaining"] = -1*perResponse
-
-        # CREATE EVENT
-        event = self.createUserEvent choices.eventTypes.POLL_ANSWERED, choices.entities.CONSUMER, consumerId
-        eventId = new ObjectId()
-        eventIdStr = eventId.toString()
-        set["events.history.#{eventIdStr}"] = event
-        push["events.ids"] = eventId
-    
 
         inc["responses.remaining"] = -1;
     
@@ -1150,12 +1179,6 @@ class Polls extends API
           delete polls[i].responses.choiceCounts 
         i++
     return
-
-    
-  @setEventPending: @__setEventPending
-  @setEventProcessing: @__setEventProcessing
-  @setEventProcessed: @__setEventProcessed
-  @setEventError: @__setEventError
     
   @setTransactonPending: @__setTransactionPending
   @setTransactionProcessing: @__setTransactionProcessing
@@ -1243,7 +1266,7 @@ class Discussions extends API
     query.limit(limit)
     query.where("funds.remaining").gte(0)
     query.where("dates.start").lte(new Date())
-    query.where('state', choices.transactions.states.PROCESSED)
+    query.where('transactions.state', choices.transactions.states.PROCESSED)
     query.sort("dates.start", -1)
     query.exec callback
     return
@@ -1268,7 +1291,7 @@ class Discussions extends API
     query.skip(skip)
     query.limit(limit)
     query.where("funds.remaining").lte(0)
-    query.where('state', choices.transactions.states.PROCESSED)
+    query.where('transactions.state', choices.transactions.states.PROCESSED)
     query.sort('dates.start', -1)
     query.exec callback
     return
@@ -1279,7 +1302,7 @@ class Discussions extends API
     query.where("entity.id", entityId)
     query.skip(skip)
     query.limit(limit)
-    query.or([{'state':'pending'}, {'state':'processing'}])
+    query.or([{'transactions.state':'pending'}, {'transactions.state':'processing'}])
     return
 
   @errored = (entityType, entityId, skip, limit, callback)->

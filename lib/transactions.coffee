@@ -17,7 +17,6 @@ process = (document, transaction)-> #this is just a router
       pollUpdated(document, transaction)
     when choices.transactions.actions.POLL_ANSWERED
       pollAnswered(document, transaction)
-
     when choices.transactions.actions.DISCUSSION_CREATED
       discussionCreated(document, transaction)
 
@@ -26,15 +25,14 @@ process = (document, transaction)-> #this is just a router
       eventPollCreated(document, transaction)
     when choices.transactions.actions.EVENT_POLL_ANSWERED
       eventPollAnswered(document, transaction)
+    when choices.transactions.actions.EVENT_POLL_UPDATED
+      eventPollUpdated(document, transaction)
     when choices.transactions.actions.EVENT_EVENT_RSVPED
       eventEventRsvped(document, transaction)
     when choices.transactions.actions.EVENT_DISCUSSION_CREATED
       eventDiscussionCreated(document, transaction)
     when choices.transactions.actions.DISCUSSION_CREATE
       discussionCreate(document, transaction)
-
-
-
 
 _setTransactionProcessing = (clazz, document, transaction, locking, callback)->
   prepend = "ID: #{document._id} - TID: #{transaction.id}"
@@ -66,6 +64,7 @@ _setTransactionProcessed = (clazz, document, transaction, locking, removeLock, m
 
 _setTransactionProcessedAndCreateNew = (clazz, document, transaction, newTransaction, locking, removeLock, modifierDoc, callback)->
   prepend = "ID: #{document._id} - TID: #{transaction.id}"
+  logger.info "#{locking} AND #{removeLock}"
   clazz.setTransactionProcessed document._id, transaction.id, locking, removeLock, modifierDoc, (error, doc)->
     if error?
       logger.error "#{prepend} transitioning to state processed failed"
@@ -256,6 +255,90 @@ pollCreated = (document, transaction)->
     if error?
       logger.error "#{prepend} the poller will try later"
 
+#INBOUND
+pollUpdated = (document, transaction)->
+  prepend = "ID: #{document._id} - TID: #{transaction.id}"
+  logger.info "Creating transaction for a poll that was updated"
+  logger.info "#{prepend} - #{transaction.direction}"
+
+  setProcessed = true #setProcessed, unless something sets this to false
+  async.series {
+    setProcessing: (callback)->
+      _setTransactionProcessing api.Polls, document, transaction, true, callback
+      return
+
+    adjustFunds: (callback)->
+      #adjust balance before sending it to get adjusted
+      transaction.data.amount = transaction.data.amount - document.funds.allocated
+      if transaction.entity.type is choices.entities.BUSINESS
+        _deductFunds api.Businesses, api.Polls, document, transaction, true, true, (error, doc)->
+          if error? #mongo errored out
+            callback(error)
+          else if doc?  #transaction was successful, so continue to set processed
+            callback(null, doc)
+          else #null, null passed in which meas insufficient funds, so set error, and exit
+            error = {message: "there were insufficient funds"}
+            _setTransactionError api.Polls, document, transaction, true, true, error, {}, (error, doc)->
+              #we don't care if it set or if it didn't set because:
+              # 1. if there was a mongo error then the poller will pick it up and work on it later
+              # 2. if it did set then fantastic, we will exit because we don't want to set to processed
+              # 3. if it did not set (no error, and no document updated) then we want to exit because
+              #    it is already in an error or processed state. In that case we want to do nothing
+              setProcessed = false
+              callback(null, null)
+      else if transaction.entity.type is choices.entities.CONSUMER
+        _deductFunds api.Consumers, api.Polls, document, transaction, true, true, (error, doc)->
+          if error? #mongo errored out
+            callback(error)
+          else if doc?  #transaction was successful, so continue to set processed
+            callback(null, doc)
+          else #null, null passed in which meas insufficient funds, so set error, and exit
+            error = {message: "there were insufficient funds"}
+            _setTransactionError api.Polls, document, transaction, true, true, error, {}, (error, doc)->
+              #we don't care if it set or if it didn't set because:
+              # 1. if there was a mongo error then the poller will pick it up and work on it later
+              # 2. if it did set then fantastic, we will exit because we don't want to set to processed
+              # 3. if it did not set (no error, and no document updated) then we want to exit because
+              #    it is already in an error or processed state. In that case we want to do nothing
+              setProcessed = false
+              callback(null, null)
+      else
+        callback({name:"NullError", message: "Unsupported Entity Type: #{transaction.entity.type}"})
+      return
+
+    setProcessed: (callback)->
+      if setProcessed is false
+        callback() #we are not suppose to set to processed so exit cleanly
+        return
+
+      #Create Poll Created Event Transaction
+      eventTransaction = api.Polls.createTransaction(
+        choices.transactions.states.PENDING
+        , choices.transactions.actions.EVENT_POLL_UPDATED
+        , {}
+        , choices.transactions.directions.OUTBOUND
+        , transaction.entity
+      )
+
+      $push = {
+        "transactions.ids": eventTransaction.id
+        "transactions.temp": eventTransaction
+      }
+
+      $update = {
+        $push: $push
+      }
+      
+      _setTransactionProcessedAndCreateNew api.Polls, document, transaction, eventTransaction, true, true, $update, callback
+      #if it went through great, if it didn't go through then the poller will take care of it
+      #, no other state changes need to occur
+  },
+  (error, results)->
+    if error?
+      logger.error "#{prepend} the poller will try later"
+
+
+
 #OUTBOUND
 pollAnswered = (document, transaction)->
   prepend = "ID: #{document._id} - TID: #{transaction.id}"
@@ -442,6 +525,45 @@ eventPollCreated = (document, transaction)->
           
           # THIS IS NON-TRANSACTIONAL AT THE MOMENT
           api.Streams.add transaction.entity, choices.eventTypes.POLL_CREATED, transaction.id, document._id, transaction.dates.created, message, {}, (error, stream)->
+            if stream?
+              logger.info "#{prepend} wrote action to stream"
+            callback()
+            return
+
+      }, 
+      (error, results)->
+        if error?
+          completed = false
+          logger.error "#{prepend} the poller will try later"
+        if results?
+          if completed
+            logger.info "#{prepend} all processing operations completed"
+            _setTransactionProcessed api.Polls, document, transaction, false, false, {}, (error)->
+              return
+          else #NOT COMPLETED
+            if transaction.attempts > 5 #if we fail more than 5 times then there is something wrong so error out
+              _setTransactionError api.Polls, document, transaction, false, false, {}, (error)->
+                return
+      return
+
+eventPollUpdated = (document, transaction)->
+  prepend = "ID: #{document._id} - TID: #{transaction.id}"
+  logger.info "EVENT - User updated poll question"
+  logger.log "#{prepend}- #{transaction.direction}"
+
+  _setTransactionProcessing api.Polls, document, transaction, false, (error)->
+    if error?
+      return
+    else
+      completed = true
+      async.parallel {
+        stream: (callback)->
+          message = "updated a poll - {#{document.question}}"
+          # ADD TO CONSUMER ACTIVITY STREAM
+          #_writeToStream document, transaction, choices.eventTypes.POLL_CREATED, "created a poll - {#{document.question}}", {}, callback
+          
+          # THIS IS NON-TRANSACTIONAL AT THE MOMENT
+          api.Streams.add transaction.entity, choices.eventTypes.POLL_UPDATED, transaction.id, document._id, transaction.dates.created, message, {}, (error, stream)->
             if stream?
               logger.info "#{prepend} wrote action to stream"
             callback()
