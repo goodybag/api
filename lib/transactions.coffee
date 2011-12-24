@@ -13,8 +13,11 @@ process = (document, transaction)-> #this is just a router
     #FINANCIAL
     when choices.transactions.actions.POLL_CREATED
       pollCreated(document, transaction)
+    when choices.transactions.actions.POLL_UPDATED
+      pollUpdated(document, transaction)
     when choices.transactions.actions.POLL_ANSWERED
       pollAnswered(document, transaction)
+
     when choices.transactions.actions.DISCUSSION_CREATED
       discussionCreated(document, transaction)
 
@@ -308,8 +311,6 @@ pollAnswered = (document, transaction)->
         callback() #we are not suppose to set to processed so exit cleanly
         return
 
-      console.log "SET PROCESSED".green
-      
       #Create Poll Created Event Transaction
       eventTransaction = api.Polls.createTransaction(
         choices.transactions.states.PENDING
@@ -441,6 +442,8 @@ eventPollCreated = (document, transaction)->
           
           # THIS IS NON-TRANSACTIONAL AT THE MOMENT
           api.Streams.add transaction.entity, choices.eventTypes.POLL_CREATED, transaction.id, document._id, transaction.dates.created, message, {}, (error, stream)->
+            if stream?
+              logger.info "#{prepend} wrote action to stream"
             callback()
             return
 
@@ -478,6 +481,8 @@ eventPollAnswered = (document, transaction)->
 
           # THIS IS NON-TRANSACTIONAL AT THE MOMENT
           api.Streams.add transaction.entity, choices.eventTypes.POLL_ANSWERED, transaction.id, document._id, transaction.dates.created, message, {}, (error, stream)->
+            if stream?
+              logger.info "#{prepend} wrote action to stream"
             callback()
             return
 
@@ -515,6 +520,8 @@ eventDiscussionCreated = (document, transaction)->
 
           # THIS IS NON-TRANSACTIONAL AT THE MOMENT
           api.Streams.add transaction.entity, choices.eventTypes.DISCUSSION_CREATED, transaction.id, document._id, transaction.dates.created, message, {}, (error, stream)->
+            if stream?
+              logger.info "#{prepend} wrote action to stream"
             callback()
             return
 
@@ -552,6 +559,8 @@ eventEventRsvped = (document, transaction)->
 
           # THIS IS NON-TRANSACTIONAL AT THE MOMENT
           api.Streams.add transaction.entity, choices.eventTypes.EVENT_RSVPED, transaction.id, document._id, transaction.dates.created, message, {}, (error, stream)->
+            if stream?
+              logger.info "#{prepend} wrote action to stream"
             callback()
             return
 

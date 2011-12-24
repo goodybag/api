@@ -102,116 +102,6 @@ class API
     @model.findOne {_id: id, 'entity.type': entityType ,'entity.id': entityId}, callback
     return
 
-
-  #EVENT ENGINE
-  @createUserEvent: (eventType, entityType, entityId, eventData)->
-    event = {}
-    event.eventType = eventType
-    event.entity = {
-      type: entityType
-      id: entityId
-    }
-    event.data = eventData
-    event.state = choices.eventStates.PENDING
-    event.timestamp = new Date()
-    event.attempts = 0
-
-    return event
-
-  @createOrgEvent: (eventType, orgEntityType, orgEntityId, userEntityType, userEntityId, eventData)->
-    event = {}
-    event.eventType = eventType
-    event.entity = {
-      type: orgEntityType
-      id: orgEntityId
-    }
-    event.byEntity = {
-      type: userEntityType
-      id: userEntityId
-    }
-    event.data = eventData
-    event.state = choices.eventStates.PENDING
-    event.timestamp = new Date()
-    event.attempts = 0
-
-    return event
-
-  @createEventsObj: (event)->
-    eventId = new ObjectId()
-    eventIdStr = eventId.toString()
-      
-    events = {}
-    events.history = {}
-
-    events.ids = [eventId]
-    events.history[eventIdStr] = event
-
-    return events
-    
-  # EVENTENGINE STATE
-  @__setEventPending: (id, eventId, callback)->
-    if Object.isString(id)
-      id = new ObjectId(id)
-
-    if Object.isString(eventId)
-      eventId = new ObjectId(eventId)
-
-    eventIdStr = eventId.toString()
-
-    $set: {}
-    $set["events.history.#{eventIdStr}.state"] = choices.eventStates.PENDING
-    @model.collection.findAndModify {_id: id}, [], {$set: $set}, {new: true, safe: true}, callback
-    return
-
-  @__setEventProcessing: (id, eventId, callback)->
-    if Object.isString(id)
-      id = new ObjectId(id)
-
-    if Object.isString(eventId)
-      eventId = new ObjectId(eventId)
-
-    eventIdStr = eventId.toString()
-
-    $set: {}
-    $set["events.history.#{eventIdStr}.state"] = choices.eventStates.PROCESSING
-
-    $inc: {}
-    $inc["events.history.#{eventIdStr}.attempts"] = 1
-    @model.collection.findAndModify {_id: id}, [], {$set: $set, $inc: $inc}, {new: true, safe: true}, callback
-    return
-    
-  @__setEventProcessed: (id, eventId, callback)->
-    if Object.isString(id)
-      id = new ObjectId(id)
-
-    if Object.isString(eventId)
-      eventId = new ObjectId(eventId)
-
-    eventIdStr = eventId.toString()
-
-    $set: {}
-    $set["events.history.#{eventIdStr}.state"] = choices.eventStates.PROCESSED
-    @model.collection.findAndModify {_id: id}, [], {$set: $set}, {new: true, safe: true}, callback
-    return
-    
-  @__setEventError: (id, eventId, errorObj, callback)->
-    if !callback?
-      callback = errorObj
-      
-    if Object.isString(id)
-      id = new ObjectId(id)
-
-    if Object.isString(eventId)
-      eventId = new ObjectId(eventId)
-
-    eventIdStr = eventId.toString()
-
-    $set: {}
-    $set["events.history.#{eventIdStr}.state"] = choices.eventStates.ERROR
-    $set["events.history.#{eventIdStr}.error"] = errorObj
-    @model.collection.findAndModify {_id: id}, [], {$set: $set}, {new: true, safe: true}, callback
-    return
-  
   #TRANSACTIONS
   @createTransaction: (state, action, data, direction, entity)->
     transaction = {
@@ -285,7 +175,8 @@ class API
     }
 
     if locking is true
-      $set.state = choices.transactions.states.PENDING
+      $set.transactions = {}
+      $set.transactions.state = choices.transactions.states.PENDING
     
     @model.collection.findAndModify $query, [], {$set: $set}, {new: true, safe: true}, callback
 
@@ -318,7 +209,8 @@ class API
     }
 
     if locking is true
-      $set.state = choices.transactions.states.PROCESSING
+      $set.transactions = {}
+      $set.transactions.state = choices.transactions.states.PROCESSING
     
     @model.collection.findAndModify $query, [], {$set: $set, $inc: $inc}, {new: true, safe: true}, callback
 
@@ -348,7 +240,8 @@ class API
     }
 
     if locking is true
-      $set.state = choices.transactions.states.PROCESSED
+      $set.transactions = {}
+      $set.transactions.state = choices.transactions.states.PROCESSED
     
     if removeLock is true
       $set["transactions.locked"] = false
@@ -388,7 +281,8 @@ class API
     }
 
     if locking is true
-      $set.state = choices.transactions.states.ERROR
+      $set.transactions = {}
+      $set.transactions.state = choices.transactions.states.ERROR
 
     if removeLock is true
       $set["transactions.locked"] = false
@@ -826,8 +720,20 @@ class Polls extends API
         tp.process(poll, transaction)
     return
   
-  @update: (entityType, entityId, pollId, data, amount, callback)->
+  @update: (entityType, entityId, pollId, data, newAllocated, callback)->
     self = this
+
+    transactionData = {
+      amount: newAllocated
+    }
+
+    transaction = self.createTransaction choices.transactions.states.PENDING, choices.transactions.actions.POLL_UPDATED, transactionData, choices.transactions.directions.INBOUND, poll.entity
+    poll.transactions.locked = true
+    poll.transactions.ids = [transaction.id]
+    poll.transactions.log = [transaction]
+
+
+
     @getByEntity entityType, entityId, pollId, (error, poll)->
       if error?
         callback error, null
@@ -841,10 +747,10 @@ class Polls extends API
             poll[k] = v
 
           transactionData = {
-                amount: amount
+                amount: newAllocated
           }
 
-          transaction = self.createTransaction(choices.transactions.states.PENDING, choices.transactions.actions.POLL_CREATED, transactionData, choices.transactions.directions.INBOUND, poll.entity)
+          transaction = self.createTransaction(choices.transactions.states.PENDING, choices.transactions.actions.POLL_UPDATED, transactionData, choices.transactions.directions.INBOUND, poll.entity)
         
           poll.transactions.locked = true
           poll.transactions.ids = [transaction.id]

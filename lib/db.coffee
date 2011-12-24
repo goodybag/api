@@ -152,6 +152,7 @@ Consumer = new Schema {
     log           : [Transaction]
     temp          : [Transaction]
     locked        : {type: Boolean}
+    state         : {type: String, enum: choices.transactions.states._enum}
   } 
 
   events: {
@@ -189,6 +190,7 @@ Client = new Schema {
     log         : [Transaction]
     temp        : [Transaction]
     locked      : {type: Boolean}
+    state       : {type: String, enum: choices.transactions.states._enum}
   }
 
   events: {
@@ -260,6 +262,7 @@ Business = new Schema {
     log         : [Transaction] 
     temp        : [Transaction]
     locked      : {type: Boolean}
+    state       : {type: String, enum: choices.transactions.states._enum}
   }
 
   events: {
@@ -316,13 +319,14 @@ Poll = new Schema {
     remaining         : {type: Number, required: true, default: 0.0}
   }
 
-  state               : {type: String, required: true, default: choices.transactions.states._enum}
+  
   transactions: {
     ids               : [ObjectId]
     failed            : [ObjectId]
     log               : [Transaction]
     temp              : [Transaction]
     locked            : {type: Boolean}
+    state             : {type: String, enum: choices.transactions.states._enum}
   }
 
   events: {
@@ -378,6 +382,7 @@ Discussion = new Schema {
     log               : [Transaction]
     temp              : [Transaction]
     locked            : {type: Boolean}
+    state             : {type: String, enum: choices.transactions.states._enum}
   }
 
   events: {
@@ -430,6 +435,7 @@ Response = new Schema {
     log           : [Transaction]
     temp          : [Transaction]
     locked        : {type: Boolean}
+    state         : {type: String, enum: choices.transactions.states._enum}
   }
 
   events: {
@@ -476,6 +482,7 @@ Media = new Schema {
     log       : [Transaction]
     temp      : [Transaction]
     locked    : {type: Boolean}
+    state     : {type: String, enum: choices.transactions.states._enum}
   }
 }
 
@@ -507,6 +514,7 @@ ClientInvitation = new Schema {
     log           : [Transaction]
     temp          : [Transaction]
     locked        : {type: Boolean}
+    state         : {type: String, enum: choices.transactions.states._enum}
   }
   
   events: {
@@ -543,6 +551,7 @@ Stream = new Schema {
     log         : [Transaction]
     temp        : [Transaction]
     locked      : {type: Boolean}
+    state       : {type: String, enum: choices.transactions.states._enum}
   }
   
   events: {
@@ -618,6 +627,7 @@ Event = new Schema {
     log       : [Transaction]
     temp      : [Transaction]
     locked    : {type: Boolean}
+    state     : {type: String, enum: choices.transactions.states._enum}
   }
 }
 
