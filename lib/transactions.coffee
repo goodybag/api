@@ -64,7 +64,6 @@ _setTransactionProcessed = (clazz, document, transaction, locking, removeLock, m
 
 _setTransactionProcessedAndCreateNew = (clazz, document, transaction, newTransaction, locking, removeLock, modifierDoc, callback)->
   prepend = "ID: #{document._id} - TID: #{transaction.id}"
-  logger.info "#{locking} AND #{removeLock}"
   clazz.setTransactionProcessed document._id, transaction.id, locking, removeLock, modifierDoc, (error, doc)->
     if error?
       logger.error "#{prepend} transitioning to state processed failed"
@@ -268,8 +267,9 @@ pollUpdated = (document, transaction)->
       return
 
     adjustFunds: (callback)->
-      #adjust balance before sending it to get adjusted
-      transaction.data.amount = transaction.data.amount - document.funds.allocated
+      #adjust balance before sending it to get adjusted 
+      transaction.data.amount = transaction.data.newAllocated - document.funds.allocated
+
       if transaction.entity.type is choices.entities.BUSINESS
         _deductFunds api.Businesses, api.Polls, document, transaction, true, true, (error, doc)->
           if error? #mongo errored out
@@ -320,12 +320,19 @@ pollUpdated = (document, transaction)->
         , transaction.entity
       )
 
+      $set = {
+        "funds.allocated": transaction.data.newAllocated
+        "funds.remaining": document.funds.remaining + transaction.data.amount
+        "funds.perResponse": transaction.data.perResponse
+      }
+
       $push = {
         "transactions.ids": eventTransaction.id
         "transactions.temp": eventTransaction
       }
 
       $update = {
+        $set: $set
         $push: $push
       }
       

@@ -766,7 +766,7 @@ class Polls extends API
     }
 
     transactionData = {
-      amount: newAllocated
+      newAllocated: newAllocated
       perResponse: perResponse
     }
     transaction = self.createTransaction choices.transactions.states.PENDING, choices.transactions.actions.POLL_UPDATED, transactionData, choices.transactions.directions.INBOUND, entity
