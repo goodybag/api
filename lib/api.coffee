@@ -715,7 +715,9 @@ class Polls extends API
         tp.process(poll, transaction)
     return
   
-  @update: (entityType, entityId, pollId, data, newAllocated, perResponse, callback)->
+  @delete: (pollId, callback)->
+
+  @update: (pollId, data, newAllocated, perResponse, callback)->
     self = this
 
     instance = new @model(data)
@@ -723,12 +725,15 @@ class Polls extends API
     if Object.isString(pollId)
       pollId = new ObjectId(pollId)
 
-    if Object.isString(entityId)
-      entityId = new ObjectId(entityId)
-    
     if Object.isString(data.entity.id)
       data.entity.id = new ObjectId(data.entity.id)
+
     
+    #Set the fields you want updated now, not afte the update
+    #for the ones that you want set after the update put those
+    #in the transactionData and make thsoe changes in the
+    #setTransactionProcessed function
+
     updateDoc = {
       entity: {
         type          : data.entity.type
@@ -761,8 +766,8 @@ class Polls extends API
     
 
     entity = {
-      type: entityType
-      id: entityId
+      type: data.entity.type
+      id: data.entity.id
     }
 
     transactionData = {
@@ -773,7 +778,7 @@ class Polls extends API
     
     $set = {
       "dates.start": new Date(data.dates.start) #this is so that we don't lose the create date
-      "transactions.locked": true
+      "transactions.locked": true #THIS IS A LOCKING TRANSACTION, SO IF ANYONE ELSE TRIES TO DO A LOKCING TRANSACTION IT WILL NOT HAPPEN AS LONG AS YOU CHECK FOR THAT
       "transactions.state": choices.transactions.states.PENDING
     }
     $push = {
@@ -786,7 +791,6 @@ class Polls extends API
     for own k,v of updateDoc
       console.log k
       $set[k] = v
-
 
     $update = {
       $set: $set
