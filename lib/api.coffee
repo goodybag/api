@@ -694,7 +694,6 @@ class Businesses extends API
     query.where('locations.tapins', true)
     query.exec callback
 
-
 class Polls extends API
   @model = Poll
 
@@ -827,139 +826,80 @@ class Polls extends API
         tp.process(poll, transaction)
     return
 
-  @all = (entityType, entityId, skip, limit, callback)->
+  @list: (entityType, entityId, stage, options, callback)->
+    #options: count(boolean)-to return just the count, skip(int), limit(int)
     query = @_query()
     query.where("entity.type", entityType)
     query.where("entity.id", entityId)
-    query.skip(skip)
-    query.limit(limit)
-    query.fields({
-        _id                   : 1,
-        entity                : 1,
-        type                  : 1,
-        name                  : 1,
-        question              : 1,        
-        choices               : 1,
-        "responses.remaining" : 1,
-        "responses.max"       : 1,
-        flagCount             : 1,
-        skipCount             : 1,
-        dates                 : 1,
-        funds                 : 1,
-        state                 : 1,
-        media                 : 1,
-        "funds.perResponse"   : 1
-    })
-    query.sort('dates.start', -1)
-    query.exec callback
-    return
-
-  @active = (entityType, entityId, skip, limit, callback)->
-    query = @_query()
-    query.where("entity.type", entityType)
-    query.where("entity.id", entityId)
-    query.skip(skip)
-    query.limit(limit)
-    query.where('responses.remaining').gt(0)   #has responses remaining..
-    query.where('dates.start').lte(new Date())
-    query.where('transactions.state', choices.transactions.states.PROCESSED)
-    # query.where('dates.end').gt(new Date())
-    query.fields({
-        _id                   : 1,
-        entity                : 1,
-        type                  : 1,
-        name                  : 1,
-        question              : 1,
-        choices               : 1,
-        "responses.remaining" : 1,
-        "responses.max"       : 1,
-        flagCount             : 1,
-        skipCount             : 1,
-        dates                 : 1,
-        funds                 : 1,
-        state                 : 1,
-        media                 : 1,
-        "funds.perResponse"   : 1
-    });
-    query.sort('dates.start', -1)
-    query.exec callback
-    return
-  
-  @future = (entityType, entityId, skip, limit, callback)->
-    query = @_query()
-    query.where("entity.type", entityType)
-    query.where("entity.id", entityId)
-    query.skip(skip)
-    query.limit(limit)
-    query.where('dates.start').gt(new Date())
-    query.where('responses.remaining').gt(0)
-    query.where('transactions.state', choices.transactions.states.PROCESSED)
-    query.fields({
-        _id                   : 1,
-        entity                : 1,
-        type                  : 1,
-        name                  : 1,
-        question              : 1,        
-        choices               : 1,
-        "responses.remaining" : 1,
-        "responses.max"       : 1,
-        flagCount             : 1,
-        skipCount             : 1,
-        dates                 : 1,
-        funds                 : 1,
-        state                 : 1,
-        media                 : 1,
-        "funds.perResponse"   : 1
-    });
-    query.sort('dates.start', -1)
-    query.exec callback
-    return
-
-  @completed = (entityType, entityId, skip, limit, callback)->
-    query = @_query()
-    query.where("entity.type", entityType)
-    query.where("entity.id", entityId)
-    query.skip(skip)
-    query.limit(limit)
-    query.where('responses.remaining').lte(0)
-    query.where('transactions.state', choices.transactions.states.PROCESSED)
-    query.fields({
-        _id                   : 1,
-        entity                : 1,
-        type                  : 1,
-        name                  : 1,
-        question              : 1,        
-        choices               : 1,
-        "responses.remaining" : 1,
-        "responses.max"       : 1,
-        flagCount             : 1,
-        skipCount             : 1,
-        dates                 : 1,
-        funds                 : 1,
-        state                 : 1,
-        media                 : 1,
-        "funds.perResponse"   : 1
-    });
-    query.sort('dates.start', -1)
-    query.exec callback
-    return
-  
-  @pending = (entityType, entityId, skip, limit, callback)->
-    query = @_query()
-    query.where("entity.type", entityType)
-    query.where("entity.id", entityId)
-    query.skip(skip)
-    query.limit(limit)
-    query.or([{'transactions.state':'pending'}, {'transactions.state':'processing'}])
-    return
-  
-  @errored = (entityType, entityId, skip, limit, callback)->
-    query = @_query()
-    query.where("entity.type", entityType)
-    query.where("entity.id", entityId)
-    query.skip(skip)
-    query.limit(limit)
-    query.where('transactions.state','error')
+    switch stage 
+      when "active"
+        query.where('responses.remaining').gt(0)   #has responses remaining..
+        query.where('dates.start').lte(new Date())
+        query.where('transactions.state').ne(choices.transactions.states.ERROR)
+        fieldsToReturn = {
+            _id                   : 1,
+            name                  : 1,
+            question              : 1,
+            "responses.remaining" : 1,
+            "responses.max"       : 1,
+            dates                 : 1,
+            "transactions.state"  : 1
+        }
+      when "future"
+        query.where('dates.start').gt(new Date())
+        query.where('responses.remaining').gt(0)
+        query.where('transactions.state').ne(choices.transactions.states.ERROR)
+        fieldsToReturn = {
+            _id                   : 1,
+            name                  : 1,
+            question              : 1,
+            dates                 : 1,
+            "transactions.state"  : 1
+        }
+      when "completed"
+        query.where('responses.remaining').lte(0)
+        query.where('transactions.state').ne(choices.transactions.states.ERROR)
+        fieldsToReturn = {
+            _id                   : 1,
+            name                  : 1,
+            question              : 1,
+            "responses.remaining" : 1,
+            "responses.max"       : 1,
+            dates                 : 1,
+            "transactions.state"  : 1,
+            "funds.allocated"     : 1
+        }
+      when "errored"
+        query.where('transactions.state', choices.transactions.ERROR)
+        fieldsToReturn = {
+            _id                   : 1,
+            name                  : 1,
+            question              : 1,
+            "responses.remaining" : 1,
+            "responses.max"       : 1,
+            dates                 : 1,
+            "transactions.state"  : 1,
+            "funds.allocated"     : 1
+        }
+      else # "all"
+        fieldsToReturn = {
+            _id                   : 1,
+            name                  : 1,
+            question              : 1,
+            "responses.remaining" : 1,
+            "responses.max"       : 1,
+            dates                 : 1,
+            "transactions.state"  : 1,
+            "funds.allocated"     : 1
+        }
+    if !options.count
+      query.sort("dates.start", -1)
+      query.fields(fieldsToReturn); 
+      query.skip(options.skip)
+      query.limit(options.limit)
+      query.exec callback
+    else
+      query.count callback
     return
 
   @answered = (consumerId, skip, limit, callback)->
@@ -1126,7 +1066,7 @@ class Polls extends API
     query.where('responses.flagConsumers').ne(consumerId) #not already flagged
     query.where('dates.start').lte(new Date())            #poll has started
     # query.where('dates.end').gt(new Date())               #poll has not ended
-    query.where('state',choices.transactions.states.PROCESSED)    #poll is processed (paid for) and ready to launch
+    query.where('transactions.state',choices.transactions.states.PROCESSED)    #poll is processed (paid for) and ready to launch
 
     query.update {$push:{"responses.skipConsumers":consumerId},$inc:{"responses.skipCount":1}}, (error, success)->
       callback error, success # 1 or 0
@@ -1143,7 +1083,7 @@ class Polls extends API
     query.where('responses.flagConsumers').ne(consumerId) #not already flagged
     query.where('dates.start').lte(new Date())            #poll has started
     # query.where('dates.end').gt(new Date())               #poll has not ended
-    query.where('state',choices.transactions.states.PROCESSED)    #poll is processed (paid for) and ready to launch
+    query.where('transactions.state',choices.transactions.states.PROCESSED)    #poll is processed (paid for) and ready to launch
 
     query.update {$push:{"responses.flagConsumers":consumerId},$inc:{"responses.flagCount":1}}, (error, success)->
       callback error, success # 1 or 0
@@ -1160,7 +1100,7 @@ class Polls extends API
     query.where('responses.remaining').gt(0)
     query.where('dates.start').lte(new Date())            #poll has started
     # query.where('dates.end').gt(new Date())               #poll has not ended
-    query.where('state',choices.transactions.states.PROCESSED)    #poll is processed (paid for) and ready to launch
+    query.where('transactions.state',choices.transactions.states.PROCESSED)    #poll is processed (paid for) and ready to launch
     query.limit(1)                                        #you only want the next ONE
 
     query.fields({
@@ -1257,83 +1197,78 @@ class Discussions extends API
       else
         tp.process(discussion, transaction)
     return
-  
-  @all = (entityType, entityId, skip, limit, callback)->
-    query = @_query()
-    query.where("entity.type", entityType)
-    query.where("entity.id", entityId)
-    query.skip(skip)
-    query.limit(limit)
-    query.fields({
-        _id                   : 1,
-        entity                : 1,
-        type                  : 1,
-        name                  : 1,
-        question              : 1,
-        flagCount             : 1,
-        dates                 : 1,
-        funds                 : 1,
-        state                 : 1,
-        media                 : 1
-    })
-    query.sort('dates.start', -1)
-    query.exec callback
-    return
-
-  @active: (entityType, entityId, skip, limit, callback)->
-    query = @_query()
-    query.where("entity.type", entityType)
-    query.where("entity.id", entityId)
-    query.skip(skip)
-    query.limit(limit)
-    query.where("funds.remaining").gte(0)
-    query.where("dates.start").lte(new Date())
-    query.where('transactions.state', choices.transactions.states.PROCESSED)
-    query.sort("dates.start", -1)
-    query.exec callback
-    return
-
-  @future: (entityType, entityId, skip, limit, callback)->
-    query = @_query()
-    query.where("entity.type", entityType)
-    query.where("entity.id", entityId)
-    query.skip(skip)
-    query.limit(limit)
-    query.where("funds.remaining").gte(0)
-    query.where('dates.start').gt(new Date())
-    query.where('state', choices.transactions.states.PROCESSED)
-    query.sort('dates.start', -1)
-    query.exec callback
-    return
     
-  @completed: (entityType, entityId, skip, limit, callback)->
+  @list: (entityType, entityId, stage, options, callback)->
+    #options: count(boolean)-to return just the count, skip(int), limit(int)
     query = @_query()
     query.where("entity.type", entityType)
     query.where("entity.id", entityId)
-    query.skip(skip)
-    query.limit(limit)
-    query.where("funds.remaining").lte(0)
-    query.where('transactions.state', choices.transactions.states.PROCESSED)
-    query.sort('dates.start', -1)
-    query.exec callback
-    return
-
-  @pending = (entityType, entityId, skip, limit, callback)->
-    query = @_query()
-    query.where("entity.type", entityType)
-    query.where("entity.id", entityId)
-    query.skip(skip)
-    query.limit(limit)
-    query.or([{'transactions.state':'pending'}, {'transactions.state':'processing'}])
-    return
-
-  @errored = (entityType, entityId, skip, limit, callback)->
-    query = @_query()
-    query.where("entity.type", entityType)
-    query.where("entity.id", entityId)
-    query.skip(skip)
-    query.limit(limit)
-    query.where({'state':'error'})
+    switch stage 
+      when "active"
+        query.where("funds.remaining").gte(0)
+        query.where("dates.start").lte(new Date())
+        query.where('transactions.state').ne(choices.transactions.states.ERROR);
+        fieldsToReturn = {
+            _id                  : 1,
+            name                 : 1,
+            question             : 1,
+            "responses.count"    : 1,
+            dates                : 1,
+            funds                : 1,
+            "transactions.state" : 1
+        }
+      when "future"
+        query.where("funds.remaining").gte(0)
+        query.where('dates.start').gt(new Date())
+        query.where('transactions.state').ne(choices.transactions.states.ERROR)
+        fieldsToReturn = {
+            _id                  : 1,
+            name                 : 1,
+            question             : 1,
+            dates                : 1,
+            funds                : 1,
+            "transactions.state" : 1
+        }
+      when "completed"
+        query.where("funds.remaining").lte(0)
+        query.where('transactions.state').ne(choices.transactions.states.ERROR)
+        fieldsToReturn = {
+            _id                  : 1,
+            name                 : 1,
+            question             : 1,
+            "responses.count"    : 1,
+            dates                : 1,
+            funds                : 1,
+            "transactions.state" : 1
+        }
+      when "errored"
+        query.where('transactions.state', choices.transactions.ERROR)
+        fieldsToReturn = {
+            _id                   : 1,
+            name                  : 1,
+            question              : 1,
+            dates                 : 1,
+            "transactions.state"  : 1,
+            "funds.allocated"     : 1
+        }
+      else # "all"
+        fieldsToReturn = {
+            _id                   : 1,
+            name                  : 1,
+            question              : 1,
+            "responses.count"     : 1,
+            dates                 : 1,
+            "transactions.state"  : 1,
+            "funds.allocated"     : 1
+        }
+    if !options.count
+      query.sort("dates.start", -1)
+      query.fields(fieldsToReturn)
+      query.skip(options.skip)
+      query.limit(options.limit)
+      query.exec callback
+    else
+      query.count callback
     return
 
   @getByEntity: (entityType, entityId, discussionId, callback)->
