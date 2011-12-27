@@ -14,12 +14,12 @@ tp = require "./transactions" #transaction processor
 
 logger = loggers.api
 
-ObjectId = require("mongoose").Types.ObjectId;
-
 utils = globals.utils
 choices = globals.choices
 defaults = globals.defaults
 errors = globals.errors
+
+ObjectId = globals.mongoose.Types.ObjectId;
 
 Client = db.Client
 Consumer = db.Consumer
@@ -689,6 +689,15 @@ class Businesses extends API
     
     @model.collection.findAndModify {_id: id, 'funds.remaining': {$gte: amount}, 'transactions.ids': {$ne: transactionId}}, [], {$addToSet: {"transactions.ids": transactionId}, $inc: {'funds.remaining': -1*amount }}, {new: true, safe: true}, callback
 
+  @depositFunds: (id, transactionId, amount, callback)->
+    if Object.isString(id)
+      id = new ObjectId(id)
+    
+    if Object.isString(transactionId)
+      transactionId = new ObjectId(transactionId)
+    
+    @model.collection.findAndModify {_id: id, 'transactions.ids': {$ne: transactionId}}, [], {$addToSet: {"transactions.ids": transactionId}, $inc: {'funds.remaining': amount, 'funds.allocated': amount }}, {new: true, safe: true}, callback
+
   @listWithTapins: (callback)->
     query = @_query()
     query.where('locations.tapins', true)
@@ -732,7 +741,48 @@ class Polls extends API
         tp.process(poll, transaction)
     return
   
-  @delete: (pollId, callback)->
+
+  @del: (pollId, callback)->
+    self = this
+
+    if Object.isString(pollId)
+      pollId = new ObjectId(pollId)
+
+    entity = {
+      
+    }
+    transactionData = {}
+    transaction = self.createTransaction choices.transactions.states.PENDING, choices.transactions.actions.POLL_DELETED, transactionData, choices.transactions.directions.OUTBOUND, entity
+    
+    $set = {
+      "deleted": true
+      "transactions.locked": true #THIS IS A LOCKING TRANSACTION, SO IF ANYONE ELSE TRIES TO DO A LOKCING TRANSACTION IT WILL NOT HAPPEN (AS LONG AS YOU CHECK FOR THAT)
+      "transactions.state": choices.transactions.states.PENDING
+    }
+    $push = {
+      "transactions.ids": transaction.id
+      "transactions.log": transaction
+    }
+
+    $update = {
+      $set: $set
+      $push: $push
+    }
+
+    @model.collection.findAndModify {_id: pollId, "transactions.locked": false, "deleted": false}, [], $update, {safe: true, new: true}, (error, poll)->
+      if error?
+        logger.error "POLLS - DELETE: unable to findAndModify"
+        logger.error error
+        callback error, null
+      else if !poll?
+        logger.warn "POLLS - DELETE: no document found to modify"
+        callback new errors.ValidationError({"poll":"Poll does not exist or Access Denied."})
+      else
+        logger.info "POLLS - DELETE: findAndModify succeeded, transaction starting"
+        callback null, poll
+        tp.process(poll, transaction)
+    return
+
 
   @update: (pollId, data, newAllocated, perResponse, callback)->
     self = this
@@ -795,7 +845,7 @@ class Polls extends API
     
     $set = {
       "dates.start": new Date(data.dates.start) #this is so that we don't lose the create date
-      "transactions.locked": true #THIS IS A LOCKING TRANSACTION, SO IF ANYONE ELSE TRIES TO DO A LOKCING TRANSACTION IT WILL NOT HAPPEN AS LONG AS YOU CHECK FOR THAT
+      "transactions.locked": true #THIS IS A LOCKING TRANSACTION, SO IF ANYONE ELSE TRIES TO DO A LOKCING TRANSACTION IT WILL NOT HAPPEN (AS LONG AS YOU CHECK FOR THAT)
       "transactions.state": choices.transactions.states.PENDING
     }
     $push = {
