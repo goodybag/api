@@ -335,6 +335,7 @@ Discussion = new Schema {
   displayName         : {type: Boolean, required: true}
   displayMedia        : {type: Boolean, required: true}
   responses: {
+    count         : {type: Number, required: true, default: 0}
     consumers     : [type: ObjectId, required: true, default: new Array()] #append ObjectId(consumerId) each response
     log           : {}                             #append consumerId:{answers:[1,2],timestamp:Date}
     dates         : []                             #append {consumerId:ObjId,timestamp:Date} -- for sorting by date
