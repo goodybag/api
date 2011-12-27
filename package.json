@@ -10,7 +10,7 @@
   },
   "main": "index",
   "engines": {
-    "node": "~v0.4.8"
+    "node": "~v0.4.12"
   },
   "dependencies": {
     "async": "=0.1.9",
