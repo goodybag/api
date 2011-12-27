@@ -521,6 +521,24 @@ class Clients extends API
         callback new errors.ValidationError {'password':"Wrong Password"} #invalid login error
       return
 
+  @updatePassword: (id, password, callback)->
+    if Object.isString(id)
+      id = new ObjectId(id)
+    
+    query = {_id: id}
+    update = {$set: {password: password}}
+    options = {remove: false, new: true, upsert: false}
+    @model.collection.findAndModify query, [], update, options, (error, user)->
+      if error?
+        callback error
+        return
+      if !user?
+        callback new errors.ValidationError {"_id": "_id does not exist"}
+        return
+      if user?
+        callback error, user
+      return
+
 
 class Businesses extends API
   @model = Business
