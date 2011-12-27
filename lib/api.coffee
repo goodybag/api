@@ -808,7 +808,7 @@ class Polls extends API
         tp.process(poll, transaction)
     return
 
-  @list = (entityType, entityId, stage, options, callback)->
+  @list: (entityType, entityId, stage, options, callback)->
     #options: count(boolean)-to return just the count, skip(int), limit(int)
     query = @_query()
     query.where("entity.type", entityType)
@@ -825,8 +825,7 @@ class Polls extends API
             "responses.remaining" : 1,
             "responses.max"       : 1,
             dates                 : 1,
-            state                 : 1,
-            "funds.allocated"     : 1
+            "transactions.state"  : 1
         }
       when "future"
         query.where('dates.start').gt(new Date())
@@ -837,7 +836,7 @@ class Polls extends API
             name                  : 1,
             question              : 1,
             dates                 : 1,
-            state                 : 1
+            "transactions.state"  : 1
         }
       when "completed"
         query.where('responses.remaining').lte(0)
@@ -849,13 +848,32 @@ class Polls extends API
             "responses.remaining" : 1,
             "responses.max"       : 1,
             dates                 : 1,
-            state                 : 1,
+            "transactions.state"  : 1,
             "funds.allocated"     : 1
         }
-      when "pending"
-        query.or([{'state':'pending'}, {'state':'processing'}])
       when "errored"
-        query.where({'state':'error'})
+        query.where('transactions.state', choices.transactions.ERROR)
+        fieldsToReturn = {
+            _id                   : 1,
+            name                  : 1,
+            question              : 1,
+            "responses.remaining" : 1,
+            "responses.max"       : 1,
+            dates                 : 1,
+            "transactions.state"  : 1,
+            "funds.allocated"     : 1
+        }
+      else # "all"
+        fieldsToReturn = {
+            _id                   : 1,
+            name                  : 1,
+            question              : 1,
+            "responses.remaining" : 1,
+            "responses.max"       : 1,
+            dates                 : 1,
+            "transactions.state"  : 1,
+            "funds.allocated"     : 1
+        }
     if !options.count
       query.sort("dates.start", -1)
       query.fields(fieldsToReturn); 
@@ -1162,7 +1180,7 @@ class Discussions extends API
         tp.process(discussion, transaction)
     return
     
-  @list = (entityType, entityId, stage, options, callback)->
+  @list: (entityType, entityId, stage, options, callback)->
     #options: count(boolean)-to return just the count, skip(int), limit(int)
     query = @_query()
     query.where("entity.type", entityType)
@@ -1173,38 +1191,58 @@ class Discussions extends API
         query.where("dates.start").lte(new Date())
         query.where('transactions.state').ne(choices.transactions.states.ERROR);
         fieldsToReturn = {
-            _id           : 1,
-            name          : 1,
-            question      : 1,
-            dates         : 1,
-            funds         : 1,
-            state         : 1
+            _id                  : 1,
+            name                 : 1,
+            question             : 1,
+            "responses.count"    : 1,
+            dates                : 1,
+            funds                : 1,
+            "transactions.state" : 1
         }
       when "future"
         query.where("funds.remaining").gte(0)
         query.where('dates.start').gt(new Date())
         query.where('transactions.state').ne(choices.transactions.states.ERROR)
         fieldsToReturn = {
-            _id           : 1,
-            name          : 1,
-            question      : 1,
-            dates         : 1,
-            funds         : 1,
-            state         : 1
+            _id                  : 1,
+            name                 : 1,
+            question             : 1,
+            dates                : 1,
+            funds                : 1,
+            "transactions.state" : 1
         }
       when "completed"
         query.where("funds.remaining").lte(0)
         query.where('transactions.state').ne(choices.transactions.states.ERROR)
         fieldsToReturn = {
-            _id           : 1,
-            name          : 1,
-            question      : 1,
-            dates         : 1,
-            funds         : 1,
-            state         : 1
+            _id                  : 1,
+            name                 : 1,
+            question             : 1,
+            "responses.count"    : 1,
+            dates                : 1,
+            funds                : 1,
+            "transactions.state" : 1
         }
       when "errored"
-        query.where({'state':'error'})
+        query.where('transactions.state', choices.transactions.ERROR)
+        fieldsToReturn = {
+            _id                   : 1,
+            name                  : 1,
+            question              : 1,
+            dates                 : 1,
+            "transactions.state"  : 1,
+            "funds.allocated"     : 1
+        }
+      else # "all"
+        fieldsToReturn = {
+            _id                   : 1,
+            name                  : 1,
+            question              : 1,
+            "responses.count"     : 1,
+            dates                 : 1,
+            "transactions.state"  : 1,
+            "funds.allocated"     : 1
+        }
     if !options.count
       query.sort("dates.start", -1)
       query.fields(fieldsToReturn)
