@@ -1,40 +1,21 @@
 exports = module.exports
 
-mongoose = require 'mongoose'
-mongooseTypes = require 'mongoose-types'
+globals = require 'globals'
+loggers = require "./loggers"
+
+utils = globals.utils
+defaults = globals.defaults
+choices = globals.choices
+countries = globals.countries
+
+mongoose = globals.mongoose
+mongooseTypes = globals.mongooseTypes
 mongooseTypes.loadTypes(mongoose)
 
 Schema = mongoose.Schema
 ObjectId = mongoose.SchemaTypes.ObjectId
 Email = mongoose.SchemaTypes.Email
 Url = mongoose.SchemaTypes.Url
-
-globals = require 'globals'
-loggers = require "./loggers"
-utils = globals.utils
-defaults = globals.defaults
-choices = globals.choices
-countries = globals.countries
-
-#Enable Database Logging
-mongoose.set 'debug', (collectionName, method, query, doc, options)->
-  if options?
-    options = ", "+JSON.stringify(options)
-  else
-    options = ""
-  loggers.db.verbose "db."+collectionName+"."+method+"("+JSON.stringify(query)+", "+JSON.stringify(doc)+options+")"
-
-
-# connect to database
-db = mongoose.connect '127.0.0.1', 'goodybag', 1337, {auto_reconnect: true}, (err, conn)->
-#db = mongoose.connect "mongodb://root:oMy8tAgd64vMdmtqgpsk@hellonode-protoolz-db-0.dotcloud.com:20063/goodybag", (err, conn)->
-  if err?
-    console.log 'error connecting to db'
-  #else
-    #console.log 'successfully connected to db'
-
-exports.disconnect = (callback)->
-  db.disconnect(callback)
 
 
 ##################
@@ -334,6 +315,7 @@ Poll = new Schema {
     history           : {}
   }
 
+  deleted             : {type: Boolean, default: false}
 }
 
 
@@ -389,6 +371,8 @@ Discussion = new Schema {
     ids               : [ObjectId]
     history           : {}
   }
+
+  deleted             : {type: Boolean, default: false}
 }
 
 
@@ -442,6 +426,8 @@ Response = new Schema {
     ids           : [ObjectId]
     history       : {}
   }
+
+  deleted             : {type: Boolean, default: false}
 }
 
 
@@ -484,6 +470,8 @@ Media = new Schema {
     locked    : {type: Boolean}
     state     : {type: String, enum: choices.transactions.states._enum}
   }
+
+  deleted             : {type: Boolean, default: false}
 }
 
 #indexes
@@ -558,6 +546,8 @@ Stream = new Schema {
     ids         : [ObjectId]
     history     : {}
   }
+
+  deleted             : {type: Boolean, default: false}
 }
 
 #indexes
