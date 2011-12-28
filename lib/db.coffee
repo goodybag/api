@@ -9,23 +9,13 @@ choices = globals.choices
 countries = globals.countries
 
 mongoose = globals.mongoose
-mongooseTypes = globals.mongooseTypes
-mongooseTypes.loadTypes(mongoose)
 
 Schema = mongoose.Schema
 ObjectId = mongoose.SchemaTypes.ObjectId
-Email = mongoose.SchemaTypes.Email
-Url = mongoose.SchemaTypes.Url
 
-
-##################
-# ENTITY #########
-##################
-Entity = new Schema {
-  type          : {type: String, required: true, enum: choices.entities._enum}
-  id            : {type: ObjectId, required: true}
-  name          : {type: String}
-}
+#validation
+Url = /(ftp|http|https):\/\/(\w+:{0,1}\w*@)?(\S+)(:[0-9]+)?(\/|\/([\w#!:.?+=&%@!\-\/]))?/
+Email = /^(([^<>()[\]\\.,;:\s@\"]+(\.[^<>()[\]\\.,;:\s@\"]+)*)|(\".+\"))@((\[[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\])|(([a-zA-Z\-0-9]+\.)+[a-zA-Z]{2,}))$/
 
 
 ####################
@@ -55,7 +45,7 @@ Transaction = new Schema {
   #INBOUND = DEPOST, OUTBOUND = WIDTHDRAWL
   direction       : {type: String, required: true, enum: choices.transactions.directions._enum}
   
-  #DEPOSIT OR DEDUCT FROM WHOM?
+  #DEPOSIT OR DEDUCT TO/FROM WHOM? (Sometimes we may use the entity object in the document itself)
   entity: {
     type          : {type: String, required: true, enum: choices.entities._enum}
     id            : {type: ObjectId, required: true}
@@ -111,7 +101,7 @@ PasswordResetRequest = new Schema {
 # CONSUMER #########
 ####################
 Consumer = new Schema {
-  email           : {type: String, set: utils.toLower, validate: /^(([^<>()[\]\\.,;:\s@\"]+(\.[^<>()[\]\\.,;:\s@\"]+)*)|(\".+\"))@((\[[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\])|(([a-zA-Z\-0-9]+\.)+[a-zA-Z]{2,}))$/}
+  email           : {type: String, set: utils.toLower, validate: Email}
   password        : {type: String, validate:/.{5,}/}
   facebook: {           
     access_token  : String
@@ -149,11 +139,11 @@ Consumer = new Schema {
 Client = new Schema {
   firstName     : {type: String, required: true}
   lastName      : {type: String, required: true}
-  email         : {type: String, index: true, unique: true, set: utils.toLower, validate: /^(([^<>()[\]\\.,;:\s@\"]+(\.[^<>()[\]\\.,;:\s@\"]+)*)|(\".+\"))@((\[[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\])|(([a-zA-Z\-0-9]+\.)+[a-zA-Z]{2,}))$/}
+  email         : {type: String, index: true, unique: true, set: utils.toLower, validate: Email}
   password      : {type: String, validate:/.{5,}/, required: true}
   media: {
-    url         : {type: Url, required: true} #video or image
-    thumb       : {type: Url}
+    url         : {type: String, validate: Url}
+    thumb       : {type: String, validate: Url}
     guid        : {type: String}
   }
   dates: {
@@ -187,9 +177,9 @@ Client = new Schema {
 Business = new Schema {
   name          : {type: String, required: true}
   publicName    : {type: String, required: true}
-  type          : {type: String, required: true, enum: choices.businesses.types._enum}
-  url           : {type: Url}
-  email         : {type: Email}
+  type          : [{type: String, required: true, enum: choices.businesses.types._enum}]
+  url           : {type: String, validate: Url}
+  email         : {type: String, validate: Email}
 
   legal: { #legal
     street1     : {type: String, required: true}
@@ -205,8 +195,8 @@ Business = new Schema {
   locations     : [Location]
 
   media: {
-    url         : {type: Url, required: true, default: "http://www.campusdish.com/NR/rdonlyres/1E7DF990-91DC-4101-99CD-96A23A2E5E7E/0/Subwaycontour.gif"} #image
-    thumb       : {type: Url}
+    url         : {type: String, validate: Url} #image
+    thumb       : {type: String, validate: Url}
     guid        : {type: String}
     duration    : {type: Number} #useful for videos, in number of seconds (e.g. 48.42)
   }
@@ -285,8 +275,8 @@ Poll = new Schema {
   
   media: {
     when          : {type: String, required: true, enum: choices.polls.media.when._enum } #when to display
-    url           : {type: Url,    required: true} #video or image
-    thumb         : {type: Url}
+    url           : {type: String, validate: Url} #video or image
+    thumb         : {type: String, validate: Url}
     guid          : {type: String}
   }
   dates: {
@@ -343,8 +333,8 @@ Discussion = new Schema {
     flagCount     : {type: Number,   required: true, default: 0}
   }
   media: {
-    url               : {type: Url, required: true} #video or image
-    thumb             : {type: Url}
+    url               : {type: String, validate: Url}
+    thumb             : {type: String, validate: Url}
     guid              : {type: String}
   }
   dates: {
@@ -443,15 +433,15 @@ Media = new Schema {
   }
   type        : {type: String, required: true, enum: choices.media.type._enum}
   name        : {type: String, required: true}
-  url         : {type: Url, required: true}
+  url         : {type: String, validate: Url}
   duration    : {type: Number}
   fileSize    : {type: Number}
-  thumb       : {type: Url, required: true}
+  thumb       : {type: String, validate: Url}
   thumbs      : [] #only populated if video
   sizes: { #only for images, not yet implemented in transloaded's template, or api
-    small     : {type: Url}
-    medium    : {type: Url}
-    large     : {type: Url}
+    small     : {type: String, validate: Url}
+    medium    : {type: String, validate: Url}
+    large     : {type: String, validate: Url}
   }
   tags        : []
   dates: {
@@ -489,7 +479,7 @@ Media.index {url:1} #for when we want to find out which entity a url belongs to
 ClientInvitation = new Schema {
   businessId      : {type: ObjectId, required: true}
   groupName       : {type: String, required: true}
-  email           : {type: Email, required: true}
+  email           : {type: String, required: true, validate: Email}
   key             : {type: String, required: true}
   status          : {type: String, required: true, enum: choices.invitations.state._enum, default: choices.invitations.state.PENDING}
   dates: {
@@ -608,7 +598,7 @@ Event = new Schema {
   
   hours       : [EventDateRange]
   pledge      : {type: Number, min: 0, max: 100, required: true}
-  externalUrl : {type: Url}
+  externalUrl : {type: String, validate: Url}
   rsvp        : [ObjectId]
   rsvpUsers   : {}
 
@@ -690,21 +680,21 @@ BusinessRequest = new Schema {
   }
 }
 
-exports.Consumer            = mongoose.model 'Consumer', Consumer
-exports.Client              = mongoose.model 'Client', Client
-exports.Business            = mongoose.model 'Business', Business
-exports.Poll                = mongoose.model 'Poll', Poll
-exports.Discussion          = mongoose.model 'Discussion', Discussion
-exports.Response            = mongoose.model 'Response', Response
-exports.Media               = mongoose.model 'Media', Media
-exports.ClientInvitation    = mongoose.model 'ClientInvitation', ClientInvitation
-exports.Tag                 = mongoose.model 'Tag', Tag
-exports.EventRequest        = mongoose.model 'EventRequest', EventRequest
-exports.Stream              = mongoose.model 'Stream', Stream
-exports.Event               = mongoose.model 'Event', Event
-exports.TapIn               = mongoose.model 'TapIn', TapIn
-exports.BusinessRequest     = mongoose.model 'BusinessRequest', BusinessRequest
-exports.PasswordResetRequest= mongoose.model 'PasswordResetRequest', PasswordResetRequest
+exports.Consumer              = mongoose.model 'Consumer', Consumer
+exports.Client                = mongoose.model 'Client', Client
+exports.Business              = mongoose.model 'Business', Business
+exports.Poll                  = mongoose.model 'Poll', Poll
+exports.Discussion            = mongoose.model 'Discussion', Discussion
+exports.Response              = mongoose.model 'Response', Response
+exports.Media                 = mongoose.model 'Media', Media
+exports.ClientInvitation      = mongoose.model 'ClientInvitation', ClientInvitation
+exports.Tag                   = mongoose.model 'Tag', Tag
+exports.EventRequest          = mongoose.model 'EventRequest', EventRequest
+exports.Stream                = mongoose.model 'Stream', Stream
+exports.Event                 = mongoose.model 'Event', Event
+exports.TapIn                 = mongoose.model 'TapIn', TapIn
+exports.BusinessRequest       = mongoose.model 'BusinessRequest', BusinessRequest
+exports.PasswordResetRequest  = mongoose.model 'PasswordResetRequest', PasswordResetRequest
 
 exports.schemas = {
   Consumer: Consumer
