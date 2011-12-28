@@ -662,6 +662,9 @@ class Businesses extends API
             data.members = clients
             callback null, data
 
+  @getGroupPending: (id, groupName, callback)->
+    ClientInvitations.list id, groupName, callback
+    
   @deductFunds: (id, transactionId, amount, callback)->
     if Object.isString(id)
       id = new ObjectId(id)
@@ -1359,6 +1362,15 @@ class ClientInvitations extends API
   @add = (businessId, groupName, email, callback)->
     key = hashlib.md5(globals.secretWord + email+(new Date().toString()))+'-'+generatePassword(12, false, /\d/)
     @_add {businessId: businessId, groupName: groupName, email: email, key: key}, callback
+  
+  @list = (businessId, groupName, callback)->
+    query = @_query()
+    query.where("businessId", businessId)
+    query.where("groupName", groupName)
+    query.fields({
+      email: 1
+    })
+    query.exec callback
   
   @validate = (key, callback)->
     @model.collection.findAndModify {key: key, status: choices.invitations.state.PENDING},[],{$set: {status: choices.invitations.state.PROCESSED}}, {new: true, safe: true}, (error, invite)->
