@@ -102,8 +102,12 @@ class API
     @model.collection.insert(docs, options, callback)
     return
   
-  @getByEntity: (entityType, entityId, id, callback)->
-    @model.findOne {_id: id, 'entity.type': entityType ,'entity.id': entityId}, callback
+  @getByEntity: (entityType, entityId, id, fields, callback)->
+    if Object.isFunction(fields)
+      callback=fields
+      @model.findOne {_id: id, 'entity.type': entityType ,'entity.id': entityId}, callback
+    else
+      @model.findOne {_id: id, 'entity.type': entityType ,'entity.id': entityId}, fields, callback
     return
 
   #TRANSACTIONS
@@ -722,51 +726,8 @@ class Polls extends API
       else
         tp.process(poll, transaction)
     return
-  
 
-  @del: (pollId, callback)->
-    self = this
-
-    if Object.isString(pollId)
-      pollId = new ObjectId(pollId)
-
-    entity = {
-      
-    }
-    transactionData = {}
-    transaction = self.createTransaction choices.transactions.states.PENDING, choices.transactions.actions.POLL_DELETED, transactionData, choices.transactions.directions.OUTBOUND, entity
-    
-    $set = {
-      "deleted": true
-      "transactions.locked": true #THIS IS A LOCKING TRANSACTION, SO IF ANYONE ELSE TRIES TO DO A LOKCING TRANSACTION IT WILL NOT HAPPEN (AS LONG AS YOU CHECK FOR THAT)
-      "transactions.state": choices.transactions.states.PENDING
-    }
-    $push = {
-      "transactions.ids": transaction.id
-      "transactions.log": transaction
-    }
-
-    $update = {
-      $set: $set
-      $push: $push
-    }
-
-    @model.collection.findAndModify {_id: pollId, "transactions.locked": false, "deleted": false}, [], $update, {safe: true, new: true}, (error, poll)->
-      if error?
-        logger.error "POLLS - DELETE: unable to findAndModify"
-        logger.error error
-        callback error, null
-      else if !poll?
-        logger.warn "POLLS - DELETE: no document found to modify"
-        callback new errors.ValidationError({"poll":"Poll does not exist or Access Denied."})
-      else
-        logger.info "POLLS - DELETE: findAndModify succeeded, transaction starting"
-        callback null, poll
-        tp.process(poll, transaction)
-    return
-
-
-  @update: (pollId, data, newAllocated, perResponse, callback)->
+  @update: (entityType, entityId, pollId, data, newAllocated, perResponse, callback)->
     self = this
 
     instance = new @model(data)
@@ -848,7 +809,7 @@ class Polls extends API
 
     console.log $update
 
-    @model.collection.findAndModify {_id: pollId, "transactions.locked": false}, [], $update, {safe: true, new: true}, (error, poll)->
+    @model.collection.findAndModify {_id: pollId, "entity.type":entityType, "entity.id":entityId, "transactions.locked": false}, [], $update, {safe: true, new: true}, (error, poll)->
       if error?
         callback error, null
       else if !poll?
@@ -863,6 +824,7 @@ class Polls extends API
     query = @_query()
     query.where("entity.type", entityType)
     query.where("entity.id", entityId)
+    query.where("deleted").ne(true)
     switch stage 
       when "active"
         query.where('responses.remaining').gt(0)   #has responses remaining..
@@ -932,6 +894,46 @@ class Polls extends API
       query.exec callback
     else
       query.count callback
+    return
+  
+  @del: (entityType, entityId, pollId, callback)->
+    self = this
+    if Object.isString(entityId)
+      entityId = new ObjectId(entityId)
+    if Object.isString(pollId)
+      pollId = new ObjectId(pollId)
+
+    entity = {}
+    transactionData = {}
+    transaction = self.createTransaction choices.transactions.states.PENDING, choices.transactions.actions.POLL_DELETED, transactionData, choices.transactions.directions.OUTBOUND, entity
+    
+    $set = {
+      "deleted": true
+      "transactions.locked": true #THIS IS A LOCKING TRANSACTION, SO IF ANYONE ELSE TRIES TO DO A LOKCING TRANSACTION IT WILL NOT HAPPEN (AS LONG AS YOU CHECK FOR THAT)
+      "transactions.state": choices.transactions.states.PENDING
+    }
+    $push = {
+      "transactions.ids": transaction.id
+      "transactions.log": transaction
+    }
+
+    $update = {
+      $set: $set
+      $push: $push
+    }
+
+    @model.collection.findAndModify {"entity.type":entityType, "entity.id":entityId, _id: pollId, "transactions.locked": false, "deleted": false}, [], $update, {safe: true, new: true}, (error, poll)->
+      if error?
+        logger.error "POLLS - DELETE: unable to findAndModify"
+        logger.error error
+        callback error, null
+      else if !poll?
+        logger.warn "POLLS - DELETE: no document found to modify"
+        callback new errors.ValidationError({"poll":"Poll does not exist or Access Denied."})
+      else
+        logger.info "POLLS - DELETE: findAndModify succeeded, transaction starting"
+        callback null, poll
+        tp.process(poll, transaction)
     return
 
   @answered = (consumerId, skip, limit, callback)->
@@ -1274,7 +1276,7 @@ class Discussions extends API
             "transactions.state" : 1
         }
       when "errored"
-        query.where('transactions.state', choices.transactions.ERROR)
+        query.where('transactions.state', choices.transactions.states.ERROR)
         fieldsToReturn = {
             _id                   : 1,
             name                  : 1,
