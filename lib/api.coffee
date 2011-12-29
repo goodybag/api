@@ -86,6 +86,8 @@ class API
     @model.remove {'_id': id}, callback
     return
 
+  @del = @remove
+
   @one = (id, callback)->
     return @_one(id, callback)
 
@@ -1381,7 +1383,13 @@ class ClientInvitations extends API
       else
         callback null, invite #success
       return
-
+  
+  @del = (businessId, groupName, pendingId, callback)->
+    query = @_query()
+    query.where("businessId", businessId)
+    query.where("groupName", groupName)
+    query.where("_id", pendingId)
+    query.remove(callback)
 
 class Tags extends API
   @model = Tag

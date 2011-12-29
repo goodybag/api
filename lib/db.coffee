@@ -502,7 +502,8 @@ ClientInvitation = new Schema {
   }
 }
 
-#unique index on businessId + email address is required
+#unique index on businessId + group + email address is required
+ClientInvitation.index {businessId: 1, groupName: 1, email: 1}, {unique: true}
 
 
 ####################
