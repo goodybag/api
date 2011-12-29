@@ -141,6 +141,8 @@ Client = new Schema {
   lastName      : {type: String, required: true}
   email         : {type: String, index: true, unique: true, set: utils.toLower, validate: Email}
   password      : {type: String, validate:/.{5,}/, required: true}
+  changeEmail   : {}
+
   media: {
     url         : {type: String, validate: Url}
     thumb       : {type: String, validate: Url}
