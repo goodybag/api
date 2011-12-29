@@ -571,18 +571,18 @@ class Clients extends API
       if error?
         callback error #dberror
         return
-      if !client?
+      if !client? || !client.changeEmail?
         callback new errors.ValidationError({"key":"Invalid key or already used."})
         return
       #client found
       if(new Date()>client.changeEmail.expirationDate)
         callback new errors.ValidationError({"key":"Key expired."})
         return
-      query.update {$set:{email:client.changeEmail.newEmail}}, (error, success)->
+      query.update {$set:{email:client.changeEmail.newEmail, changeEmail:null}}, (error, success)->
         if error?
           callback error #dberror
         else
-          callback null, success        
+          callback null, success
 
 
   @updateWithPassword: (id, password, options, callback)->
