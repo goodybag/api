@@ -141,6 +141,8 @@ Client = new Schema {
   lastName      : {type: String, required: true}
   email         : {type: String, index: true, unique: true, set: utils.toLower, validate: Email}
   password      : {type: String, validate:/.{5,}/, required: true}
+  changeEmail   : {}
+
   media: {
     url         : {type: String, validate: Url}
     thumb       : {type: String, validate: Url}
@@ -502,7 +504,8 @@ ClientInvitation = new Schema {
   }
 }
 
-#unique index on businessId + email address is required
+#unique index on businessId + group + email address is required
+ClientInvitation.index {businessId: 1, groupName: 1, email: 1}, {unique: true}
 
 
 ####################

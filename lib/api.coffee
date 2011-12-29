@@ -86,6 +86,8 @@ class API
     @model.remove {'_id': id}, callback
     return
 
+  @del = @remove
+
   @one = (id, callback)->
     return @_one(id, callback)
 
@@ -102,8 +104,12 @@ class API
     @model.collection.insert(docs, options, callback)
     return
   
-  @getByEntity: (entityType, entityId, id, callback)->
-    @model.findOne {_id: id, 'entity.type': entityType ,'entity.id': entityId}, callback
+  @getByEntity: (entityType, entityId, id, fields, callback)->
+    if Object.isFunction(fields)
+      callback=fields
+      @model.findOne {_id: id, 'entity.type': entityType ,'entity.id': entityId}, callback
+    else
+      @model.findOne {_id: id, 'entity.type': entityType ,'entity.id': entityId}, fields, callback
     return
 
   #TRANSACTIONS
@@ -505,6 +511,79 @@ class Clients extends API
         callback error #db error
       else
         callback null, client #if no client with that email will return null
+      return
+    return
+
+  @updateEmail: (clientId, password, newEmail, callback)->
+    if(Object.isString(clientId))
+      clientId = new ObjectId( clientId)
+    Clients.getByEmail newEmail, (error, client)->
+      if error?
+        callback error
+        return
+      if client?
+        if client._id == clientId
+          callback new errors.ValidationError({"email":"That is your current email"})
+        else
+          callback new errors.ValidationError({"email":"Another user is already using this email"}) #email exists error
+        return
+      query = Clients._query()
+      query.where("_id",clientId)
+      query.where("password",password)
+      changeEmailKey = hashlib.md5(globals.secretWord + newEmail+(new Date().toString()))+'-'+generatePassword(12, false, /\d/)
+      set = {
+        changeEmail: {
+          newEmail: newEmail
+          key: changeEmailKey
+          expirationDate: Date.create("next week")
+        }
+      }
+      query.update {$set:set}, (error, success)->
+        if error?
+          callback error
+          return
+        if !success
+          callback new errors.ValidationError({"password":"Incorrect Password."})
+          return
+        url = "https://goodybag.com/#!/change-email/" + changeEmailKey
+        message = '<p>We got your request! Now let\'s get that email updated. Click or go here:</p>'
+        message += "<p><a href=\"#{ url }\">#{ url }</a></p>"
+        utils.sendMail {
+            sender: 'info@goodybag.com',
+            to: newEmail,
+            reply_to: 'info@goodybag.com',
+            subject: "Change Email Request",
+            html: message,
+          }, (error, emailSent)->
+            if error?
+              callback new errors.EmailError("Confirmation email failed to send.","ChangeEmail")
+              return
+            callback null, success
+            return
+      return  
+    return
+
+  @updateEmailComplete: (key, callback)->
+    query = @_query()
+    query.where('changeEmail.key', key)
+    query.fields("changeEmail")
+    query.findOne (error, client)->
+      if error?
+        callback error #dberror
+        return
+      if !client?
+        callback new errors.ValidationError({"key":"Invalid key or already used."})
+        return
+      #client found
+      if(new Date()>client.changeEmail.expirationDate)
+        callback new errors.ValidationError({"key":"Key expired."})
+        return
+      query.update {$set:{email:client.changeEmail.newEmail}}, (error, success)->
+        if error?
+          callback error #dberror
+        else
+          callback null, success        
+
 
   @updateWithPassword: (id, password, options, callback)->
     query = @_query()
@@ -743,49 +822,6 @@ class Polls extends API
       else
         tp.process(poll, transaction)
     return
-  
-
-  @del: (pollId, callback)->
-    self = this
-
-    if Object.isString(pollId)
-      pollId = new ObjectId(pollId)
-
-    entity = {
-      
-    }
-    transactionData = {}
-    transaction = self.createTransaction choices.transactions.states.PENDING, choices.transactions.actions.POLL_DELETED, transactionData, choices.transactions.directions.OUTBOUND, entity
-    
-    $set = {
-      "deleted": true
-      "transactions.locked": true #THIS IS A LOCKING TRANSACTION, SO IF ANYONE ELSE TRIES TO DO A LOKCING TRANSACTION IT WILL NOT HAPPEN (AS LONG AS YOU CHECK FOR THAT)
-      "transactions.state": choices.transactions.states.PENDING
-    }
-    $push = {
-      "transactions.ids": transaction.id
-      "transactions.log": transaction
-    }
-
-    $update = {
-      $set: $set
-      $push: $push
-    }
-
-    @model.collection.findAndModify {_id: pollId, "transactions.locked": false, "deleted": false}, [], $update, {safe: true, new: true}, (error, poll)->
-      if error?
-        logger.error "POLLS - DELETE: unable to findAndModify"
-        logger.error error
-        callback error, null
-      else if !poll?
-        logger.warn "POLLS - DELETE: no document found to modify"
-        callback new errors.ValidationError({"poll":"Poll does not exist or Access Denied."})
-      else
-        logger.info "POLLS - DELETE: findAndModify succeeded, transaction starting"
-        callback null, poll
-        tp.process(poll, transaction)
-    return
-
 
   @update: (pollId, data, newAllocated, perResponse, callback)->
     self = this
@@ -794,10 +830,10 @@ class Polls extends API
 
     if Object.isString(pollId)
       pollId = new ObjectId(pollId)
-
     if Object.isString(data.entity.id)
       data.entity.id = new ObjectId(data.entity.id)
-
+    entityType = data.entity.type
+    entityId = data.entity.id
     
     #Set the fields you want updated now, not afte the update
     #for the ones that you want set after the update put those
@@ -869,7 +905,7 @@ class Polls extends API
 
     console.log $update
 
-    @model.collection.findAndModify {_id: pollId, "transactions.locked": false}, [], $update, {safe: true, new: true}, (error, poll)->
+    @model.collection.findAndModify {_id: pollId, "entity.type":entityType, "entity.id":entityId, "transactions.locked": false}, [], $update, {safe: true, new: true}, (error, poll)->
       if error?
         callback error, null
       else if !poll?
@@ -889,6 +925,7 @@ class Polls extends API
         query.where('responses.remaining').gt(0)   #has responses remaining..
         query.where('dates.start').lte(new Date())
         query.where('transactions.state').ne(choices.transactions.states.ERROR)
+        query.where("deleted").ne(true)
         fieldsToReturn = {
             _id                   : 1,
             name                  : 1,
@@ -902,6 +939,7 @@ class Polls extends API
         query.where('dates.start').gt(new Date())
         query.where('responses.remaining').gt(0)
         query.where('transactions.state').ne(choices.transactions.states.ERROR)
+        query.where("deleted").ne(true)
         fieldsToReturn = {
             _id                   : 1,
             name                  : 1,
@@ -912,6 +950,7 @@ class Polls extends API
       when "completed"
         query.where('responses.remaining').lte(0)
         query.where('transactions.state').ne(choices.transactions.states.ERROR)
+        query.where("deleted").ne(true)
         fieldsToReturn = {
             _id                   : 1,
             name                  : 1,
@@ -953,6 +992,46 @@ class Polls extends API
       query.exec callback
     else
       query.count callback
+    return
+  
+  @del: (entityType, entityId, pollId, callback)->
+    self = this
+    if Object.isString(entityId)
+      entityId = new ObjectId(entityId)
+    if Object.isString(pollId)
+      pollId = new ObjectId(pollId)
+
+    entity = {}
+    transactionData = {}
+    transaction = self.createTransaction choices.transactions.states.PENDING, choices.transactions.actions.POLL_DELETED, transactionData, choices.transactions.directions.OUTBOUND, entity
+    
+    $set = {
+      "deleted": true
+      "transactions.locked": true #THIS IS A LOCKING TRANSACTION, SO IF ANYONE ELSE TRIES TO DO A LOKCING TRANSACTION IT WILL NOT HAPPEN (AS LONG AS YOU CHECK FOR THAT)
+      "transactions.state": choices.transactions.states.PENDING
+    }
+    $push = {
+      "transactions.ids": transaction.id
+      "transactions.log": transaction
+    }
+
+    $update = {
+      $set: $set
+      $push: $push
+    }
+
+    @model.collection.findAndModify {"entity.type":entityType, "entity.id":entityId, _id: pollId, "transactions.locked": false, "deleted": false}, [], $update, {safe: true, new: true}, (error, poll)->
+      if error?
+        logger.error "POLLS - DELETE: unable to findAndModify"
+        logger.error error
+        callback error, null
+      else if !poll?
+        logger.warn "POLLS - DELETE: no document found to modify"
+        callback new errors.ValidationError({"poll":"Poll does not exist or Access Denied."})
+      else
+        logger.info "POLLS - DELETE: findAndModify succeeded, transaction starting"
+        callback null, poll
+        tp.process(poll, transaction)
     return
 
   @answered = (consumerId, skip, limit, callback)->
@@ -1084,7 +1163,8 @@ class Polls extends API
             "responses.flagConsumers" : {$ne : consumerId}  #makes sure consumer has not already flagged..
             "dates.start"             : {$lte: new Date()}  #makes sure poll has started
             # "dates.end"               : {$gt : new Date()}  #makes sure poll has not ended
-            "state"                   : choices.transactions.states.PROCESSED #poll is processed and ready to launch
+            "transactions.state"      : choices.transactions.states.PROCESSED #poll is processed and ready to launch
+            "deleted"                 : false
         }
         query.type = if answers.length==1 then "single" else "multiple" #prevent injection of multiple answers for a single poll..
 
@@ -1104,7 +1184,7 @@ class Polls extends API
       if error?
         callback(error)
         return
-      callback null, results
+      callback null, results.save
       return
     #TODO: transaction of funds.. per response gain to consumer..
   
@@ -1260,7 +1340,8 @@ class Discussions extends API
       when "active"
         query.where("funds.remaining").gte(0)
         query.where("dates.start").lte(new Date())
-        query.where('transactions.state').ne(choices.transactions.states.ERROR);
+        query.where('transactions.state').ne(choices.transactions.states.ERROR)
+        query.where("deleted").ne(true)
         fieldsToReturn = {
             _id                  : 1,
             name                 : 1,
@@ -1274,6 +1355,7 @@ class Discussions extends API
         query.where("funds.remaining").gte(0)
         query.where('dates.start').gt(new Date())
         query.where('transactions.state').ne(choices.transactions.states.ERROR)
+        query.where("deleted").ne(true)
         fieldsToReturn = {
             _id                  : 1,
             name                 : 1,
@@ -1285,6 +1367,7 @@ class Discussions extends API
       when "completed"
         query.where("funds.remaining").lte(0)
         query.where('transactions.state').ne(choices.transactions.states.ERROR)
+        query.where("deleted").ne(true)
         fieldsToReturn = {
             _id                  : 1,
             name                 : 1,
@@ -1295,7 +1378,7 @@ class Discussions extends API
             "transactions.state" : 1
         }
       when "errored"
-        query.where('transactions.state', choices.transactions.ERROR)
+        query.where('transactions.state', choices.transactions.states.ERROR)
         fieldsToReturn = {
             _id                   : 1,
             name                  : 1,
@@ -1322,6 +1405,46 @@ class Discussions extends API
       query.exec callback
     else
       query.count callback
+    return
+  
+  @del: (entityType, entityId, discussionId, callback)->
+    self = this
+    if Object.isString(entityId)
+      entityId = new ObjectId(entityId)
+    if Object.isString(discussionId)
+      discussionId = new ObjectId(discussionId)
+
+    entity = {}
+    transactionData = {}
+    transaction = self.createTransaction choices.transactions.states.PENDING, choices.transactions.actions.POLL_DELETED, transactionData, choices.transactions.directions.OUTBOUND, entity
+    
+    $set = {
+      "deleted": true
+      "transactions.locked": true #THIS IS A LOCKING TRANSACTION, SO IF ANYONE ELSE TRIES TO DO A LOKCING TRANSACTION IT WILL NOT HAPPEN (AS LONG AS YOU CHECK FOR THAT)
+      "transactions.state": choices.transactions.states.PENDING
+    }
+    $push = {
+      "transactions.ids": transaction.id
+      "transactions.log": transaction
+    }
+
+    $update = {
+      $set: $set
+      $push: $push
+    }
+
+    @model.collection.findAndModify {"entity.type":entityType, "entity.id":entityId, _id: discussionId, "transactions.locked": false, "deleted": false}, [], $update, {safe: true, new: true}, (error, discussion)->
+      if error?
+        logger.error "DISCUSSIONS - DELETE: unable to findAndModify"
+        logger.error error
+        callback error, null
+      else if !discussion?
+        logger.warn "DISCUSSIONS - DELETE: no document found to modify"
+        callback new errors.ValidationError({"discussion":"Discussion does not exist or Access Denied."})
+      else
+        logger.info "DISCUSSIONS - DELETE: findAndModify succeeded, transaction starting"
+        callback null, discussion
+        tp.process(discussion, transaction)
     return
 
   @getByEntity: (entityType, entityId, discussionId, callback)->
@@ -1399,7 +1522,13 @@ class ClientInvitations extends API
       else
         callback null, invite #success
       return
-
+  
+  @del = (businessId, groupName, pendingId, callback)->
+    query = @_query()
+    query.where("businessId", businessId)
+    query.where("groupName", groupName)
+    query.where("_id", pendingId)
+    query.remove(callback)
 
 class Tags extends API
   @model = Tag
