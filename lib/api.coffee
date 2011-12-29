@@ -1648,15 +1648,23 @@ class Events extends API
   @setTransactionProcessed: @__setTransactionProcessed
   @setTransactionError: @__setTransactionError
 
-class TapIns extends API
-  @model = db.TapIn
+class BusinessTransaction extends API
+  @model = db.BusinessTransaction
   
   @byUser = (userId, options, callback)->
-    if Object.isFunction(options)
+    if Object.isFunction options
       callback = options
       options = {}
     query = @optionParser options
     query.where 'userEntity.id', userId
+    query.exec callback
+
+  @byBusiness = (businessId, options, callback)->
+    if Object.isFunction options
+      callback = options
+      options = {}
+    query = @optionParser options
+    query.where 'organizationEntity.id', businessId
     query.exec callback
 
 class BusinessRequests extends API

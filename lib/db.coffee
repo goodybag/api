@@ -645,13 +645,13 @@ EventRequest = new Schema {
   }
 }
 
-############
-# TapIns ###
-############
-TapIn = new Schema {
-  userEntity: {
-    type                : {type: String, required: true, enum: choices.entities._enum}
-    id                  : {type: ObjectId, required: true}
+#########################
+# BusinessTransaction ###
+#########################
+BusinessTransaction = new Schema {
+  userEntity: { # Not required since they may not registered
+    type                : {type: String, enum: choices.entities._enum}
+    id                  : {type: ObjectId}
     name                : {type: String}
   }
   
@@ -661,10 +661,12 @@ TapIn = new Schema {
     name                : {type: String}
   }
 
+  barcodeId             : {type: String}
   registerId            : {type: String, required: true}
   date                  : {type: Date, required: true}
+  time                  : {type: Date, required: true}
   transactionAmount     : {type: Number, required: true}
-  donationAmount        : {type: Number, required: true}
+  donationAmount        : {type: Number}
 }
 
 #######################
@@ -695,7 +697,7 @@ exports.Tag                   = mongoose.model 'Tag', Tag
 exports.EventRequest          = mongoose.model 'EventRequest', EventRequest
 exports.Stream                = mongoose.model 'Stream', Stream
 exports.Event                 = mongoose.model 'Event', Event
-exports.TapIn                 = mongoose.model 'TapIn', TapIn
+exports.BusinessTransaction   = mongoose.model 'BusinessTransaction', BusinessTransaction
 exports.BusinessRequest       = mongoose.model 'BusinessRequest', BusinessRequest
 exports.PasswordResetRequest  = mongoose.model 'PasswordResetRequest', PasswordResetRequest
 
@@ -712,7 +714,7 @@ exports.schemas = {
   EventRequest: EventRequest
   Stream: Stream
   Event: Event
-  TapIn: TapIn
+  BusinessTransaction: BusinessTransaction
   BusinessRequest: BusinessRequest
   PasswordResetRequest: PasswordResetRequest
 }
