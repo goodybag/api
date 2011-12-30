@@ -33,7 +33,7 @@ Tag = db.Tag
 EventRequest = db.EventRequest
 Event = db.Event
 Stream = db.Stream
-TapIn = db.TapIn
+BusinessTransaction = db.BusinessTransaction
 BusinessRequest = db.BusinessRequest
 PasswordResetRequest = db.PasswordResetRequest
 
@@ -1648,13 +1648,17 @@ class Events extends API
   @setTransactionProcessed: @__setTransactionProcessed
   @setTransactionError: @__setTransactionError
 
-class BusinessTransaction extends API
+class BusinessTransactions extends API
   @model = db.BusinessTransaction
   
   @byUser = (userId, options, callback)->
     if Object.isFunction options
       callback = options
       options = {}
+    if !options.limit?
+      options.limit = 25
+    if !options.skip?
+      options.skip = 0
     query = @optionParser options
     query.where 'userEntity.id', userId
     query.exec callback
@@ -1663,8 +1667,25 @@ class BusinessTransaction extends API
     if Object.isFunction options
       callback = options
       options = {}
+    if !options.limit?
+      options.limit = 25
+    if !options.skip?
+      options.skip = 0
     query = @optionParser options
     query.where 'organizationEntity.id', businessId
+    query.exec callback
+  
+  @byBusinessGbCostumers = (businessId, options, callback)->
+    if Object.isFunction options
+      callback = options
+      options = {}
+    if !options.limit?
+      options.limit = 25
+    if !options.skip?
+      options.skip = 0
+    query = @optionParser options
+    query.where 'organizationEntity.id', businessId
+    query.where('userEntity.id').exists true
     query.exec callback
 
 class BusinessRequests extends API
@@ -1812,6 +1833,6 @@ exports.Tags = Tags
 exports.EventRequests = EventRequests
 exports.Events = Events
 exports.Streams = Streams
-exports.TapIns = TapIns
+exports.BusinessTransactions = BusinessTransactions
 exports.BusinessRequests = BusinessRequests
 exports.PasswordResetRequests = PasswordResetRequests

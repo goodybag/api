@@ -663,9 +663,10 @@ BusinessTransaction = new Schema {
 
   barcodeId             : {type: String}
   registerId            : {type: String, required: true}
+  locationId            : {type: ObjectId, required: true}
   date                  : {type: Date, required: true}
   time                  : {type: Date, required: true}
-  transactionAmount     : {type: Number, required: true}
+  amount                : {type: Number, required: true}
   donationAmount        : {type: Number}
 }
 
