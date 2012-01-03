@@ -19,7 +19,7 @@ choices = globals.choices
 defaults = globals.defaults
 errors = globals.errors
 
-ObjectId = globals.mongoose.Types.ObjectId;
+ObjectId = globals.mongoose.Types.ObjectId
 
 Client = db.Client
 Consumer = db.Consumer
@@ -36,6 +36,8 @@ Stream = db.Stream
 TapIn = db.TapIn
 BusinessRequest = db.BusinessRequest
 PasswordResetRequest = db.PasswordResetRequest
+# Interaction = db.Interaction
+Total = db.Total
 
 #TODO:
 #Make sure that all necessary fields exist for each function before sending the query to the db
@@ -48,10 +50,17 @@ class API
   @_query: ()->
     return @model.find() #instance of query object
 
-  @optionParser = (options, q)->
+  @query: @_query
+  
+  @_queryOne: ()->
+    return @model.findOne() #instance of query object which will return only one document
+
+  @queryOne: @_queryOne
+
+  @optionParser: (options, q)->
     return @_optionParser(options, q)
 
-  @_optionParser = (options, q)->
+  @_optionParser: (options, q)->
     query = q || @_query()
 
     if options.limit?
@@ -65,10 +74,10 @@ class API
 
     return query
 
-  @add = (data, callback)->
+  @add: (data, callback)->
     return @_add(data, callback)
 
-  @_add = (data, callback)->
+  @_add: (data, callback)->
     instance = new @model(data)
     instance.save callback
     return
@@ -88,14 +97,14 @@ class API
 
   @del = @remove
 
-  @one = (id, callback)->
+  @one: (id, callback)->
     return @_one(id, callback)
 
-  @_one = (id, callback)->
+  @_one: (id, callback)->
     @model.findOne {_id: id}, callback
     return
 
-  @get = (options, callback)->
+  @get: (options, callback)->
     query = @optionParser(options)
     query.exec callback
     return
@@ -316,6 +325,7 @@ class API
     }
 
     @model.findOne $query, callback
+
 
 class Consumers extends API
   @model = Consumer
@@ -766,6 +776,7 @@ class Businesses extends API
     query = @_query()
     query.where('locations.tapins', true)
     query.exec callback
+
 
 class Polls extends API
   @model = Poll
@@ -1512,6 +1523,7 @@ class ClientInvitations extends API
     query.where("_id", pendingId)
     query.remove(callback)
 
+
 class Tags extends API
   @model = Tag
 
@@ -1630,6 +1642,7 @@ class Events extends API
   @setTransactionProcessed: @__setTransactionProcessed
   @setTransactionError: @__setTransactionError
 
+
 class TapIns extends API
   @model = db.TapIn
   
@@ -1640,6 +1653,7 @@ class TapIns extends API
     query = @optionParser options
     query.where 'userEntity.id', userId
     query.exec callback
+
 
 class BusinessRequests extends API
   @model = BusinessRequest
@@ -1715,7 +1729,8 @@ class Streams extends API
           callback error
           return
         callback error, {activities: activities, consumers: consumers}
-      
+
+
 class PasswordResetRequests extends API
   @model: PasswordResetRequest
 
@@ -1773,7 +1788,97 @@ class PasswordResetRequests extends API
       instance = new @model request
       instance.save callback
         
+
+# class Interactions extends API
+#   @model: Interaction
+#   
+#   @add: (data, callback)->
+#     obj = {
+#       org: {
+#         type                : data.org.type
+#         id                  : data.org.id
+#       }
+#       consumerId            : data.consumerId
+#       interaction: {
+#         type                : data.interaction.type
+#         id                  : data.interaction.id
+#       }
+#       timestamp             : data.timestamp || new Date()
+#       data                  : data.data || {}
+#     }
+#     
+#     instance = new @model(obj)
+#     instance.save callback
+# 
+#   @haveInteractions: (org, consumerIds, callback)->
+#     query = @_query()
+#     query.where("org.type", org.type)
+#     query.where("org.id", org.id)
+#     query.in("consumerId", consumerIds)
+#     
+#     query.distinct("consumerId", callback)
+#     return
+#     
+#   @getInteractions: (org, consumerId, interactionType, callback)->
+#    query = @_query()
+#    query.where("org.type", org.type)
+#    query.where("org.id", org.id)
+#    query.where("consumerId", consumerId)
+#    query.where("interaction.type", interactionType)
+#    query.where()
+#    query.exec(callback)
+#    
+#    # query.exec (error, interactions)->
+#    #     for index in interactions
+#    #       interactions[index]
+#    #    
+#    #    interactionQuery = @_query()
+   
+class Totals extends API
+  @model: Total
+  
+  @add: (data, callback)->
+    obj = {
+      org: {
+        type                : data.org.type
+        id                  : data.org.id
+      }
+      consumerId            : data.consumerId
+      data                  : data.data || {}
+    }
     
+    instance = new @model(obj)
+    instance.save(callback)
+    
+  @getMultiple: (org, consumerIds, callback)->
+    query = @query()
+    query.where("org.type", org.type)
+    query.where("org.id", org.id)
+
+    #return multiple documents if multiple consumers specified
+    query.in "consumerId", consumerIds
+
+    query.exec(callback)
+    return
+
+  @inc: (org, consumerId, field, value, callback)->
+    #default is to increment by 1
+    if Object.isFunction(value)
+      callback = value
+      value = 1
+
+    query = @queryOne()
+    query.where("org.type", org.type)
+    query.where("org.id", org.id)
+    query.where("consumerId", consumerId)
+
+    $inc = {}
+    $inc["data.#{field}"] = value
+
+    query.update {$inc: $inc}, callback #will return the number of documents updated
+    return
+
+
 exports.Clients = Clients
 exports.Consumers = Consumers
 exports.Businesses = Businesses
@@ -1789,3 +1894,5 @@ exports.Streams = Streams
 exports.TapIns = TapIns
 exports.BusinessRequests = BusinessRequests
 exports.PasswordResetRequests = PasswordResetRequests
+# exports.Interactions = Interactions
+exports.Totals = Totals
