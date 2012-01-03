@@ -33,7 +33,7 @@ Tag = db.Tag
 EventRequest = db.EventRequest
 Event = db.Event
 Stream = db.Stream
-TapIn = db.TapIn
+BusinessTransaction = db.BusinessTransaction
 BusinessRequest = db.BusinessRequest
 PasswordResetRequest = db.PasswordResetRequest
 # Interaction = db.Interaction
@@ -581,18 +581,18 @@ class Clients extends API
       if error?
         callback error #dberror
         return
-      if !client?
+      if !client? || !client.changeEmail?
         callback new errors.ValidationError({"key":"Invalid key or already used."})
         return
       #client found
       if(new Date()>client.changeEmail.expirationDate)
         callback new errors.ValidationError({"key":"Key expired."})
         return
-      query.update {$set:{email:client.changeEmail.newEmail}}, (error, success)->
+      query.update {$set:{email:client.changeEmail.newEmail, changeEmail:null}}, (error, success)->
         if error?
           callback error #dberror
         else
-          callback null, success        
+          callback null, success
 
 
   @updateWithPassword: (id, password, options, callback)->
@@ -608,6 +608,24 @@ class Clients extends API
         client.save callback
       else
         callback new errors.ValidationError {'password':"Wrong Password"} #invalid login error
+      return
+
+  @updatePassword: (id, password, callback)->
+    if Object.isString(id)
+      id = new ObjectId(id)
+    
+    query = {_id: id}
+    update = {$set: {password: password}}
+    options = {remove: false, new: true, upsert: false}
+    @model.collection.findAndModify query, [], update, options, (error, user)->
+      if error?
+        callback error
+        return
+      if !user?
+        callback new errors.ValidationError {"_id": "_id does not exist"}
+        return
+      if user?
+        callback error, user
       return
 
 
@@ -1642,18 +1660,45 @@ class Events extends API
   @setTransactionProcessed: @__setTransactionProcessed
   @setTransactionError: @__setTransactionError
 
-
-class TapIns extends API
-  @model = db.TapIn
+class BusinessTransactions extends API
+  @model = db.BusinessTransaction
   
   @byUser = (userId, options, callback)->
-    if Object.isFunction(options)
+    if Object.isFunction options
       callback = options
       options = {}
+    if !options.limit?
+      options.limit = 25
+    if !options.skip?
+      options.skip = 0
     query = @optionParser options
     query.where 'userEntity.id', userId
     query.exec callback
 
+  @byBusiness = (businessId, options, callback)->
+    if Object.isFunction options
+      callback = options
+      options = {}
+    if !options.limit?
+      options.limit = 25
+    if !options.skip?
+      options.skip = 0
+    query = @optionParser options
+    query.where 'organizationEntity.id', businessId
+    query.exec callback
+  
+  @byBusinessGbCostumers = (businessId, options, callback)->
+    if Object.isFunction options
+      callback = options
+      options = {}
+    if !options.limit?
+      options.limit = 25
+    if !options.skip?
+      options.skip = 0
+    query = @optionParser options
+    query.where 'organizationEntity.id', businessId
+    query.where('userEntity.id').exists true
+    query.exec callback
 
 class BusinessRequests extends API
   @model = BusinessRequest
@@ -1891,7 +1936,7 @@ exports.Tags = Tags
 exports.EventRequests = EventRequests
 exports.Events = Events
 exports.Streams = Streams
-exports.TapIns = TapIns
+exports.BusinessTransactions = BusinessTransactions
 exports.BusinessRequests = BusinessRequests
 exports.PasswordResetRequests = PasswordResetRequests
 # exports.Interactions = Interactions
