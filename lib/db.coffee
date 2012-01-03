@@ -47,7 +47,7 @@ Transaction = new Schema {
   
   #DEPOSIT OR DEDUCT TO/FROM WHOM? (Sometimes we may use the entity object in the document itself)
   entity: {
-    type          : {type: String, required: true, enum: choices.entities._enum}
+    type          : {type: String, required: true, enum: choices.entities._enumuu}
     id            : {type: ObjectId, required: true}
     name          : {type: String}
   }
@@ -242,6 +242,8 @@ Business = new Schema {
     ids         : [ObjectId]
     history     : {}
   }
+
+  gbEquipped    : {type: Boolean, default: false}
 }
 
 
