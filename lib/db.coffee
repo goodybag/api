@@ -644,18 +644,23 @@ BusinessRequest = new Schema {
 # }
 
 
-###########
-# Total ###
-###########
-# Businesses typically want to keep totals and counts of the following
-# tapIns, totalAmountSpent, eventsAttended, pollsAnswered, DiscussionComments
-Total = new Schema {
+##########
+# Stat ###
+##########
+# Businesses typically want to keep totals, counts, etc of the following
+# tapIns, totalSpent, eventsAttended, pollsAnswered, DiscussionComments, lastVisited, lastInteraction
+
+#CURRENTLY BEING TRACKED: (ALWAYS UPDATE THIS LIST PLEASE)
+#totalTapIns
+#totalAmountPurchased
+#lastVisited
+Statistic = new Schema {
   org                     : organization
   consumerId              : {type: ObjectId, required: true}
-  data                    : {} #store anything in here that would like to keep totals/counts of
+  data                    : {} #store counts, totals, dates, etc
 }
 
-Total.index {'org.type': 1, 'org.id':1, consumerId: 1}, {unique: true}
+Statistic.index {'org.type': 1, 'org.id':1, consumerId: 1}, {unique: true}
 
 exports.Consumer              = mongoose.model 'Consumer', Consumer
 exports.Client                = mongoose.model 'Client', Client
@@ -673,7 +678,7 @@ exports.BusinessTransaction   = mongoose.model 'BusinessTransaction', BusinessTr
 exports.BusinessRequest       = mongoose.model 'BusinessRequest', BusinessRequest
 exports.PasswordResetRequest  = mongoose.model 'PasswordResetRequest', PasswordResetRequest
 # exports.Interaction           = mongoose.model 'Interaction', Interaction
-exports.Total                 = mongoose.model 'Total', Total
+exports.Statistic                = mongoose.model 'Statistic', Statistic
 
 exports.schemas = {
   Consumer: Consumer
@@ -692,5 +697,5 @@ exports.schemas = {
   BusinessRequest: BusinessRequest
   PasswordResetRequest: PasswordResetRequest
   # Interaction: Interaction
-  Total: Total
+  Statistic: Statistic
 }

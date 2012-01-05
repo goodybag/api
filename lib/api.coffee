@@ -37,7 +37,7 @@ BusinessTransaction = db.BusinessTransaction
 BusinessRequest = db.BusinessRequest
 PasswordResetRequest = db.PasswordResetRequest
 # Interaction = db.Interaction
-Total = db.Total
+Statistic = db.Statistic
 
 #TODO:
 #Make sure that all necessary fields exist for each function before sending the query to the db
@@ -329,6 +329,14 @@ class API
 
 class Consumers extends API
   @model = Consumer
+
+  # List all consumers (limit to 25 at a time for now - not taking in a limit arg on purpose)
+  @getIdsAndScreenNames: (skip, callback)->
+    query = @query()
+    query.only("_id", "screenName")
+    query.skip(skip || 0)
+    query.limit(25)
+    query.exec callback
 
   @one: (consumerId, callback)->
     self = this
@@ -1660,6 +1668,7 @@ class Events extends API
   @setTransactionProcessed: @__setTransactionProcessed
   @setTransactionError: @__setTransactionError
 
+
 class BusinessTransactions extends API
   @model = db.BusinessTransaction
   
@@ -1699,6 +1708,7 @@ class BusinessTransactions extends API
     query.where 'organizationEntity.id', businessId
     query.where('userEntity.id').exists true
     query.exec callback
+
 
 class BusinessRequests extends API
   @model = BusinessRequest
@@ -1878,9 +1888,10 @@ class PasswordResetRequests extends API
 #    #       interactions[index]
 #    #    
 #    #    interactionQuery = @_query()
-   
-class Totals extends API
-  @model: Total
+
+
+class Statistics extends API
+  @model: Statistic
   
   @add: (data, callback)->
     obj = {
@@ -1895,7 +1906,32 @@ class Totals extends API
     instance = new @model(obj)
     instance.save(callback)
     
-  @getMultiple: (org, consumerIds, callback)->
+  @list: (org, callback)->
+    query = @query()
+    query.where("org.type", org.type)
+    query.where("org.id", org.id)
+    query.exec(callback)
+    return
+
+  #Give me a list of people who have tapped in to a business before and therefore are customers
+  @listWithTapIns: (org, skip, callback)->
+    query = Statistics.query()
+    query.where("org.type", org.type)
+    query.where("org.id", org.id)
+    query.where("data.tapIns.totalTapIns").gt(0)
+    query.limit(25) #we don't accept limit as an argument because it holds up the event loop
+    query.skip(skip)
+    query.exec (error, statistics)->
+      if error?
+        callback(error)
+      else
+        callback(error, statistics)
+        # customerIds
+        # for customer in statistics
+        #   customerIds.push(customer.consumerId)
+        #   delete customer.consumerId
+
+  @getByConsumerIds: (org, consumerIds, callback)->
     query = @query()
     query.where("org.type", org.type)
     query.where("org.id", org.id)
@@ -1904,6 +1940,22 @@ class Totals extends API
     query.in "consumerId", consumerIds
 
     query.exec(callback)
+    return
+
+  @tapIn: (org, consumerId, spent, timestamp, callback)->
+    query = @queryOne()
+    query.where("org.type", org.type)
+    query.where("org.id", org.id)
+    query.where("consumerId", consumerId)
+
+    $inc = {}
+    $inc["data.tapIns.totalTapIns"] = 1
+    $inc["data.tapIns.totalAmountPurchased"] = parseFloat(spent) #parse just incase it's a string
+
+    $set = {}
+    $set["data.tapIns.lastVisited"] = new Date(timestamp) #if it is a string it will become a date hopefully
+
+    query.update {$inc: $inc, $set: $set}, callback
     return
 
   @inc: (org, consumerId, field, value, callback)->
@@ -1923,7 +1975,6 @@ class Totals extends API
     query.update {$inc: $inc}, callback #will return the number of documents updated
     return
 
-
 exports.Clients = Clients
 exports.Consumers = Consumers
 exports.Businesses = Businesses
@@ -1940,4 +1991,4 @@ exports.BusinessTransactions = BusinessTransactions
 exports.BusinessRequests = BusinessRequests
 exports.PasswordResetRequests = PasswordResetRequests
 # exports.Interactions = Interactions
-exports.Totals = Totals
+exports.Statistics = Statistics
