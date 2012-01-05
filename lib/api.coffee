@@ -338,6 +338,12 @@ class Consumers extends API
     query.limit(25)
     query.exec callback
 
+  @getScreenNamesByIds: (ids, callback)->
+    query = @query()
+    query.only("_id", "screenName")
+    query.in("_id", ids)
+    query.exec callback
+
   @one: (consumerId, callback)->
     self = this
     super.one consumerId (error, consumer)->

@@ -126,6 +126,7 @@ PasswordResetRequest = new Schema {
 Consumer = new Schema {
   email           : {type: String, set: utils.toLower, validate: Email}
   password        : {type: String, validate:/.{5,}/}
+  screenName      : {type: String, required: true}
   facebook: {           
     access_token  : String
     #id            : Number
