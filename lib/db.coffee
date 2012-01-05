@@ -21,9 +21,6 @@ Email = /^(([^<>()[\]\\.,;:\s@\"]+(\.[^<>()[\]\\.,;:\s@\"]+)*)|(\".+\"))@((\[[0-
 ####################
 # TRANSACTION ######
 ####################
-
-#Transaction = new Schema {}
-
 Transaction = new Schema {
   id              : {type: ObjectId, required: true}
   state           : {type: String, required: true, enum: choices.transactions.states._enum}
@@ -83,6 +80,32 @@ Location = new Schema {
 ###################################################################
 
 
+organization = {
+  type              : {type: String, required: true, enum: choices.organizations._enum}
+  id                : {type: ObjectId, required: true}
+}
+
+transactions = {
+  ids               : [ObjectId]
+  failed            : [ObjectId]
+  log               : [Transaction]
+  temp              : [Transaction]
+  locked            : {type: Boolean}
+  state             : {type: String, enum: choices.transactions.states._enum}
+}
+
+media = {
+  url               : {type: String, validate: Url} #video or image
+  thumb             : {type: String, validate: Url}
+  guid              : {type: String}
+}
+
+
+###################################################################
+###################################################################
+###################################################################
+
+
 ##################################
 # PASSWORD RESET REQUEST #########
 ##################################
@@ -103,6 +126,7 @@ PasswordResetRequest = new Schema {
 Consumer = new Schema {
   email           : {type: String, set: utils.toLower, validate: Email}
   password        : {type: String, validate:/.{5,}/}
+  screenName      : {type: String, required: true}
   facebook: {           
     access_token  : String
     #id            : Number
@@ -117,14 +141,7 @@ Consumer = new Schema {
     remaining     : {type: Number, required: true, default: 0.0}
   }
  
-  transactions: {
-    ids           : [ObjectId]
-    failed        : [ObjectId]
-    log           : [Transaction]
-    temp          : [Transaction]
-    locked        : {type: Boolean}
-    state         : {type: String, enum: choices.transactions.states._enum}
-  } 
+  transactions: transactions
 
   events: {
     ids           : [ObjectId]
@@ -143,11 +160,8 @@ Client = new Schema {
   password      : {type: String, validate:/.{5,}/, required: true}
   changeEmail   : {}
 
-  media: {
-    url         : {type: String, validate: Url}
-    thumb       : {type: String, validate: Url}
-    guid        : {type: String}
-  }
+  media:media
+
   dates: {
     created     : {type: Date, required: true, default: new Date( (new Date()).toUTCString() )}
   }
@@ -157,14 +171,7 @@ Client = new Schema {
     remaining   : {type: Number, required: true, default: 0.0}
   }
   
-  transactions: {
-    ids         : [ObjectId]
-    failed      : [ObjectId]
-    log         : [Transaction]
-    temp        : [Transaction]
-    locked      : {type: Boolean}
-    state       : {type: String, enum: choices.transactions.states._enum}
-  }
+  transactions: transactions
 
   events: {
     ids         : [ObjectId]
@@ -196,12 +203,7 @@ Business = new Schema {
 
   locations     : [Location]
 
-  media: {
-    url         : {type: String, validate: Url} #image
-    thumb       : {type: String, validate: Url}
-    guid        : {type: String}
-    duration    : {type: Number} #useful for videos, in number of seconds (e.g. 48.42)
-  }
+  media: media
   
   clients       : [ObjectId] #clientIds
   clientGroups  : {} #{clientId: group}
@@ -216,8 +218,8 @@ Business = new Schema {
   }
 
   funds: {
-    allocated   : {type: Number, required: true}
-    remaining   : {type: Number, required: true}
+    allocated   : {type: Number, required: true, default: 0.0}
+    remaining   : {type: Number, required: true, default: 0.0}
   }
 
   permissions: { #permissions for groups
@@ -229,14 +231,7 @@ Business = new Schema {
     #managers    : [String]
   }
 
-  transactions: {
-    ids         : [ObjectId]
-    failed      : [ObjectId]
-    log         : [Transaction] 
-    temp        : [Transaction]
-    locked      : {type: Boolean}
-    state       : {type: String, enum: choices.transactions.states._enum}
-  }
+  transactions: transactions
 
   events: {
     ids         : [ObjectId]
@@ -278,7 +273,7 @@ Poll = new Schema {
   }
   
   media: {
-    when          : {type: String, required: true, enum: choices.polls.media.when._enum } #when to display
+    when          : {type: String, required: true, enum: choices.polls.media.when._enum, default: choices.polls.media.when.NEVER } #when to display
     url           : {type: String, validate: Url} #video or image
     thumb         : {type: String, validate: Url}
     guid          : {type: String}
@@ -295,14 +290,7 @@ Poll = new Schema {
   }
 
   
-  transactions: {
-    ids               : [ObjectId]
-    failed            : [ObjectId]
-    log               : [Transaction]
-    temp              : [Transaction]
-    locked            : {type: Boolean}
-    state             : {type: String, enum: choices.transactions.states._enum}
-  }
+  transactions: transactions
 
   events: {
     ids               : [ObjectId]
@@ -336,11 +324,8 @@ Discussion = new Schema {
     flagConsumers : [type: ObjectId, required: true, default: new Array()]
     flagCount     : {type: Number,   required: true, default: 0}
   }
-  media: {
-    url               : {type: String, validate: Url}
-    thumb             : {type: String, validate: Url}
-    guid              : {type: String}
-  }
+  media: media
+  
   dates: {
     created           : {type: Date, required: true, default: new Date( (new Date()).toUTCString() )}
     start             : {type: Date, required: true, default: new Date( (new Date()).toUTCString() )}
@@ -353,14 +338,7 @@ Discussion = new Schema {
     remaining         : {type: Number, required: true, default: 0.0}
   }
   
-  transactions: {
-    ids               : [ObjectId]
-    failed            : [ObjectId]
-    log               : [Transaction]
-    temp              : [Transaction]
-    locked            : {type: Boolean}
-    state             : {type: String, enum: choices.transactions.states._enum}
-  }
+  transactions: transactions
 
   events: {
     ids               : [ObjectId]
@@ -408,14 +386,7 @@ Response = new Schema {
     created       : {type: Date, default: new Date( (new Date()).toUTCString() )}
   }
   
-  transactions: {
-    ids           : [ObjectId]
-    failed        : [ObjectId]
-    log           : [Transaction]
-    temp          : [Transaction]
-    locked        : {type: Boolean}
-    state         : {type: String, enum: choices.transactions.states._enum}
-  }
+  transactions: transactions
 
   events: {
     ids           : [ObjectId]
@@ -457,14 +428,7 @@ Media = new Schema {
     history   : {}
   }
 
-  transactions: {
-    ids       : [ObjectId]
-    failed    : [ObjectId]
-    log       : [Transaction]
-    temp      : [Transaction]
-    locked    : {type: Boolean}
-    state     : {type: String, enum: choices.transactions.states._enum}
-  }
+  transactions: transactions
 
   deleted             : {type: Boolean, default: false}
 }
@@ -491,14 +455,7 @@ ClientInvitation = new Schema {
     expires       : {type: Date}
   }
 
-  transactions: {
-    ids           : [ObjectId]
-    failed        : [ObjectId]
-    log           : [Transaction]
-    temp          : [Transaction]
-    locked        : {type: Boolean}
-    state         : {type: String, enum: choices.transactions.states._enum}
-  }
+  transactions: transactions
   
   events: {
     ids           : [ObjectId]
@@ -529,14 +486,7 @@ Stream = new Schema {
   }
   data          : {}
 
-  transactions: {
-    ids         : [ObjectId]
-    failed      : [ObjectId]
-    log         : [Transaction]
-    temp        : [Transaction]
-    locked      : {type: Boolean}
-    state       : {type: String, enum: choices.transactions.states._enum}
-  }
+  transactions: transactions
   
   events: {
     ids         : [ObjectId]
@@ -555,13 +505,7 @@ Stream = new Schema {
 Tag = new Schema {
   name: {type: String, required: true}
 
-  transactions: {
-    ids           : [ObjectId]
-    failed        : [ObjectId]
-    log           : [Transaction]
-    temp          : [Transaction]
-    locked        : {type: Boolean}
-  }
+  transactions: transactions
 }
 
 
@@ -638,13 +582,7 @@ EventRequest = new Schema {
     responded           : {type: Date}
   }
 
-  transactions: {
-    ids                 : [ObjectId]
-    failed              : [ObjectId]
-    log                 : [Transaction]
-    temp                : [Transaction]
-    locked              : {type: Boolean}
-  }
+  transactions: transactions
 }
 
 #########################
@@ -672,6 +610,7 @@ BusinessTransaction = new Schema {
   donationAmount        : {type: Number}
 }
 
+
 #######################
 # Business Requests ###
 #######################
@@ -688,6 +627,42 @@ BusinessRequest = new Schema {
   }
 }
 
+
+# #################
+# # Interaction ###
+# #################
+# # Objects that a user or business has interacted in together.
+# # Display only once per object, event if multiple actions, maybe update timestamp or keep multiple timestamps and a lastModified
+# Interaction = new Schema {
+#   org                   : organization
+#   consumerId            : {type: ObjectId, required: true}
+#   interaction: {
+#     type                : {type: String, required: true}
+#     id                  : {type: ObjectId, required: true}
+#   }
+#   timestamp             : {type: Date, required: true, default: new Date( (new Date()).toUTCString() )}
+#   data                  : {}
+# }
+
+
+##########
+# Stat ###
+##########
+# Businesses typically want to keep totals, counts, etc of the following
+# tapIns, totalSpent, eventsAttended, pollsAnswered, DiscussionComments, lastVisited, lastInteraction
+
+#CURRENTLY BEING TRACKED: (ALWAYS UPDATE THIS LIST PLEASE)
+#totalTapIns
+#totalAmountPurchased
+#lastVisited
+Statistic = new Schema {
+  org                     : organization
+  consumerId              : {type: ObjectId, required: true}
+  data                    : {} #store counts, totals, dates, etc
+}
+
+Statistic.index {'org.type': 1, 'org.id':1, consumerId: 1}, {unique: true}
+
 exports.Consumer              = mongoose.model 'Consumer', Consumer
 exports.Client                = mongoose.model 'Client', Client
 exports.Business              = mongoose.model 'Business', Business
@@ -703,6 +678,8 @@ exports.Event                 = mongoose.model 'Event', Event
 exports.BusinessTransaction   = mongoose.model 'BusinessTransaction', BusinessTransaction
 exports.BusinessRequest       = mongoose.model 'BusinessRequest', BusinessRequest
 exports.PasswordResetRequest  = mongoose.model 'PasswordResetRequest', PasswordResetRequest
+# exports.Interaction           = mongoose.model 'Interaction', Interaction
+exports.Statistic                = mongoose.model 'Statistic', Statistic
 
 exports.schemas = {
   Consumer: Consumer
@@ -720,4 +697,6 @@ exports.schemas = {
   BusinessTransaction: BusinessTransaction
   BusinessRequest: BusinessRequest
   PasswordResetRequest: PasswordResetRequest
+  # Interaction: Interaction
+  Statistic: Statistic
 }
