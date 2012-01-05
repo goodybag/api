@@ -1655,10 +1655,6 @@ class BusinessTransactions extends API
     if Object.isFunction options
       callback = options
       options = {}
-    if !options.limit?
-      options.limit = 25
-    if !options.skip?
-      options.skip = 0
     query = @optionParser options
     query.where 'userEntity.id', userId
     query.exec callback
@@ -1667,12 +1663,11 @@ class BusinessTransactions extends API
     if Object.isFunction options
       callback = options
       options = {}
-    if !options.limit?
-      options.limit = 25
-    if !options.skip?
-      options.skip = 0
     query = @optionParser options
     query.where 'organizationEntity.id', businessId
+    if options.location?
+      query.where 'locationId', options.location
+    logger.info options
     query.exec callback
   
   @byBusinessGbCostumers = (businessId, options, callback)->
@@ -1686,6 +1681,8 @@ class BusinessTransactions extends API
     query = @optionParser options
     query.where 'organizationEntity.id', businessId
     query.where('userEntity.id').exists true
+    if options.location?
+      query.where 'locationId', options.location
     query.exec callback
 
 class BusinessRequests extends API
