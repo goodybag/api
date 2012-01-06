@@ -372,7 +372,8 @@ class Consumers extends API
               me           : facebookData,
               access_token : accessToken,
               id           : fbid
-          }
+          },
+          screenName: ""
         }
         #self.model.update {"facebook.id": fbid}, {$set: consumer, $inc: {loginCount:1}}, {}, (error, success)->
         self.model.collection.findAndModify {"facebook.id": fbid}, [], {$set: consumer, $inc: {loginCount:1}}, {new:true, safe:true}, (error, consumerUpdated)->
