@@ -146,10 +146,6 @@ Consumer = new Schema {
  
   transactions: transactions
 
-  events: {
-    ids           : [ObjectId]
-    history       : {}
-  }
 }
 
 
@@ -176,10 +172,6 @@ Client = new Schema {
   
   transactions: transactions
 
-  events: {
-    ids         : [ObjectId]
-    history     : {}
-  }
 }
 
 
@@ -236,11 +228,6 @@ Business = new Schema {
 
   transactions: transactions
 
-  events: {
-    ids         : [ObjectId]
-    history     : {}
-  }
-
   gbEquipped    : {type: Boolean, default: false}
 }
 
@@ -295,11 +282,6 @@ Poll = new Schema {
   
   transactions: transactions
 
-  events: {
-    ids               : [ObjectId]
-    history           : {}
-  }
-
   deleted             : {type: Boolean, default: false}
 }
 
@@ -342,11 +324,6 @@ Discussion = new Schema {
   }
   
   transactions: transactions
-
-  events: {
-    ids               : [ObjectId]
-    history           : {}
-  }
 
   deleted             : {type: Boolean, default: false}
 }
@@ -391,11 +368,6 @@ Response = new Schema {
   
   transactions: transactions
 
-  events: {
-    ids           : [ObjectId]
-    history       : {}
-  }
-
   deleted             : {type: Boolean, default: false}
 }
 
@@ -426,11 +398,6 @@ Media = new Schema {
     created   : {type: Date, required: true, default: new Date( (new Date()).toUTCString() )}
   }
 
-  events: {
-    ids       : [ObjectId]
-    history   : {}
-  }
-
   transactions: transactions
 
   deleted             : {type: Boolean, default: false}
@@ -459,11 +426,6 @@ ClientInvitation = new Schema {
   }
 
   transactions: transactions
-  
-  events: {
-    ids           : [ObjectId]
-    history       : {}
-  }
 }
 
 #unique index on businessId + group + email address is required
@@ -490,11 +452,6 @@ Stream = new Schema {
   data          : {}
 
   transactions: transactions
-  
-  events: {
-    ids         : [ObjectId]
-    history     : {}
-  }
 
   deleted             : {type: Boolean, default: false}
 }
@@ -629,23 +586,6 @@ BusinessRequest = new Schema {
     read                : {type: Date}
   }
 }
-
-
-# #################
-# # Interaction ###
-# #################
-# # Objects that a user or business has interacted in together.
-# # Display only once per object, event if multiple actions, maybe update timestamp or keep multiple timestamps and a lastModified
-# Interaction = new Schema {
-#   org                   : organization
-#   consumerId            : {type: ObjectId, required: true}
-#   interaction: {
-#     type                : {type: String, required: true}
-#     id                  : {type: ObjectId, required: true}
-#   }
-#   timestamp             : {type: Date, required: true, default: new Date( (new Date()).toUTCString() )}
-#   data                  : {}
-# }
 
 
 ##########

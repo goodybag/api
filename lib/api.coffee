@@ -36,7 +36,6 @@ Stream = db.Stream
 BusinessTransaction = db.BusinessTransaction
 BusinessRequest = db.BusinessRequest
 PasswordResetRequest = db.PasswordResetRequest
-# Interaction = db.Interaction
 Statistic = db.Statistic
 
 #TODO:
@@ -1666,6 +1665,24 @@ class Events extends API
 
 class BusinessTransactions extends API
   @model = db.BusinessTransaction
+
+  @test = (callback)->
+    data = 
+      "barcodeId" : "aldkfjs12lsdfl12lskdjf"
+      "registerId" : "asdlf3jljsdlfoiuwirljf"
+      "locationId" : new ObjectId("4efd61571927c5951200002b")
+      "date" : new Date(2011, 11, 30, 12, 22, 22)
+      "time" : new Date(0,0,0,12,22,22)
+      "amount" : 18.54
+      "donationAmount" : 0.03
+      "organizationEntity" : 
+        "id" : new ObjectId("4eda8f766412f8805e6e864c")
+        "type" : "client"
+      
+      "userEntity" : 
+        "id" : new ObjectId("4eebdcc12e7501d8d7036cb1")
+        "type" : "consumer"
+    @model.collection.insert data, {safe: true}, callback
   
   @byUser = (userId, options, callback)->
     if Object.isFunction options
