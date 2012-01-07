@@ -412,20 +412,8 @@ class Consumers extends API
     )
     return
 
-  @register: (email, password, callback)->
-    self = this
-    query = @_query()
-    query.where('email', email)
-    query.update {$push:{"responses.skipConsumers":consumerId},$inc:{"responses.skipCount":1}}, (error, success)->
-
-    query.findOne (error, consumer)->
-      if error?
-        callback error #db error
-      else if !consumer?
-        self.add({email:email,password:password}, callback) #registration success
-      else if consumer?
-        callback new errors.ValidationError {"email":"Email Already Exists"} #email exists error
-      return
+  @register: (user, callback)->
+    @.add(user, callback)
   
   @login: (email, password, callback)->
     query = @_query()
@@ -1683,10 +1671,6 @@ class BusinessTransactions extends API
     if Object.isFunction options
       callback = options
       options = {}
-    if !options.limit?
-      options.limit = 25
-    if !options.skip?
-      options.skip = 0
     query = @optionParser options
     query.where 'userEntity.id', userId
     query.exec callback
@@ -1695,12 +1679,11 @@ class BusinessTransactions extends API
     if Object.isFunction options
       callback = options
       options = {}
-    if !options.limit?
-      options.limit = 25
-    if !options.skip?
-      options.skip = 0
     query = @optionParser options
     query.where 'organizationEntity.id', businessId
+    if options.location?
+      query.where 'locationId', options.location
+    logger.info options
     query.exec callback
   
   @byBusinessGbCostumers = (businessId, options, callback)->
@@ -1714,7 +1697,28 @@ class BusinessTransactions extends API
     query = @optionParser options
     query.where 'organizationEntity.id', businessId
     query.where('userEntity.id').exists true
+    if options.location?
+      query.where 'locationId', options.location
     query.exec callback
+
+  @test = (callback)->
+    data = 
+      "barcodeId" : "aldkfjs12lsdfl12lskdjf"
+      "registerId" : "asdlf3jljsdlfoiuwirljf"
+      "locationId" : ObjectId("4efd61571927c5951200002b")
+      "date" : new Date(2011, 11, 30, 12, 22, 22)
+      "time" : new Date(0,0,0,12,22,22)
+      "amount" : 18.54
+      "donationAmount" : 0.03
+      "organizationEntity" : 
+        "id" : ObjectId("4eda8f766412f8805e6e864c")
+        "type" : "client"
+      
+      "userEntity" : 
+        "id" : ObjectId("4eebdcc12e7501d8d7036cb1")
+        "type" : "consumer"
+    t = new @model data
+    t.save callback
 
 
 class BusinessRequests extends API

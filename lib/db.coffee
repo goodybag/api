@@ -124,21 +124,24 @@ PasswordResetRequest = new Schema {
 # CONSUMER #########
 ####################
 Consumer = new Schema {
-  email           : {type: String, set: utils.toLower, validate: Email}
-  password        : {type: String, validate:/.{5,}/}
-  screenName      : {type: String, required: true}
+  email           : {type: String, set: utils.toLower, validate: Email, unique: true}
+  password        : {type: String, validate:/.{5,}/, required: true}
+  firstName       : {type: String, required: true}
+  lastName        : {type: String, required: true}
+  screenName      : {type: String, default: mongoose.Types.ObjectId.createPk(), unique: true}
+  setScreenName   : {type: Boolean, default: false}
   facebook: {           
     access_token  : String
     #id            : Number
-  }               
+  }
   created         : {type: Date, default: new Date( (new Date()).toUTCString() )}
   logins          : []
-  honorScore      : {type: Number, required: true, default: 0}
+  honorScore      : {type: Number, default: 0}
   charities       : {}
 
   funds: {
-    allocated     : {type: Number, required: true, default: 0.0}
-    remaining     : {type: Number, required: true, default: 0.0}
+    allocated     : {type: Number, default: 0.0}
+    remaining     : {type: Number, default: 0.0}
   }
  
   transactions: transactions
