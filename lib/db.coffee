@@ -651,17 +651,31 @@ BusinessRequest = new Schema {
 # Businesses typically want to keep totals, counts, etc of the following
 # tapIns, totalSpent, eventsAttended, pollsAnswered, DiscussionComments, lastVisited, lastInteraction
 
-#CURRENTLY BEING TRACKED: (ALWAYS UPDATE THIS LIST PLEASE)
-#totalTapIns
-#totalAmountPurchased
-#lastVisited
+#CURRENTLY BEING TRACKED: (ALWAYS UPDATE THIS LIST PLEASE AND THE INDEXES)
+#tapIns:
+  #totalTapIns
+  #totalAmountPurchased
+  #lastVisited
+#polls:
+  #totalAnswered
+  #lastAnsweredDate
 Statistic = new Schema {
   org                     : organization
   consumerId              : {type: ObjectId, required: true}
   data                    : {} #store counts, totals, dates, etc
+
+  transactions: transactions
 }
 
 Statistic.index {'org.type': 1, 'org.id':1, consumerId: 1}, {unique: true}
+
+Statistic.index {'org.type': 1, 'org.id':1, consumerId: 1, "tapIns.totalTapIns": 1}
+Statistic.index {'org.type': 1, 'org.id':1, consumerId: 1, "tapIns.totalAmountPurchased": 1}
+Statistic.index {'org.type': 1, 'org.id':1, consumerId: 1, "tapIns.lastVisited": 1}
+
+Statistic.index {'org.type': 1, 'org.id':1, consumerId: 1, "polls.totalAnswered": 1}
+Statistic.index {'org.type': 1, 'org.id':1, consumerId: 1, "polls.lastAnsweredDate": 1}
+
 
 exports.Consumer              = mongoose.model 'Consumer', Consumer
 exports.Client                = mongoose.model 'Client', Client
@@ -678,8 +692,7 @@ exports.Event                 = mongoose.model 'Event', Event
 exports.BusinessTransaction   = mongoose.model 'BusinessTransaction', BusinessTransaction
 exports.BusinessRequest       = mongoose.model 'BusinessRequest', BusinessRequest
 exports.PasswordResetRequest  = mongoose.model 'PasswordResetRequest', PasswordResetRequest
-# exports.Interaction           = mongoose.model 'Interaction', Interaction
-exports.Statistic                = mongoose.model 'Statistic', Statistic
+exports.Statistic             = mongoose.model 'Statistic', Statistic
 
 exports.schemas = {
   Consumer: Consumer
@@ -697,6 +710,5 @@ exports.schemas = {
   BusinessTransaction: BusinessTransaction
   BusinessRequest: BusinessRequest
   PasswordResetRequest: PasswordResetRequest
-  # Interaction: Interaction
   Statistic: Statistic
 }
