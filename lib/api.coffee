@@ -70,7 +70,7 @@ class API
       query.skip(options.skip)
     
     if options.sort?
-      query.sort(options.sort)
+      query.sort options.sort.field, options.sort.direction
 
     return query
 
@@ -1565,6 +1565,12 @@ class EventRequests extends API
 class Events extends API
   @model = Event
 
+  @get: (options, callback)->
+    query = @optionParser(options)
+    if options.upcoming?
+      query.where('dates.actual').$gt Date.now()
+    query.exec callback
+
   @upcomingEvents = (limit, skip, callback)->
     query = @_query()
     query.where('dates.actual').$gt Date.now()
@@ -1704,20 +1710,19 @@ class BusinessTransactions extends API
     data = 
       "barcodeId" : "aldkfjs12lsdfl12lskdjf"
       "registerId" : "asdlf3jljsdlfoiuwirljf"
-      "locationId" : ObjectId("4efd61571927c5951200002b")
+      "locationId" : new ObjectId("4efd61571927c5951200002b")
       "date" : new Date(2011, 11, 30, 12, 22, 22)
       "time" : new Date(0,0,0,12,22,22)
       "amount" : 18.54
       "donationAmount" : 0.03
       "organizationEntity" : 
-        "id" : ObjectId("4eda8f766412f8805e6e864c")
+        "id" : new ObjectId("4eda8f766412f8805e6e864c")
         "type" : "client"
       
       "userEntity" : 
-        "id" : ObjectId("4eebdcc12e7501d8d7036cb1")
+        "id" : new ObjectId("4eebdcc12e7501d8d7036cb1")
         "type" : "consumer"
-    t = new @model data
-    t.save callback
+    @model.collection.insert data, {safe: true}, callback
 
 
 class BusinessRequests extends API
