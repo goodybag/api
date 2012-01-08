@@ -39,6 +39,11 @@ process = (document, transaction)-> #this is just a router
     when choices.transactions.actions.EVENT_EVENT_RSVPED
       eventEventRsvped(document, transaction)
 
+    
+    #STATS
+    when choices.transactions.actions.STAT_POLL_ANSWERED
+      statPollAnswered(document, transaction)
+
 _setTransactionProcessing = (clazz, document, transaction, locking, callback)->
   prepend = "ID: #{document._id} - TID: #{transaction.id}"
   clazz.setTransactionProcessing document._id, transaction.id, locking, (error, doc)->
@@ -50,6 +55,7 @@ _setTransactionProcessing = (clazz, document, transaction, locking, callback)->
       callback({name: "NullError", message: "Document Does Not Exist"})
     else
       logger.info "#{prepend} Processing Transaction"
+
       callback(null, doc)
     return
 
@@ -67,7 +73,7 @@ _setTransactionProcessed = (clazz, document, transaction, locking, removeLock, m
       callback(null, doc)
     return
 
-_setTransactionProcessedAndCreateNew = (clazz, document, transaction, newTransaction, locking, removeLock, modifierDoc, callback)->
+_setTransactionProcessedAndCreateNew = (clazz, document, transaction, newTransactions, locking, removeLock, modifierDoc, callback)->
   prepend = "ID: #{document._id} - TID: #{transaction.id}"
   clazz.setTransactionProcessed document._id, transaction.id, locking, removeLock, modifierDoc, (error, doc)->
     if error?
@@ -79,14 +85,24 @@ _setTransactionProcessedAndCreateNew = (clazz, document, transaction, newTransac
     else
       logger.info "#{prepend} transaction state is set to processed successfully"
       callback(null, doc)
-      clazz.moveTransactionToLog document._id, newTransaction, (error, doc2)->
-        if error?
-          logger.error "#{prepend} moving event transaction from temporary to log failed"
-        else if !doc2?
-          logger.warn "#{prepend} the new transaction is already in progress - pollers will move it if it is still in temp"
-        else
-          logger.info "#{prepend} created event transaction: #{newTransaction.id}"
-          process(document, newTransaction)
+      if !Object.isArray(newTransactions)
+        newTransactions = [newTransactions]
+      
+      #process each transaction that is is to be processed
+      for newT in newTransactions
+        (
+          ()->
+            trans = newT
+            logger.debug trans
+            clazz.moveTransactionToLog document._id, trans, (error, doc2)->
+              if error?
+                logger.error "#{prepend} moving #{trans.action} transaction from temporary to log failed"
+              else if !doc2?
+                logger.warn "#{prepend} the new transaction is already in progress - pollers will move it if it is still in temp"
+              else
+                logger.info "#{prepend} created #{trans.action} transaction: #{trans.id}"
+                process(document, trans)
+        )()
     return
 
 _setTransactionError = (clazz, document, transaction, locking, removeLock, error, data, callback)->
@@ -508,16 +524,25 @@ pollAnswered = (document, transaction)->
         , transaction.entity
       )
 
-      $push = {
-        "transactions.ids": eventTransaction.id
-        "transactions.temp": eventTransaction
+      #Create Poll Created Statistic Transaction
+      statTransaction = api.Polls.createTransaction(
+        choices.transactions.states.PENDING
+        , choices.transactions.actions.STAT_POLL_ANSWERED
+        , {timestamp: transaction.data.timestamp}
+        , choices.transactions.directions.OUTBOUND
+        , transaction.entity
+      )
+
+      $pushAll = {
+        "transactions.ids": [eventTransaction.id, statTransaction.id]
+        "transactions.temp": [eventTransaction, statTransaction]
       }
 
       $update = {
-        $push: $push
+        $pushAll: $pushAll
       }
       
-      _setTransactionProcessedAndCreateNew api.Polls, document, transaction, eventTransaction, false, false, $update, callback
+      _setTransactionProcessedAndCreateNew api.Polls, document, transaction, [eventTransaction, statTransaction], false, false, $update, callback
       #if it went through great, if it didn't go through then the poller will take care of it
       #, no other state changes need to occur
   },
@@ -829,7 +854,6 @@ eventEventRsvped = (document, transaction)->
               logger.info "#{prepend} wrote action to stream"
             callback()
             return
-
       }, 
       (error, results)->
         if error?
@@ -846,6 +870,45 @@ eventEventRsvped = (document, transaction)->
                 return
       return
 
+
+#OUTBOUND
+statPollAnswered = (document, transaction)->
+  prepend = "ID: #{document._id} - TID: #{transaction.id}"
+  logger.info "STAT - User answered poll question"
+  logger.info "#{prepend} - #{transaction.direction}"
+  # logger.debug document
+  async.series {
+    setProcessing: (callback)->
+      _setTransactionProcessing api.Polls, document, transaction, false, (error, doc)->
+        #We need to replace the passed in document with this new one because
+        #the document passed in doesn't have the entity object (we had removed it)
+        document = doc
+        callback(error, doc)
+      return
     
+    updateStats: (callback)->
+      # logger.debug document
+      org = {type: document.entity.type, id: document.entity.id}
+      consumerId = transaction.entity.id
+      transactionId = transaction.id
+      api.Statistics.pollAnswered org, consumerId, transactionId, transaction.data.timestamp, (error, count)->
+        if error? #mongo errored out
+          callback(error)
+        else if count>0
+          callback(null, count)
+        else #transaction already occurred - we did an upsert to create the relationship if it doesn't exist
+          callback(null, null)
+
+    setProcessed: (callback)->
+      _setTransactionProcessed api.Polls, document, transaction, false, false, {}, callback
+      return
+      #if it went through great, if it didn't go through then the poller will take care of it,
+      #no other state changes need to occur
+
+  },
+  (error, results)->
+    if error?
+      logger.error "#{prepend} the poller will try later"    
+
 
 exports.process = process

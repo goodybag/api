@@ -36,7 +36,6 @@ Stream = db.Stream
 BusinessTransaction = db.BusinessTransaction
 BusinessRequest = db.BusinessRequest
 PasswordResetRequest = db.PasswordResetRequest
-# Interaction = db.Interaction
 Statistic = db.Statistic
 
 #TODO:
@@ -596,7 +595,6 @@ class Clients extends API
         else
           callback null, success
 
-
   @updateWithPassword: (id, password, options, callback)->
     query = @_query()
     query.where('_id', id).where('password', password)
@@ -1000,8 +998,8 @@ class Polls extends API
     if !options.count
       query.sort("dates.start", -1)
       query.fields(fieldsToReturn); 
-      query.skip(options.skip)
-      query.limit(options.limit)
+      query.skip(options.skip || 0)
+      query.limit(options.limit || 25)
       query.exec callback
     else
       query.count callback
@@ -1113,6 +1111,7 @@ class Polls extends API
         
         transactionData = {
           amount: perResponse
+          timestamp: new Date()
         }
 
         entity = {
@@ -1164,6 +1163,7 @@ class Polls extends API
           media                    : 1,
           dates                    : 1,
           "funds.perResponse"      : 1
+
         }
         fieldsToReturn["responses.log.#{consumerId}"] = 1
     
@@ -1181,7 +1181,7 @@ class Polls extends API
         }
         query.type = if answers.length==1 then "single" else "multiple" #prevent injection of multiple answers for a single poll..
 
-        self.model.collection.findAndModify query, [], update, {new:true, safe:true}, fieldsToReturn, (error, poll)->
+        self.model.collection.findAndModify query, [], update, {new:true, safe:true, fields:fieldsToReturn}, (error, poll)->
           if error?
             cb error
             return
@@ -1857,52 +1857,6 @@ class PasswordResetRequests extends API
         key: hashlib.md5(globals.secretWord+email+(new Date().toString()))
       instance = new @model request
       instance.save callback
-        
-
-# class Interactions extends API
-#   @model: Interaction
-#   
-#   @add: (data, callback)->
-#     obj = {
-#       org: {
-#         type                : data.org.type
-#         id                  : data.org.id
-#       }
-#       consumerId            : data.consumerId
-#       interaction: {
-#         type                : data.interaction.type
-#         id                  : data.interaction.id
-#       }
-#       timestamp             : data.timestamp || new Date()
-#       data                  : data.data || {}
-#     }
-#     
-#     instance = new @model(obj)
-#     instance.save callback
-# 
-#   @haveInteractions: (org, consumerIds, callback)->
-#     query = @_query()
-#     query.where("org.type", org.type)
-#     query.where("org.id", org.id)
-#     query.in("consumerId", consumerIds)
-#     
-#     query.distinct("consumerId", callback)
-#     return
-#     
-#   @getInteractions: (org, consumerId, interactionType, callback)->
-#    query = @_query()
-#    query.where("org.type", org.type)
-#    query.where("org.id", org.id)
-#    query.where("consumerId", consumerId)
-#    query.where("interaction.type", interactionType)
-#    query.where()
-#    query.exec(callback)
-#    
-#    # query.exec (error, interactions)->
-#    #     for index in interactions
-#    #       interactions[index]
-#    #    
-#    #    interactionQuery = @_query()
 
 
 class Statistics extends API
@@ -1929,7 +1883,7 @@ class Statistics extends API
     return
 
   #Give me a list of people who have tapped in to a business before and therefore are customers
-  @listWithTapIns: (org, skip, callback)->
+  @withTapIns: (org, skip, callback)->
     query = Statistics.query()
     query.where("org.type", org.type)
     query.where("org.id", org.id)
@@ -1957,7 +1911,29 @@ class Statistics extends API
     query.exec(callback)
     return
 
-  @tapIn: (org, consumerId, spent, timestamp, callback)->
+  @pollAnswered: (org, consumerId, transactionId, timestamp, callback)->
+    if Object.isString(org.id)
+      org.id = new ObjectId(org.id)
+
+    if Object.isString(consumerId)
+      consumerId = new ObjectId(consumerId)
+
+    if Object.isString(transactionId)
+      transactionId = new ObjectId(transactionId)
+
+    $update = {
+      $set: {"data.polls.lastAnsweredDate": timestamp}
+      $inc: {"data.polls.totalAnswered": 1}
+      $push: {"transactions.ids": transactionId}
+    }
+
+    @model.collection.update {org: org, consumerId: consumerId}, $update, {safe: true, upsert: true }, callback
+
+  @discussionAnswered: (org, consumerId, transactionId, timestamp, callback)->
+    
+  @eventRsvped: (org, consumerId, transactionId, timestamp, callback)->
+    
+  @tapedIn: (org, consumerId, transactionId, spent, timestamp, callback)->
     query = @queryOne()
     query.where("org.type", org.type)
     query.where("org.id", org.id)
@@ -1970,10 +1946,19 @@ class Statistics extends API
     $set = {}
     $set["data.tapIns.lastVisited"] = new Date(timestamp) #if it is a string it will become a date hopefully
 
+    $push = {}
+    $push["transactions.ids"] = transactionId
+
+    $update = {
+      $set: $set
+      $inc: $inc
+      $push: $push
+    }
+
     query.update {$inc: $inc, $set: $set}, callback
     return
 
-  @inc: (org, consumerId, field, value, callback)->
+  @_inc: (org, consumerId, field, value, callback)->
     #default is to increment by 1
     if Object.isFunction(value)
       callback = value
@@ -1990,6 +1975,12 @@ class Statistics extends API
     query.update {$inc: $inc}, callback #will return the number of documents updated
     return
 
+  @setTransactonPending: @__setTransactionPending
+  @setTransactionProcessing: @__setTransactionProcessing
+  @setTransactionProcessed: @__setTransactionProcessed
+  @setTransactionError: @__setTransactionError
+
+
 exports.Clients = Clients
 exports.Consumers = Consumers
 exports.Businesses = Businesses
@@ -2005,5 +1996,4 @@ exports.Streams = Streams
 exports.BusinessTransactions = BusinessTransactions
 exports.BusinessRequests = BusinessRequests
 exports.PasswordResetRequests = PasswordResetRequests
-# exports.Interactions = Interactions
 exports.Statistics = Statistics
