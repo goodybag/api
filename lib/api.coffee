@@ -105,6 +105,7 @@ class API
 
   @get: (options, callback)->
     query = @optionParser(options)
+    logger.debug query
     query.exec callback
     return
     
@@ -342,14 +343,6 @@ class Consumers extends API
     query.only("_id", "screenName")
     query.in("_id", ids)
     query.exec callback
-
-  @one: (consumerId, callback)->
-    self = this
-    super.one consumerId (error, consumer)->
-      if error?
-        callback error #eventually we will be changing these db errors..so leave the if error .. else
-      else
-        callback null, consumer
 
   @facebookLogin: (accessToken, callback)->
     self = this
@@ -1573,36 +1566,6 @@ class Events extends API
       query.where('dates.actual').$gt Date.now()
     return query
   
-  @upcomingEvents = (limit, skip, callback)->
-    query = @_query()
-    query.where('dates.actual').$gt Date.now()
-    query.limit limit
-    query.skip skip
-    query.sort 'dates.actual', 1
-    query.exec (error, events)->
-      if error?
-        callback error
-      else
-        callback error, events
-
-  @soonestEvent = (callback)->
-    query = @model.findOne().sort 'dates.actual', 1
-    query.exec (error, event)->
-      if error?
-        callback error
-      else
-        callback error, event
-
-  # Retrieves the next latest event not in the passed in list of eventIds
-  @next = (eventIds, callback)->
-    query = @model.findOne {_id: {$nin: eventIds}}
-    query.sort 'dates.actual', -1
-    query.exec (error, event)->
-      if error?
-        callback error
-      else
-        callback error, event
-
   @unRsvp = (eventId, userId, callback)->
     if Object.isString eventId
       eventId = new ObjectId eventId
@@ -1639,24 +1602,7 @@ class Events extends API
       callback error, event
       if !error?
         tp.process(event, transaction)
-
-  # Get dates specified but support pagination
-  @getByDateDescLimit = (params, limit, page, callback)->
-    query = @model.find(params).sort 'dates.actual', 1
-    query.limit limit
-    query.skip(limit * page)
-    query.exec callback
-
-  @getOrderByDateDesc = (params, callback)->
-    query = @model.find(params).sort 'dates.actual', -1
-    query.exec callback
-
-  @getEventsRsvpdByUser = (id, order, callback)->
-    query = @_query()
-    query.where 'rsvp', id
-    if order == 1 || order == -1
-      query.sort 'dates.actual', order
-    query.exec callback
+  
 
   @setTransactonPending: @__setTransactionPending
   @setTransactionProcessing: @__setTransactionProcessing
