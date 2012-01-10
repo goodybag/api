@@ -10,7 +10,7 @@ globals = require "globals"
 loggers = require "./loggers"
 
 db = require "./db"
-tp = require "./transactions" #transaction processor 
+tp = require "./transactions" #transaction processor
 
 logger = loggers.api
 
@@ -82,6 +82,8 @@ class API
     return
 
   @update: (id, data, callback)->
+    if Object.isString(id)
+      id = new ObjectId(id)
     @model.findById id, (err, obj)->
       for own k,v of data
         obj[k] = v
@@ -389,8 +391,8 @@ class Consumers extends API
               else if consumerWithEmail?
                 callback new errors.ValidationError {"email":"Account with email already exists, please enter password."}
               else
-                #self.model.update {"facebook.id": fbid}, {$set: consumer, $inc: {loginCount:1}}, {}, (error, success)->
-                consumerModel = new self.model consumer
+                #self.model.update {'facebook.id': fbid}, {$set: consumer, $inc: {loginCount:1}}, {}, (error, success)->
+                consumerModel = new self.model(consumer)
                 consumerModel.save consumer, (error, success)->
                   if error?
                     callback error
@@ -522,6 +524,30 @@ class Clients extends API
         callback error #db error
       else
         callback null, client #if no client with that email will return null
+      return
+    return
+
+  @updateMedia: (id, guid, data, callback)->
+    if(Object.isString(id))
+      id = new ObjectId(id)
+    if(Object.isString(data.mediaId))
+      data.mediaId = new ObjectId(data.mediaId)
+    
+    query = @_query()
+    query.where("_id", id)
+    query.where("media.guid", guid)
+
+    set = {}
+    set["media.thumb"] = data.thumb
+    set["media.url"] = data.url
+    set["media.mediaId"] = data.mediaId
+    set["media.guid"] = data.guid #reset
+
+    query.update {$set:set}, (error, success)->
+      if error?
+        callback error #dberror
+      else
+        callback null, success
       return
     return
 
@@ -709,13 +735,41 @@ class Businesses extends API
         updateDoc['$pull']['groups.'+group] = clientId
         updateDoc['$unset']['clientGroups.'+clientId] = 1
         self.model.collection.update {_id: id}, updateDoc, callback
+      return
+    return
   
   @updateIdentity: (id, data, callback)->
+    if Object.isString(id)
+      id = new ObjectId(id)
     set = {}
     for own k,v of data
       if !utils.isBlank(v)
         set[k] = v
-    @model.collection.update {_id: new ObjectId(id)}, {$set: set}, {safe: true}, callback
+    @model.collection.update {_id: id}, {$set: set}, {safe: true}, callback
+  
+  @updateMedia: (id, guid, data, callback)->
+    if(Object.isString(id))
+      id = new ObjectId(id)
+    if(Object.isString(data.mediaId))
+      data.mediaId = new ObjectId(data.mediaId)
+    
+    query = @_query()
+    query.where("_id", id)
+    query.where("media.guid", data.guid)
+
+    set = {}
+    set["media.thumb"] = data.thumb
+    set["media.url"] = data.url
+    set["media.mediaId"] = data.mediaId
+    set["media.guid"] = data.guid #reset
+
+    query.update {$set:set}, (error, success)->
+      if error?
+        callback error #dberror
+      else
+        callback null, success
+      return
+    return
 
   @addLocation: (id, data, callback)->
     if Object.isString(id)
@@ -796,9 +850,40 @@ class Businesses extends API
     query.where('locations.tapins', true)
     query.exec callback
 
+class Campaigns extends API
+  @updateMedia: (entityType, entityId, guid, data, mediaKey, callback)->
+    if(Object.isString(entityId))
+      entityId = new ObjectId(entityId)
+    if(Object.isString(data.mediaId))
+      data.mediaId = new ObjectId(data.mediaId)
+    if(Object.isFunction(mediaKey))
+      callback = mediaKey
+      mediaKey = "media"
+    
+    query = @_query()
+    query.where("entity.type", entityType)
+    query.where("entity.id", entityId)
+    query.where("#{mediaKey}.guid", guid)
 
-class Polls extends API
+    set = {}
+    set["#{mediaKey}.thumb"] = data.thumb
+    set["#{mediaKey}.url"] = data.url
+    set["#{mediaKey}.mediaId"] = data.mediaId
+    set["#{mediaKey}.guid"] = data.guid #reset
+
+    query.update {$set:set}, (error, success)->
+      if error?
+        callback error #dberror
+      else
+        callback null, success
+      return
+    return
+
+class Polls extends Campaigns
   @model = Poll
+
+  #inherits from campaigns
+  #@updateMedia
 
   #options: name, businessid, type, businessname,showstats, answered, start, end, outoffunds
   @optionParser = (options, q) ->
@@ -812,6 +897,11 @@ class Polls extends API
   
   # @add = (data, amount, event, callback)-> #come back to this one, first transactions need to work
   @add: (data, amount, callback)->
+    if Object.isString(data.entity.id)
+      data.entity.id = new ObjectId data.entity.id
+    if Object.isString(data.mediaQuestion.mediaId) and data.mediaQuestion.mediaId.length>0
+      data.mediaQuestion.mediaId = new ObjectId data.mediaQuestion.mediaId
+
     instance = new @model(data)
 
     transactionData = {
@@ -826,13 +916,15 @@ class Polls extends API
     instance.transactions.log = [transaction]
 
     #instance.events = @_createEventsObj event
-
     instance.save (error, poll)->
+      logger.debug error
+      logger.debug poll
       callback error, poll
       if error?
-        return
+        logger.debug "error"
       else
         tp.process(poll, transaction)
+      return
     return
 
   @update: (pollId, data, newAllocated, perResponse, callback)->
@@ -872,14 +964,11 @@ class Polls extends API
       } 
       showStats       : data.showStats
       displayName     : data.displayName
-      displayMedia    : data.displayMedia
+      displayMediaQuestion    : data.displayMediaQuestion
+      displayMediaResults    : data.displayMediaResults
 
-      media: {
-        when          : data.media.when
-        url           : data.media.url
-        thumb         : data.media.thumb
-        guid          : data.media.guid
-      }
+      mediaQuestion : data.mediaQuestion
+      mediaResults  : data.mediaResults
     }
     
 
@@ -974,7 +1063,7 @@ class Polls extends API
             "funds.allocated"     : 1
         }
       when "errored"
-        query.where('transactions.state', choices.transactions.ERROR)
+        query.where('transactions.state', choices.transactions.states.ERROR)
         fieldsToReturn = {
             _id                   : 1,
             name                  : 1,
@@ -1064,6 +1153,7 @@ class Polls extends API
     fieldsToReturn["responses.log.#{consumerId}"] = 1 #consumer answer info., only their info.
     
     query.fields(fieldsToReturn)
+    query.sort("responses.log.#{consumerId}.timestamp",-1)
     query.exec (error, polls)->
       if error?
         callback error
@@ -1294,8 +1384,11 @@ class Polls extends API
   @setTransactionError: @__setTransactionError
       
       
-class Discussions extends API
+class Discussions extends Campaigns
   @model = Discussion
+
+  #inherits from campaigns
+  #@updateMedia
 
   @optionParser = (options, q)->
     query = @_optionParser(options, q)
@@ -1309,6 +1402,13 @@ class Discussions extends API
     return query
 
   @update: (entityType, entityId, discussionId, data, callback)->
+    if Object.isString(entityId)
+      entityId = new ObjectId(entityId)
+    if Object.isString(discussionId)
+      discussionId = new ObjectId(discussionId)
+    if Object.isString(data.media.mediaId) && data.media.mediaId.length>0
+      data.media.mediaId = new ObjectId(data.media.mediaId)
+    
     @getByEntity entityType, entityId, discussionId, (error, discussion)->
       if error?
         callback error, discussion
@@ -1318,10 +1418,14 @@ class Discussions extends API
         else
           for own k,v of data
             discussion[k] = v
+          logger.debug "discusison"
+          logger.debug "discusison"
+          logger.debug "discusison"
+          logger.debug discussion
           discussion.save callback
       return
     return
-    
+
   @add = (data, amount, callback)->
     instance = new @model(data)
 
@@ -1481,9 +1585,20 @@ class Responses extends API
 class Medias extends API
   @model = Media
   
+  @addOrUpdate: (media, callback)->
+    if Object.isString(media.entity.id)
+      media.entity.id = new ObjectId media.entity.id
+    @model.collection.findAndModify {guid:media.guid},[], {$set:media}, {new: true, safe: true, upsert:true}, (error, mediaCreated)->
+      if error?
+        callback error #dberror
+        return
+      logger.debug mediaCreated
+      callback null, mediaCreated
+      return
+    return
+
   @optionParser = (options, q)->
     query = @_optionParser(options, q)
-    
     query.where('entity.type', options.entityType) if options.entityType?
     query.where('entity.id', options.entityId) if options.entityId?
     query.where('type', options.type) if options.type?
@@ -1495,7 +1610,7 @@ class Medias extends API
     return query
 
   #type is either image or video
-  @getByEntity = (entityType, entityId, type, callback)->
+  @getByEntity: (entityType, entityId, type, callback)->
     if Object.isFunction(type)
       callback = type
       @get {entityType: entityType, entityId: entityId}, callback
@@ -1505,7 +1620,7 @@ class Medias extends API
       #@get {'entity.type': choices.entities.BUSINESS, 'entity.id': entityId, type: type}, callback
     return
 
-  @getByGuid = (entityType, entityId, guid, callback)->
+  @getByGuid: (entityType, entityId, guid, callback)->
     @get {entityType: entityType, entityId: entityId, guid: guid}, callback
     #@get {'entity.type': entityType, 'entity.id': entityId, 'media.guid': guid}, callback
 
