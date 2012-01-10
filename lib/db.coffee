@@ -24,6 +24,7 @@ Email = /^(([^<>()[\]\\.,;:\s@\"]+(\.[^<>()[\]\\.,;:\s@\"]+)*)|(\".+\"))@((\[[0-
 Entity = new Schema {
   type            : {type: String, required: true, enum: choices.entities._enum}
   id              : {type: ObjectId, required: true}
+  name            : {type: String}
 }
 
 

@@ -950,6 +950,12 @@ class Polls extends Campaigns
         id            : data.entity.id
         name          : data.entity.name
       }
+
+      lastModifiedBy: {
+        type          : data.lastModifiedBy.type
+        id            : data.lastModifiedBy.id
+      }
+
       name            : data.name
       type            : data.type
       question        : data.question
@@ -1095,18 +1101,23 @@ class Polls extends Campaigns
       query.count callback
     return
   
-  @del: (entityType, entityId, pollId, callback)->
+  @del: (entityType, entityId, pollId, lastModifiedBy, callback)->
     self = this
     if Object.isString(entityId)
       entityId = new ObjectId(entityId)
     if Object.isString(pollId)
       pollId = new ObjectId(pollId)
+    if Object.isString(lastModifiedBy.id)
+      lastModifiedBy.id = new ObjectId(lastModifiedBy.id)
 
     entity = {}
     transactionData = {}
     transaction = self.createTransaction choices.transactions.states.PENDING, choices.transactions.actions.POLL_DELETED, transactionData, choices.transactions.directions.OUTBOUND, entity
     
     $set = {
+      "lastModifiedBy.type": lastModifiedBy.type
+      "lastModifiedBy.id": lastModifiedBy.id
+
       "deleted": true
       "transactions.locked": true #THIS IS A LOCKING TRANSACTION, SO IF ANYONE ELSE TRIES TO DO A LOKCING TRANSACTION IT WILL NOT HAPPEN (AS LONG AS YOU CHECK FOR THAT)
       "transactions.state": choices.transactions.states.PENDING
@@ -1743,7 +1754,8 @@ class Events extends API
     $options = {remove: false, new: true, upsert: false}
     @model.collection.findAndModify $query, [], $update, $options, (error, event)->
       callback error, event
-      Streams.eventRsvped
+      who = {type: choices.entities.CONSUMER, id: userId}
+      Streams.eventRsvped who, event
 
   # Get dates specified but support pagination
   @getByDateDescLimit = (params, limit, page, callback)->
@@ -1852,6 +1864,7 @@ class Streams extends API
       events            : stream.events
       private           : stream.private || false #default to public
       data              : stream.data || {}
+      feeds             : stream.feeds
       dates: {
         created         : new Date()
         lastModified    : new Date()
@@ -1993,7 +2006,6 @@ class Streams extends API
     @add stream, callback
 
   @pollAnswered: (who, timestamp, pollDoc, callback)->
-    logger.debug pollDoc
     if Object.isString(who.id)
       who.id = new ObjectId(who.id)
 
@@ -2027,6 +2039,38 @@ class Streams extends API
 
     @add stream, callback
 
+  @eventRsvped: (who, eventDoc, callback)->
+    if Object.isString(who.id)
+      who.id = new ObjectId(who.id)
+
+    event = {type: choices.objects.EVENT, id: eventDoc._id}
+    stream = {
+      who               : who
+      entitiesInvolved  : [who, eventDoc.entity]
+      what              : event
+      when              : new Date()
+      events            : [choices.eventTypes.EVENT_RSVPED]
+      data              : {}
+      feeds: {
+        global          : true
+      }
+      private: false #THIS NEEDS TO BE UPDATED BASED ON PRIVACY SETTINGS OF WHO (if consumer)
+    }
+
+    stream.data = {
+      event: {
+        entity:{
+          name: eventDoc.entity.name
+        }
+        locationId: eventDoc.locationId
+        location: eventDoc.location
+        dates:{
+          actual: eventDoc.dates.actual
+        }
+      }
+    }
+
+    @add stream, callback
   ###
   example1: client created a poll:
     who = client
