@@ -1619,17 +1619,8 @@ class Events extends API
     if Object.isString userId
       userId = new ObjectId userId
 
-    entity = {
-      type: choices.entities.CONSUMER
-      id: userId
-    }
-    transactionData = {}
-    transaction = @createTransaction choices.transactions.states.PENDING, choices.transactions.actions.EVENT_EVENT_RSVPED, transactionData, choices.transactions.directions.OUTBOUND, entity
-    
     $push = {
       rsvp: userId
-      "transactions.ids": transaction.id
-      "transactions.log": transaction
     }
     
     $query = {_id: eventId}
@@ -1637,8 +1628,7 @@ class Events extends API
     $options = {remove: false, new: true, upsert: false}
     @model.collection.findAndModify $query, [], $update, $options, (error, event)->
       callback error, event
-      if !error?
-        tp.process(event, transaction)
+      Streams.eventRsvped
 
   # Get dates specified but support pagination
   @getByDateDescLimit = (params, limit, page, callback)->

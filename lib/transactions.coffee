@@ -148,33 +148,6 @@ _depositFunds = (classTo, initialTransactionClass, document, transaction, lockin
       callback(null, doc)
     return
 
-# _writeToStream = (document, transaction, eventType, message, data, callback)->
-#   #@add = (entity, eventType, eventId, documentId, timestamp, data, callback)
-#   api.Streams.add transaction.entity, eventType, transaction.id, document._id, transaction.dates.created, message, data, (error, stream)->
-#     if error?
-#       logger.error "#{prepend} writing to stream failed"
-#       #check if it exists - it will return an error if there is a unique index contraint set (one per transaction?)
-#       callback error
-#     else if !stream?
-#       _checkIfTransactionExists api.Streams, transaction.entity.id, transaction.id, (error, trans)->
-
-#         if error?
-#           callback(error)
-#           return
-#         else if stream2?
-#           #it exists, so we're good
-#           logger.info "#{prepend} action already in stream"
-#           callback(null, stream2)
-#           return
-#         else
-#           logger.info
-#           callback {name: "NullError", message: "Could Not Write To "}, null
-#           return
-#       logger.warn "#{prepend} action may have already been written to the stream"
-#     else
-#       callback null, stream
-
-
 #INBOUND
 pollCreated = (document, transaction)->
   prepend = "ID: #{document._id} - TID: #{transaction.id}"
