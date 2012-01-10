@@ -892,8 +892,10 @@ class Polls extends Campaigns
   @add: (data, amount, callback)->
     if Object.isString(data.entity.id)
       data.entity.id = new ObjectId data.entity.id
-    if Object.isString(data.mediaQuestion.mediaId) and data.mediaQuestion.mediaId.length>0
+    if data.mediaQuestion and Object.isString(data.mediaQuestion.mediaId) and data.mediaQuestion.mediaId.length>0
       data.mediaQuestion.mediaId = new ObjectId data.mediaQuestion.mediaId
+    if data.mediaResults? and Object.isString(data.mediaResults.mediaId) and data.mediaResults.mediaId.length>0
+      data.mediaResults.mediaId = new ObjectId data.mediaResults.mediaId
 
     instance = new @model(data)
 
@@ -1399,7 +1401,7 @@ class Discussions extends Campaigns
       entityId = new ObjectId(entityId)
     if Object.isString(discussionId)
       discussionId = new ObjectId(discussionId)
-    if Object.isString(data.media.mediaId) && data.media.mediaId.length>0
+    if data.media? and Object.isString(data.media.mediaId) and data.media.mediaId.length>0
       data.media.mediaId = new ObjectId(data.media.mediaId)
     
     @getByEntity entityType, entityId, discussionId, (error, discussion)->
