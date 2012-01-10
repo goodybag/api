@@ -434,7 +434,9 @@ pollAnswered = (document, transaction)->
   setProcessed = true #setProcessed, unless something sets this to false
   async.series {
     setProcessing: (callback)->
-      _setTransactionProcessing api.Polls, document, transaction, false, callback
+      _setTransactionProcessing api.Polls, document, transaction, false, (error, doc)->
+        document = doc #we do this because the entities object is missing when the poll is answered
+        callback error, doc
       return
     depositFunds: (callback)->
       if transaction.entity.type is choices.entities.CONSUMER
@@ -486,7 +488,7 @@ pollAnswered = (document, transaction)->
       #, no other state changes need to occur
 
       #Write to the event stream
-      #api.Streams.pollAnswered(transaction.entity, transaction.data.timestamp, document) #we don't care about the callback
+      api.Streams.pollAnswered(transaction.entity, transaction.data.timestamp, document) #we don't care about the callback
   },
   (error, results)->
     if error?
