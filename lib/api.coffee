@@ -1063,7 +1063,7 @@ class Polls extends API
     fieldsToReturn["responses.log.#{consumerId}"] = 1 #consumer answer info., only their info.
     
     query.fields(fieldsToReturn)
-    query.sort("responses.log.#{consumerId}.timestamp",-1)
+    query.sort("responses.log.#{consumerId}.timestamp",-1) #REWRITE - BOTTLENECK
     query.exec (error, polls)->
       if error?
         callback error
