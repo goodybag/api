@@ -18,6 +18,23 @@ Url = /(ftp|http|https):\/\/(\w+:{0,1}\w*@)?(\S+)(:[0-9]+)?(\/|\/([\w#!:.?+=&%@!
 Email = /^(([^<>()[\]\\.,;:\s@\"]+(\.[^<>()[\]\\.,;:\s@\"]+)*)|(\".+\"))@((\[[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\])|(([a-zA-Z\-0-9]+\.)+[a-zA-Z]{2,}))$/
 
 
+###############
+# ENTITY ######
+###############
+Entity = new Schema {
+  type            : {type: String, required: true, enum: choices.entities._enum}
+  id              : {type: ObjectId, required: true}
+}
+
+
+##################
+# REFERENCE ######
+##################
+Reference = new Schema {
+  type            : {type:String, required: true}
+  id              : {type: ObjectId, required: true}
+}
+
 ####################
 # TRANSACTION ######
 ####################
@@ -79,6 +96,15 @@ Location = new Schema {
 ###################################################################
 ###################################################################
 
+reference = {
+  type            : {type:String, required: true}
+  id              : {type: ObjectId, required: true}
+}
+
+entity = {
+  type              : {type: String, required: true, enum: choices.entities._enum}
+  id                : {type: ObjectId, required: true}
+}
 
 organization = {
   type              : {type: String, required: true, enum: choices.organizations._enum}
@@ -99,7 +125,6 @@ media = {
   thumb             : {type: String, validate: Url}
   guid              : {type: String}
 }
-
 
 ###################################################################
 ###################################################################
@@ -241,6 +266,17 @@ Poll = new Schema {
     id                : {type: ObjectId, required: true}
     name              : {type: String}
   }
+
+  createdBy: { #if it was created by a business or any other organization type, we want to know by which user in that organization otherwise just the consumer
+    type              : {type: String, required: true, enum: choices.entities._enum}
+    id                : {type: ObjectId, required: true}
+  }
+
+  lastModifiedBy: { #if it was created by a business or any other organization type, we want to know by which user in that organization otherwise just the consumer
+    type              : {type: String, required: true, enum: choices.entities._enum}
+    id                : {type: ObjectId, required: true}
+  }
+
   name                : {type: String, required: true}
   type                : {type: String, required: true, enum: choices.polls.type._enum}
   question            : {type: String, required: true}
@@ -436,27 +472,47 @@ ClientInvitation.index {businessId: 1, groupName: 1, email: 1}, {unique: true}
 # Stream ###########
 ####################
 Stream = new Schema {
-  eventType     : {type: String, required: true, enum: choices.eventTypes._enum}
-  eventId       : {type: ObjectId, required: true} #unique
-  entity: {
-    type        : {type: String, required: true, enum: choices.entities._enum}
-    id          : {type: ObjectId, required: true}
-    name        : {type: String}
+  who                 : entity
+  by: { # if who is an organization, then which user in that organization
+    type              : {type: String, enum: choices.entities._enum}
+    id                : {type: ObjectId}
   }
-  documentId    : {type: ObjectId, required: true}
-  message       : {type: String}
+  entitiesInvolved    : [Entity]
+  what                : reference #the document this stream object is about
+  when                : {type: Date, required: true, default: new Date()}
+  where: {
+    org: {
+      type            : {type: String, enum: choices.entities._enum}
+      id              : {type: ObjectId}
+      name            : {type: String}
+    }
+    locationId        : {type: ObjectId}
+    locationName      : {type: String}
+  }
+  events              : [{type:String, required: true, enum: choices.eventTypes}]
+  feeds: {
+    global            : {type: Boolean, required: true, default: false}
+  }
   dates: {
-    event       : {type: Date, required: true} #event date/time
-    created     : {type: Date, default: new Date( (new Date()).toUTCString() )} #timestamp added to the stream
+    created           : {type: Date, default: new Date( (new Date()).toUTCString() )} 
+    lastModified      : {type: Date}
   }
-  data          : {}
+  data                : {}#eventTypes to info mapping:=> eventType: {id: XX, extraFF: GG}
+  private             : {type: Boolean, required: true, default: false}
+  deleted             : {type: Boolean, default: false}
 
   transactions: transactions
-
-  deleted             : {type: Boolean, default: false}
 }
 
 #indexes
+Stream.index {"feeds.global": 1, "who.type": 1, "who.id": 1, events: 1}
+Stream.index {"who.type": 1, "who.id": 1, events: 1}
+Stream.index {"who.type": 1, "who.id": 1, "by.type": 1, "by.id": 1, events: 1}
+Stream.index {"what.type": 1, "what.id": 1}
+Stream.index {when: 1}
+Stream.index {events: 1}
+Stream.index {"entitiesInvolved.type": 1, "entitiesInvolved.id": 1, "who.type": 1, "who.id": 1}
+Stream.index {"where.org.type": 1, "where.org.id": 1}
 
 
 ####################
@@ -464,6 +520,7 @@ Stream = new Schema {
 ####################
 Tag = new Schema {
   name: {type: String, required: true}
+  #category: {type: String, required: true}
 
   transactions: transactions
 }

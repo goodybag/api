@@ -810,7 +810,7 @@ class Polls extends API
     return query
   
   # @add = (data, amount, event, callback)-> #come back to this one, first transactions need to work
-  @add = (data, amount, callback)->
+  @add: (data, amount, callback)->
     instance = new @model(data)
 
     transactionData = {
@@ -1734,38 +1734,257 @@ class BusinessRequests extends API
 
     
 class Streams extends API
-  @model = Stream
+  @model: Stream
 
-  @add = (entity, eventType, eventId, documentId, timestamp, message, data, callback)->
-    if Object.isString(message)
-      message = message
-      
-    if Object.isFunction(data)
-      callback = data
-      data = {}
-    
-    stream = {
-      eventType : eventType
-      eventId   : eventId
-      entity    : entity
-      documentId: documentId
-      message   : message
-      data      : data
-
+  @add: (stream, callback)->
+    model = {
+      who               : stream.who
+      by                : stream.by
+      entitiesInvolved  : stream.entitiesInvolved
+      what              : stream.what
+      when              : stream.when || new Date()
+      where             : stream.where
+      events            : stream.events
+      private           : stream.private || false #default to public
+      data              : stream.data || {}
       dates: {
-        event   : timestamp
+        created         : new Date()
+        lastModified    : new Date()
       }
     }
 
-    instance = new @model(stream)
-
+    instance = new @model(model)
     instance.save callback
 
-  @getLatest = (entity, limit, offset, callback)->
+  @pollCreated: (pollDoc, callback)->
+    if Object.isString(pollDoc._id)
+      pollDoc._id = new ObjectId(pollDoc._id)
+
+    if Object.isString(pollDoc.entity.id)
+      pollDoc.entity.id = new ObjectId(pollDoc.entity.id)
+
+    if Object.isString(pollDoc.createdBy.id)
+      pollDoc.createdBy.id = new ObjectId(pollDoc.createdBy.id)
+
+    who = {type: pollDoc.entity.type, id: pollDoc.entity.id} #who ever created it
+    poll = {type: choices.objects.POLL, id: pollDoc._id }
+    user = undefined #will be set only if document.entity is an organization and not a consumer
+
+    if who.type is choices.entities.BUSINESS
+      user = {type: pollDoc.createdBy.type, id: pollDoc.createdBy.id}
+
+    stream = {
+      who               : who
+      entitiesInvolved  : [who]
+      what              : poll
+      when              : pollDoc.dates.created
+      #where: 
+      events            : [choices.eventTypes.POLL_CREATED]
+      data              : {}
+      feeds: {
+        global          : false
+      }
+      private: false #THIS NEEDS TO BE UPDATED BASED ON PRIVACY SETTINGS OF WHO (if consumer)
+    }
+
+    if user?
+      stream.by = user
+      stream.entitiesInvolved.push(user)
+
+    stream.data = {
+      poll:{
+        name: pollDoc.name
+      }
+    }
+
+    logger.debug stream
+
+    @add stream, callback
+
+  @pollUpdated: (pollDoc, callback)->
+    if Object.isString(pollDoc._id)
+      pollDoc._id = new ObjectId(pollDoc._id)
+
+    if Object.isString(pollDoc.entity.id)
+      pollDoc.entity.id = new ObjectId(pollDoc.entity.id)
+
+    if Object.isString(pollDoc.lastModifiedBy.id)
+      pollDoc.lastModifiedBy.id = new ObjectId(pollDoc.lastModifiedBy.id)
+
+    who = {type: pollDoc.entity.type, id: pollDoc.entity.id} #who ever created it
+    poll = {type: choices.objects.POLL, id: pollDoc._id }
+    user = undefined #will be set only if document.entity is an organization and not a consumer
+
+    if who.type is choices.entities.BUSINESS
+      user = {type: pollDoc.lastModifiedBy.type, id: pollDoc.lastModifiedBy.id}
+
+    stream = {
+      who               : who
+      entitiesInvolved  : [who]
+      what              : poll
+      when              : pollDoc.dates.lastModified
+      #where: 
+      events            : [choices.eventTypes.POLL_UPDATED]
+      data              : {}
+      feeds: {
+        global          : false
+      }
+      private: false #THIS NEEDS TO BE UPDATED BASED ON PRIVACY SETTINGS OF WHO (if consumer)
+    }
+
+    if user?
+      stream.by = user
+      stream.entitiesInvolved.push(user)
+
+    stream.data = {
+      poll:{
+        name: pollDoc.name
+      }
+    }
+
+    @add stream, callback
+
+  @pollDeleted: (pollDoc, callback)->
+    if Object.isString(pollDoc._id)
+      pollDoc._id = new ObjectId(pollDoc._id)
+
+    if Object.isString(pollDoc.entity.id)
+      pollDoc.entity.id = new ObjectId(pollDoc.entity.id)
+
+    if Object.isString(pollDoc.lastModifiedBy.id)
+      pollDoc.lastModifiedBy.id = new ObjectId(pollDoc.lastModifiedBy.id)
+
+    who = {type: pollDoc.entity.type, id: pollDoc.entity.id} #who ever created it
+    poll = {type: choices.objects.POLL, id: pollDoc._id }
+    user = undefined #will be set only if document.entity is an organization and not a consumer
+
+    if who.type is choices.entities.BUSINESS
+      user = {type: pollDoc.lastModifiedBy.type, id: pollDoc.lastModifiedBy.id}
+
+    stream = {
+      who               : who
+      entitiesInvolved  : [who]
+      what              : poll
+      when              : pollDoc.dates.lastModified
+      #where: 
+      events            : [choices.eventTypes.POLL_DELETED]
+      data              : {}
+      feeds: {
+        global          : false
+      }
+      private: false #THIS NEEDS TO BE UPDATED BASED ON PRIVACY SETTINGS OF WHO (if consumer)
+    }
+
+    if user?
+      stream.by = user
+      stream.entitiesInvolved.push(user)
+
+    stream.data = {
+      poll:{
+        name: pollDoc.name
+      }
+    }
+
+    @add stream, callback
+
+  @pollAnswered: (who, timestamp, pollDoc, callback)->
+    logger.debug pollDoc
+    if Object.isString(who.id)
+      who.id = new ObjectId(who.id)
+
+    if Object.isString(pollDoc._id)
+      pollDoc._id = new ObjectId(pollDoc._id)
+
+    if Object.isString(pollDoc.entity.id)
+      pollDoc.entity.id = new ObjectId(pollDoc.entity.id)
+
+    poll = {type: choices.objects.POLL, id: pollDoc._id }
+
+    stream = {
+      who               : who
+      entitiesInvolved  : [who, pollDoc.entity]
+      what              : poll
+      when              : timestamp
+      #where: 
+      events            : [choices.eventTypes.POLL_ANSWERED]
+      data              : {}
+      feeds: {
+        global          : false
+      }
+      private: false #THIS NEEDS TO BE UPDATED BASED ON PRIVACY SETTINGS OF WHO (if consumer)
+    }
+
+    stream.data = {
+      poll:{
+        name: pollDoc.name
+      }
+    }
+
+    @add stream, callback
+
+  ###
+  example1: client created a poll:
+    who = client
+    what = [client, business, poll]
+    when = timestamp that poll was created
+    where = undefined
+    events = [pollCreated]
+    entitiesInvolved = [client, business]
+    data:
+      pollCreated:
+        pollId: ObjectId
+        pollName: String
+        businessId: ObjectId
+  ###
+
+  ###
+  example2: consumer created a poll:
+    who = consumer
+    what = [consumer, poll]
+    when = timestamp that poll was created
+    where = undefined
+    events = [pollCreated]
+    entitiesInvolved = [client]
+    data:
+      pollCreated:
+        pollId: ObjectId
+        pollName: String
+  ###
+
+  ###
+  example3: consumer attend an event and tapped in:
+    who = consumer
+    what = [consumer, business, businessTransaction]
+    when = timestamp the user tappedIn
+    where: undefined
+      org:
+        type: business
+        id: ObjectId
+      orgName: String
+      locationId: ObjectId
+      locationName: String
+    events = [attended, eventTapIn]
+    entitiesInvolved = [client, business]
+    data:
+      eventTapIn:
+        eventId: ObjectId
+        businessTransactionId: ObjectId
+        spent: XX.xx
+  ###
+
+  @global: (skip, callback)->
+    query = @query()
+    query.limit 25
+    query.skip skip || 0
+    query.sort "dates.lastModified", -1
+
+    query.exec callback
+
+  @getLatest: (entity, limit, offset, callback)->
     query = @_query()
     query.limit limit
     query.skip offset
-    query.sort "dates.event", -1
+    query.sort "dates.lastModified", -1
     if entity?
       query.where "entity.type", entity.type
       query.where "entity.id", entity.id
