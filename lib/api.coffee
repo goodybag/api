@@ -63,10 +63,10 @@ class API
     query = q || @_query()
 
     if options.limit?
-      query.limit(options.limit)
+      query.limit options.limit
       
     if options.skip?
-      query.skip(options.skip)
+      query.skip options.skip
     
     if options.sort?
       query.sort options.sort.field, options.sort.direction
@@ -631,11 +631,12 @@ class Clients extends API
 
 class Businesses extends API
   @model = Business
-  
+
   #clientid, limit, skip
   @optionParser = (options, q)->
     query = @_optionParser(options, q)
     query.in('clients', [options.clientId]) if options.clientId?
+    query.where 'locations.tapins', true if options.tapins?
     return query
     
   @add = (clientId, data, callback)->
@@ -801,7 +802,7 @@ class Polls extends API
 
   #options: name, businessid, type, businessname,showstats, answered, start, end, outoffunds
   @optionParser = (options, q) ->
-    query = q || @_query()
+    query = @_optionParser options, q
     query.where('entity.type', options.entityType) if options.entityType?
     query.where('entity.id', options.entityId) if options.entityId?
     query.where('dates.start').gte(options.start) if options.start?
@@ -1045,10 +1046,10 @@ class Polls extends API
         tp.process(poll, transaction)
     return
 
-  @answered = (consumerId, skip, limit, callback)->
+  @answered = (consumerId, options, callback)->
     if Object.isString(consumerId)
       consumerId = new ObjectId(consumerId)
-    query = @_query()
+    query = @optionParser(options)
     query.where('responses.consumers',consumerId)
     fieldsToReturn = {
         _id                 : 1,
@@ -1063,7 +1064,6 @@ class Polls extends API
     fieldsToReturn["responses.log.#{consumerId}"] = 1 #consumer answer info., only their info.
     
     query.fields(fieldsToReturn)
-    query.sort("responses.log.#{consumerId}.timestamp",-1)
     query.exec (error, polls)->
       if error?
         callback error
@@ -1565,12 +1565,14 @@ class EventRequests extends API
 class Events extends API
   @model = Event
 
-  @get: (options, callback)->
-    query = @optionParser(options)
+  @optionParser: (options, q)->
+    query = @_optionParser options, q
+    if options.not?
+      query.where('_id').$ne options.not
     if options.upcoming?
       query.where('dates.actual').$gt Date.now()
-    query.exec callback
-
+    return query
+  
   @upcomingEvents = (limit, skip, callback)->
     query = @_query()
     query.where('dates.actual').$gt Date.now()
@@ -1600,13 +1602,6 @@ class Events extends API
         callback error
       else
         callback error, event
-
-  @isUserRsvpd = (eventId, userId, callback)->
-    @model.findOne {_id: eventId, rsvp: userId}, (error, event)->
-      if error?
-        callback error
-      else
-        callback error, true
 
   @unRsvp = (eventId, userId, callback)->
     if Object.isString eventId
