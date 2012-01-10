@@ -61,7 +61,7 @@ Transaction = new Schema {
   
   #DEPOSIT OR DEDUCT TO/FROM WHOM? (Sometimes we may use the entity object in the document itself)
   entity: {
-    type          : {type: String, required: true, enum: choices.entities._enumuu}
+    type          : {type: String, required: true, enum: choices.entities._enum}
     id            : {type: ObjectId, required: true}
     name          : {type: String}
   }
@@ -124,6 +124,7 @@ media = {
   url               : {type: String, validate: Url} #video or image
   thumb             : {type: String, validate: Url}
   guid              : {type: String}
+  mediaId           : {type: ObjectId}
 }
 
 ###################################################################
@@ -284,7 +285,8 @@ Poll = new Schema {
   numChoices          : {type: Number, required: true}
   showStats           : {type: Boolean, required: true} #whether to display the stats to the user or not
   displayName         : {type: Boolean, required: true}
-  displayMedia        : {type: Boolean, required: true}
+  displayMediaQuestion : {type: Boolean, required: true}
+  displayMediaResults  : {type: Boolean, required: true}
   responses: {
     remaining     : {type: Number,   required: true} #decrement each response
     max           : {type: Number,   required: true}
@@ -298,12 +300,8 @@ Poll = new Schema {
     skipCount     : {type: Number,   required: true, default: 0}
   }
   
-  media: {
-    when          : {type: String, required: true, enum: choices.polls.media.when._enum, default: choices.polls.media.when.NEVER } #when to display
-    url           : {type: String, validate: Url} #video or image
-    thumb         : {type: String, validate: Url}
-    guid          : {type: String}
-  }
+  mediaQuestion: media #if changed please update api calls, transloadit hook, frontend code (uploadify/transloadit)
+  mediaResults: media #if changed please update api calls, transloadit hook, frontend code (uploadify/transloadit)
   dates: {
     created           : {type: Date, required: true, default: new Date( (new Date()).toUTCString() )}
     start             : {type: Date, required: true}
@@ -346,7 +344,6 @@ Discussion = new Schema {
     flagCount     : {type: Number,   required: true, default: 0}
   }
   media: media
-  
   dates: {
     created           : {type: Date, required: true, default: new Date( (new Date()).toUTCString() )}
     start             : {type: Date, required: true, default: new Date( (new Date()).toUTCString() )}
@@ -419,16 +416,9 @@ Media = new Schema {
   }
   type        : {type: String, required: true, enum: choices.media.type._enum}
   name        : {type: String, required: true}
-  url         : {type: String, validate: Url}
   duration    : {type: Number}
-  fileSize    : {type: Number}
-  thumb       : {type: String, validate: Url}
   thumbs      : [] #only populated if video
-  sizes: { #only for images, not yet implemented in transloaded's template, or api
-    small     : {type: String, validate: Url}
-    medium    : {type: String, validate: Url}
-    large     : {type: String, validate: Url}
-  }
+  sizes       : {} #only for images, not yet implemented in transloaded's template, or api
   tags        : []
   dates: {
     created   : {type: Date, required: true, default: new Date( (new Date()).toUTCString() )}
