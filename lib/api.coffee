@@ -2121,12 +2121,19 @@ class Streams extends API
         spent: XX.xx
   ###
 
-  @global: (skip, callback)->
-    query = @query()
-    query.limit 25
-    query.skip skip || 0
+  @global: (options, callback)->
+    query = @optionParser(options)
+    query.where "feeds.global", true
     query.sort "dates.lastModified", -1
 
+    query.exec callback
+
+  @consumerPersonal: (consumerId, options, callback)->
+    query = @optionParser(options)
+    query.sort "dates.lastModified", -1
+    
+    query.where "who.type", choices.entities.CONSUMER
+    query.where "who.id", consumerId
     query.exec callback
 
   @getLatest: (entity, limit, offset, callback)->

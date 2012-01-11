@@ -609,9 +609,10 @@ BusinessTransaction = new Schema {
     name                : {type: String}
   }
 
-  barcodeId             : {type: String}
-  registerId            : {type: String, required: true}
   locationId            : {type: ObjectId, required: true}
+  registerId            : {type: String, required: true}
+  barcodeId             : {type: String}
+  transactionId         : {type: String} #if their data has a transaction number we put it here
   date                  : {type: Date, required: true}
   time                  : {type: Date, required: true}
   amount                : {type: Number, required: true}
