@@ -2104,6 +2104,25 @@ class Streams extends API
     ]
     query.exec callback
 
+  @businessWithConsumerByScreenName: (businessId, screenName, options, callback)->
+    query = @optionParser(options)
+    query.sort "dates.lastModified", -1
+    query.where "entitiesInvolved.type", choices.entities.BUSINESS
+    query.where "entitiesInvolved.id", businessId
+    query.where "who.type", choices.entities.CONSUMER
+    query.where "who.screenName", screenName
+    query.fields [
+      "who.type"
+      , "who.screenName"
+      , "what"
+      , "when"
+      , "where"
+      , "events"
+      , "dates"
+      , "data"
+    ]
+    query.exec callback
+
   @consumerPersonal: (consumerId, options, callback)->
     query = @optionParser(options)
     query.sort "dates.lastModified", -1
