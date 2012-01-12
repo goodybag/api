@@ -489,7 +489,6 @@ Stream = new Schema {
     lastModified      : {type: Date}
   }
   data                : {}#eventTypes to info mapping:=> eventType: {id: XX, extraFF: GG}
-  private             : {type: Boolean, required: true, default: false}
   deleted             : {type: Boolean, default: false}
 
   transactions: transactions
