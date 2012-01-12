@@ -43,23 +43,23 @@ Transaction = new Schema {
   id              : {type: ObjectId, required: true}
   state           : {type: String, required: true, enum: choices.transactions.states._enum}
   action          : {type: String, required: true, enum: choices.transactions.actions._enum}
-   
+
   error: {
     message       : {type: String}
   }
-  
+
   dates: {
     created       : {type: Date, required: true, default: new Date( (new Date()).toUTCString() )}
     completed     : {type: Date}
     lastModified  : {type: Date, required: true, default: new Date( (new Date()).toUTCString() )}
   }
-  
+
   #EXTRA INFO GOES IN HERE
   data: {}
-  
+
   #INBOUND = DEPOST, OUTBOUND = WIDTHDRAWL
   direction       : {type: String, required: true, enum: choices.transactions.directions._enum}
-  
+
   #DEPOSIT OR DEDUCT TO/FROM WHOM? (Sometimes we may use the entity object in the document itself)
   entity: {
     type          : {type: String, required: true, enum: choices.entities._enum}
@@ -157,7 +157,7 @@ Consumer = new Schema {
   lastName        : {type: String, required: true}
   screenName      : {type: String, default: mongoose.Types.ObjectId.createPk(), unique: true}
   setScreenName   : {type: Boolean, default: false}
-  facebook: {           
+  facebook: {
     access_token  : String
     #id            : Number
   }
@@ -170,7 +170,7 @@ Consumer = new Schema {
     allocated     : {type: Number, default: 0.0}
     remaining     : {type: Number, default: 0.0}
   }
- 
+
   transactions: transactions
 
 }
@@ -196,7 +196,7 @@ Client = new Schema {
     allocated   : {type: Number, required: true, default: 0.0}
     remaining   : {type: Number, required: true, default: 0.0}
   }
-  
+
   transactions: transactions
 
 }
@@ -226,7 +226,7 @@ Business = new Schema {
   locations     : [Location]
 
   media: media
-  
+
   clients       : [ObjectId] #clientIds
   clientGroups  : {} #{clientId: group}
   groups: {
@@ -300,7 +300,7 @@ Poll = new Schema {
     skipConsumers : [type: ObjectId, required: true, default: new Array()]
     skipCount     : {type: Number,   required: true, default: 0}
   }
-  
+
   mediaQuestion: media #if changed please update api calls, transloadit hook, frontend code (uploadify/transloadit)
   mediaResults: media #if changed please update api calls, transloadit hook, frontend code (uploadify/transloadit)
   dates: {
@@ -314,7 +314,7 @@ Poll = new Schema {
     remaining         : {type: Number, required: true, default: 0.0}
   }
 
-  
+
   transactions: transactions
 
   deleted             : {type: Boolean, default: false}
@@ -349,14 +349,14 @@ Discussion = new Schema {
     created           : {type: Date, required: true, default: new Date( (new Date()).toUTCString() )}
     start             : {type: Date, required: true, default: new Date( (new Date()).toUTCString() )}
     end               : {type: Date}
-    
+
     #end           : {type: Date, required: true, default: new Date( (new Date().addWeeks(3)).toUTCString() )} #three week later
   }
   funds: {
     allocated         : {type: Number, required: true, default: 0.0}
     remaining         : {type: Number, required: true, default: 0.0}
   }
-  
+
   transactions: transactions
 
   deleted             : {type: Boolean, default: false}
@@ -367,7 +367,7 @@ Discussion = new Schema {
 # Response #########
 ####################
 #Responses happen on the consumer end, so no need to worry about specing this out right now
-#Responses are in their own collection for two reasons: 
+#Responses are in their own collection for two reasons:
 #   They need to be pulled in a limit/skip fashion
 #   We want to section them off in groups of either 25/50/100. This way will result in less requests to the database
 
@@ -392,14 +392,14 @@ Response = new Schema {
     id            : {type: ObjectId, required: true}
     name          : {type: String}
   }
-  
+
   discussionId    : {type: ObjectId, required: true}
   response        : {type: String, required: true}
   parent          : {type: ObjectId} #was this in response to a previous response? which one?
   dates: {
     created       : {type: Date, default: new Date( (new Date()).toUTCString() )}
   }
-  
+
   transactions: transactions
 
   deleted             : {type: Boolean, default: false}
@@ -410,7 +410,7 @@ Response = new Schema {
 # Media ############
 ####################
 Media = new Schema {
-  entity: { #We support different types of users creating and uploading content 
+  entity: { #We support different types of users creating and uploading content
     type      : {type: String, required: true, enum: choices.entities._enum}
     id        : {type: ObjectId, required: true}
     name      : {type: String}
@@ -485,7 +485,7 @@ Stream = new Schema {
     global            : {type: Boolean, required: true, default: false}
   }
   dates: {
-    created           : {type: Date, default: new Date( (new Date()).toUTCString() )} 
+    created           : {type: Date, default: new Date( (new Date()).toUTCString() )}
     lastModified      : {type: Date}
   }
   data                : {}#eventTypes to info mapping:=> eventType: {id: XX, extraFF: GG}
@@ -526,12 +526,12 @@ EventDateRange = new Schema {
 }
 
 Event = new Schema {
-  entity: { 
+  entity: {
     type      : {type: String, required: true, enum: choices.entities._enum}
     id        : {type: ObjectId, required: true}
     name      : {type: String}
   }
-  
+
   locationId  : {type: ObjectId}
   location    : {
     name      : {type: String}
@@ -546,13 +546,13 @@ Event = new Schema {
     lat       : {type: Number}
     lng       : {type: Number}
   }
-  
+
   dates: {
     requested : {type: Date, required: true}
     responded : {type: Date, required: true}
     actual    : {type: Date, required: true}
   }
-  
+
   hours       : [EventDateRange]
   pledge      : {type: Number, min: 0, max: 100, required: true}
   externalUrl : {type: String, validate: Url}
@@ -578,13 +578,13 @@ EventRequest = new Schema {
     id                  : {type: ObjectId, required: true}
     name                : {type: String}
   }
-  
+
   organizationEntity: {
     type                : {type: String, required: true, enum: choices.entities._enum}
     id                  : {type: ObjectId, required: true}
     name                : {type: String}
   }
-  
+
   date: {
     requested           : {type: Date, default: Date.now}
     responded           : {type: Date}
@@ -602,7 +602,7 @@ BusinessTransaction = new Schema {
     id                  : {type: ObjectId}
     name                : {type: String}
   }
-  
+
   organizationEntity: {
     type                : {type: String, required: true, enum: choices.entities._enum}
     id                  : {type: ObjectId, required: true}

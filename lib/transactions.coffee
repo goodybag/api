@@ -19,7 +19,7 @@ process = (document, transaction)-> #this is just a router
       pollDeleted(document, transaction)
     when choices.transactions.actions.POLL_ANSWERED
       pollAnswered(document, transaction)
-    
+
     #FINANCIAL - DISCUSSIONS
     when choices.transactions.actions.DISCUSSION_CREATED
       discussionCreated(document, transaction)
@@ -71,7 +71,7 @@ _setTransactionProcessedAndCreateNew = (clazz, document, transaction, newTransac
       callback(null, doc)
       if !Object.isArray(newTransactions)
         newTransactions = [newTransactions]
-      
+
       #process each transaction that is is to be processed
       for newT in newTransactions
         (
@@ -209,14 +209,14 @@ pollCreated = (document, transaction)->
       $update = {
         $set: $set
       }
-      
+
       _setTransactionProcessed(api.Polls, document, transaction, true, true, $update, callback)
       #if it went through great, if it didn't go through then the poller will take care of it
       #, no other state changes need to occur
 
       #Write to the event stream
       api.Streams.pollCreated(document) #we don't care about the callback
-  }, 
+  },
   (error, results)->
     if error?
       logger.error "#{prepend} the poller will try later"
@@ -234,7 +234,7 @@ pollUpdated = (document, transaction)->
       return
 
     adjustFunds: (callback)->
-      #adjust balance before sending it to get adjusted 
+      #adjust balance before sending it to get adjusted
       transaction.data.amount = transaction.data.newAllocated - document.funds.allocated
 
       if transaction.entity.type is choices.entities.BUSINESS
@@ -287,7 +287,7 @@ pollUpdated = (document, transaction)->
       $update = {
         $set: $set
       }
-      
+
       _setTransactionProcessed api.Polls, document, transaction, true, true, $update, callback
       #if it went through great, if it didn't go through then the poller will take care of it
       #, no other state changes need to occur
@@ -312,7 +312,7 @@ pollDeleted = (document, transaction)->
       return
 
     depositFunds: (callback)->
-      #we set this here, we want to use remaing not allocated, just in case money has been spent 
+      #we set this here, we want to use remaing not allocated, just in case money has been spent
       transaction.entity.type = document.entity.type
       transaction.entity.id = document.entity.id
       transaction.data.amount = document.funds.remaining
@@ -365,14 +365,14 @@ pollDeleted = (document, transaction)->
       #Create Poll Deleted Event Transaction
 
       $update = {}
-      
+
       _setTransactionProcessed(api.Polls, document, transaction, true, true, $update, callback)
       #if it went through great, if it didn't go through then the poller will take care of it
       #, no other state changes need to occur
 
       #Write to the event stream
       api.Streams.pollDeleted(document) #we don't care about the callback
-  }, 
+  },
   (error, results)->
     if error?
       logger.error "#{prepend} the poller will try later"
@@ -435,7 +435,7 @@ pollAnswered = (document, transaction)->
       $update = {
         $pushAll: $pushAll
       }
-      
+
       _setTransactionProcessedAndCreateNew api.Polls, document, transaction, [statTransaction], false, false, $update, callback
       #if it went through great, if it didn't go through then the poller will take care of it
       #, no other state changes need to occur
@@ -510,7 +510,7 @@ discussionCreated = (document, transaction)->
         , choices.transactions.directions.OUTBOUND
         , transaction.entity
       )
-      
+
       $set = {
         "funds.allocated": transaction.data.amount
         "funds.remaining": transaction.data.amount
@@ -525,11 +525,11 @@ discussionCreated = (document, transaction)->
         $set: $set
         $push: $push
       }
-      
+
       _setTransactionProcessedAndCreateNew(api.Discussions, document, transaction, eventTransaction, true, true, $update, callback)
       #if it went through great, if it didn't go through then the poller will take care of it
       #, no other state changes need to occur
-  }, 
+  },
   (error, results)->
     if error?
       logger.error "#{prepend} the poller will try later"
@@ -549,7 +549,7 @@ statPollAnswered = (document, transaction)->
         document = doc
         callback(error, doc)
       return
-    
+
     updateStats: (callback)->
       # logger.debug document
       org = {type: document.entity.type, id: document.entity.id}
@@ -572,7 +572,7 @@ statPollAnswered = (document, transaction)->
   },
   (error, results)->
     if error?
-      logger.error "#{prepend} the poller will try later"    
+      logger.error "#{prepend} the poller will try later"
 
 
 exports.process = process
