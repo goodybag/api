@@ -105,11 +105,14 @@ reference = {
 entity = {
   type              : {type: String, required: true, enum: choices.entities._enum}
   id                : {type: ObjectId, required: true}
+  name              : {type: String}
+  screenName        : {type: String} #only applies to consumers
 }
 
 organization = {
   type              : {type: String, required: true, enum: choices.organizations._enum}
   id                : {type: ObjectId, required: true}
+  name              : {type: String}
 }
 
 transactions = {
@@ -362,7 +365,6 @@ Discussion = new Schema {
   deleted             : {type: Boolean, default: false}
 }
 
-
 ####################
 # Response #########
 ####################
@@ -467,7 +469,9 @@ Stream = new Schema {
   by: { # if who is an organization, then which user in that organization
     type              : {type: String, enum: choices.entities._enum}
     id                : {type: ObjectId}
+    name              : {type:String}
   }
+
   entitiesInvolved    : [Entity]
   what                : reference #the document this stream object is about
   when                : {type: Date, required: true, default: new Date()}
