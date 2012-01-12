@@ -2083,13 +2083,30 @@ class Streams extends API
     query = @optionParser(options)
     query.where "feeds.global", true
     query.sort "dates.lastModified", -1
+    query.exec callback
 
+  @business: (businessId, options, callback)->
+    query = @optionParser(options)
+    query.sort "dates.lastModified", -1
+    query.where "entitiesInvolved.type", choices.entities.BUSINESS
+    query.where "entitiesInvolved.id", businessId
+    query.fields [
+      "who.type"
+      , "who.screenName"
+      , "by"
+      , "what"
+      , "when"
+      , "where"
+      , "events"
+      , "feeds"
+      , "dates"
+      , "data"
+    ]
     query.exec callback
 
   @consumerPersonal: (consumerId, options, callback)->
     query = @optionParser(options)
     query.sort "dates.lastModified", -1
-
     query.where "who.type", choices.entities.CONSUMER
     query.where "who.id", consumerId
     query.exec callback
