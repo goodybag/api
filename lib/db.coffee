@@ -169,6 +169,8 @@ Consumer = new Schema {
     allocated     : {type: Number, default: 0.0}
     remaining     : {type: Number, default: 0.0}
   }
+
+  gbAdmin         : {type: Boolean, default: false}
  
   transactions: transactions
 
