@@ -507,6 +507,7 @@ Stream.index {"what.type": 1, "what.id": 1}
 Stream.index {when: 1}
 Stream.index {events: 1}
 Stream.index {"entitiesInvolved.type": 1, "entitiesInvolved.id": 1, "who.type": 1, "who.id": 1}
+Stream.index {"entitiesInvolved.type": 1, "entitiesInvolved.id": 1, "who.type": 1, "who.screenName": 1}
 Stream.index {"where.org.type": 1, "where.org.id": 1}
 
 
