@@ -1669,6 +1669,20 @@ class Tags extends API
 class EventRequests extends API
   @model = EventRequest
 
+  @requestsPending: (businessId, callback)->
+    query = @_query()
+    query.where 'organizationEntity.id', businessId
+    query.where('date.responded').exists false
+    query.exec callback
+
+  @respond: (requestId, callback)->
+    $query = {_id: requestId}
+    $update =
+      $set:
+        'date.responded': new Date()
+    $options = {remove: false, new: true, upsert: false}
+    @model.collection.findAndModify $query, [], $update, $options, callback
+
 
 class Events extends API
   @model = Event
