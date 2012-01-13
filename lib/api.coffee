@@ -50,7 +50,7 @@ class API
     return @model.find() #instance of query object
 
   @query: @_query
-  
+
   @_queryOne: ()->
     return @model.findOne() #instance of query object which will return only one document
 
@@ -64,10 +64,10 @@ class API
 
     if options.limit?
       query.limit options.limit
-      
+
     if options.skip?
       query.skip options.skip
-    
+
     if options.sort?
       query.sort options.sort.field, options.sort.direction
 
@@ -110,11 +110,11 @@ class API
     logger.debug query
     query.exec callback
     return
-    
+
   @bulkInsert: (docs, options, callback)->
     @model.collection.insert(docs, options, callback)
     return
-  
+
   @getByEntity: (entityType, entityId, id, fields, callback)->
     if Object.isFunction(fields)
       callback=fields
@@ -156,24 +156,24 @@ class API
     $push = {
       "transactions.log": transaction
     }
-    
+
     $pull = {
       "transactions.temp": {id: transaction.id}
     }
-    
+
     $update = {
       $push: $push
       $pull: $pull
     }
 
     @model.collection.findAndModify $query, [], $update, {safe: true, new: true}, callback
-    
+
   #TRANSACTION STATE
   #locking variable is to ask if this is a locking transaction or not (usually creates/updates are locking in our case)
   @__setTransactionPending: (id, transactionId, locking, callback)->
     if Object.isString(id)
       id = new ObjectId(id)
-    
+
     if Object.isString(transactionId)
       transactionId = new ObjectId(transactionId)
 
@@ -188,7 +188,7 @@ class API
         }
       }
     }
-    
+
     $set = {
       "transactions.log.$.state": choices.transactions.states.PENDING
       "transactions.log.$.dates.lastModified": new Date()
@@ -197,16 +197,16 @@ class API
 
     if locking is true
       $set["transactions.state"] = choices.transactions.states.PENDING
-    
+
     @model.collection.findAndModify $query, [], {$set: $set}, {new: true, safe: true}, callback
 
   @__setTransactionProcessing: (id, transactionId, locking, callback)->
     if Object.isString(id)
       id = new ObjectId(id)
-      
+
     if Object.isString(transactionId)
       transactionId = new ObjectId(transactionId)
-    
+
     $query = {
       _id: id
       "transactions.log": {
@@ -218,7 +218,7 @@ class API
         }
       }
     }
-    
+
     $set = {
       "transactions.log.$.state": choices.transactions.states.PROCESSING
       "transactions.log.$.dates.lastModified": new Date()
@@ -230,16 +230,16 @@ class API
 
     if locking is true
       $set["transactions.state"] = choices.transactions.states.PROCESSING
-    
+
     @model.collection.findAndModify $query, [], {$set: $set, $inc: $inc}, {new: true, safe: true}, callback
 
   @__setTransactionProcessed: (id, transactionId, locking, removeLock, modifierDoc, callback)->
     if Object.isString(id)
       id = new ObjectId(id)
-    
+
     if Object.isString(transactionId)
       transactionId = new ObjectId(transactionId)
-  
+
     $query = {
       _id: id
       "transactions.log": {
@@ -251,7 +251,7 @@ class API
         }
       }
     }
-      
+
     $set = {
       "transactions.log.$.state": choices.transactions.states.PROCESSED
       "transactions.log.$.dates.lastModified": new Date()
@@ -260,11 +260,11 @@ class API
 
     if locking is true
       $set["transactions.state"] = choices.transactions.states.PROCESSED
-    
+
     if removeLock is true
       $set["transactions.locked"] = false
 
-    $update = {} 
+    $update = {}
     $update.$set = {}
 
     Object.merge($update, modifierDoc)
@@ -277,10 +277,10 @@ class API
   @__setTransactionError: (id, transactionId, locking, removeLock, errorObj, modifierDoc, callback)->
     if Object.isString(id)
       id = new ObjectId(id)
-    
+
     if Object.isString(transactionId)
       transactionId = new ObjectId(transactionId)
-      
+
     $query = {
       _id: id
       "transactions.log": {
@@ -292,7 +292,7 @@ class API
         }
       }
     }
-    
+
     $set = {
       "transactions.log.$.state": choices.transactions.states.ERROR
       "transactions.log.$.dates.lastModified": new Date()
@@ -306,21 +306,21 @@ class API
     if removeLock is true
       $set["transactions.locked"] = false
 
-    $update = {} 
+    $update = {}
     $update.$set = {}
 
     Object.merge($update, modifierDoc)
     Object.merge($update.$set, $set)
-    
+
     @model.collection.findAndModify $query, [], $update, {new: true, safe: true}, callback
 
   @checkIfTransactionExists: (id, transactionId, callback)->
     if Object.isString(id)
       id = new ObjectId(id)
-      
+
     if Object.isString(transactionId)
       transactionId = new ObjectId(transactionId)
-    
+
     $query = {
       _id: id
       "transactions.ids": transactionId
@@ -408,7 +408,7 @@ class Consumers extends API
 
   @register: (user, callback)->
     @.add(user, callback)
-  
+
   @login: (email, password, callback)->
     query = @_query()
     query.where('email', email).where('password', password)
@@ -423,7 +423,7 @@ class Consumers extends API
   @updateHonorScore: (id, eventId, amount, callback)->
     if Object.isString(id)
       id = new ObjectId(id)
-      
+
     if Object.isString(eventId)
       eventId = new ObjectId(eventId)
 
@@ -432,25 +432,25 @@ class Consumers extends API
   @deductFunds: (id, transactionId, amount, callback)->
     if Object.isString(id)
       id = new ObjectId(id)
-    
+
     if Object.isString(transactionId)
       transactionId = new ObjectId(transactionId)
-    
+
     @model.collection.findAndModify {_id: id, 'funds.remaining': {$gte: amount}, 'transactions.ids': {$ne: transactionId}}, [], {$addToSet: {"transactions.ids": transactionId}, $inc: {'funds.remaining': -1*amount }}, {new: true, safe: true}, callback
-    
+
   @depositFunds: (id, transactionId, amount, callback)->
     if Object.isString(id)
       id = new ObjectId(id)
-    
+
     if Object.isString(transactionId)
       transactionId = new ObjectId(transactionId)
-    
+
     @model.collection.findAndModify {_id: id, 'transactions.ids': {$ne: transactionId}}, [], {$addToSet: {"transactions.ids": transactionId}, $inc: {'funds.remaining': amount, 'funds.allocated': amount }}, {new: true, safe: true}, callback
 
   @updatePassword: (id, password, callback)->
     if Object.isString(id)
       id = new ObjectId(id)
-    
+
     query = {_id: id}
     update = {$set: {password: password}}
     options = {remove: false, new: true, upsert: false}
@@ -468,7 +468,7 @@ class Consumers extends API
 
 class Clients extends API
   @model = Client
-  
+
   @register: (data, callback)->
     #if !utils.mustContain(data, ['email','firstname', 'lastname', 'password'])
     #  return callback(new Error("at least one required field is missing."))
@@ -483,7 +483,7 @@ class Clients extends API
       else if client?
         callback new errors.ValidationError {"email":"Email Already Exists"} #email exists error
       return
-        
+
   @login: (email, password, callback)->
     query = @_query()
     query.where('email', email).where('password', password)
@@ -494,7 +494,7 @@ class Clients extends API
         return callback error, client
       else
         return callback new Error("invalid username/password")
-  
+
   @getBusinessIds: (id, callback)->
     query = Businesses.model.find()
     query.only('_id')
@@ -525,7 +525,7 @@ class Clients extends API
       id = new ObjectId(id)
     if(Object.isString(data.mediaId))
       data.mediaId = new ObjectId(data.mediaId)
-    
+
     query = @_query()
     query.where("_id", id)
     query.where("media.guid", guid)
@@ -590,7 +590,7 @@ class Clients extends API
               return
             callback null, success
             return
-      return  
+      return
     return
 
   @updateEmailComplete: (key, callback)->
@@ -632,7 +632,7 @@ class Clients extends API
   @updatePassword: (id, password, callback)->
     if Object.isString(id)
       id = new ObjectId(id)
-    
+
     query = {_id: id}
     update = {$set: {password: password}}
     options = {remove: false, new: true, upsert: false}
@@ -657,7 +657,7 @@ class Businesses extends API
     query.in('clients', [options.clientId]) if options.clientId?
     query.where 'locations.tapins', true if options.tapins?
     return query
-    
+
   @add = (clientId, data, callback)->
     instance = new @model()
     for own k,v of data
@@ -678,14 +678,14 @@ class Businesses extends API
     if !(groupName in choices.businesses.groups._enum)
       callback new errors.ValidationError {"groupName":"Group does not Exist"}
       return
-      
+
     #incase we pass in a string turn it into an ObjectId
     if Object.isString(clientId)
       clientId = new ObjectId(clientId)
 
     if Object.isString(id)
       id = new ObjectId(id)
-      
+
     updateDoc = {}
     updateDoc['$addToSet'] = {}
     updateDoc['$addToSet']['clients'] = clientId
@@ -703,17 +703,17 @@ class Businesses extends API
   @addOwner: (id, clientId, callback)->
     @addClient(id, clientId, choices.businesses.groups.OWNERS, callback)
     return
-  
+
   @delClient: (id, clientId, callback)->
     self = this
-    
+
     #incase we pass in a string turn it into an ObjectId
     if Object.isString(clientId)
       clientId = new ObjectId(clientId)
 
     if Object.isString(id)
       id = new ObjectId(id)
-    
+
     @one id, (error, business)->
       if error?
         callback error
@@ -730,7 +730,7 @@ class Businesses extends API
         self.model.collection.update {_id: id}, updateDoc, callback
       return
     return
-  
+
   @updateIdentity: (id, data, callback)->
     if Object.isString(id)
       id = new ObjectId(id)
@@ -739,13 +739,13 @@ class Businesses extends API
       if !utils.isBlank(v)
         set[k] = v
     @model.collection.update {_id: id}, {$set: set}, {safe: true}, callback
-  
+
   @updateMedia: (id, guid, data, callback)->
     if(Object.isString(id))
       id = new ObjectId(id)
     if(Object.isString(data.mediaId))
       data.mediaId = new ObjectId(data.mediaId)
-    
+
     query = @_query()
     query.where("_id", id)
     query.where("media.guid", data.guid)
@@ -767,7 +767,7 @@ class Businesses extends API
   @addLocation: (id, data, callback)->
     if Object.isString(id)
       id = new ObjectId(id)
-      
+
     data._id = new ObjectId()
     @model.collection.update {_id: id}, {$push: {"locations": data}}, {safe: true}, (error, count)->
       callback error, count, data._id
@@ -775,14 +775,14 @@ class Businesses extends API
   @updateLocation: (id, locationId, data, callback)->
     if Object.isString(id)
       id = new ObjectId(id)
-      
+
     if Object.isString(locationId)
       locationId = new ObjectId(locationId)
-      
+
     data._id = locationId
     #@model.update {_id: new ObjectId(id), 'locations._id': new ObjectId(locationId)}, data, (error, business)-> #safe=true is the default here I believe
     @model.collection.update {_id: id, 'locations._id': locationId}, {$set: {"locations.$": data}}, {safe: true}, callback
-  
+
   #locationIds can be an array or a string
   @delLocations: (id, locationIds, callback)->
     objIds = []
@@ -791,10 +791,10 @@ class Businesses extends API
         objIds.push new ObjectId(locationId)
     else
       objIds = [locationIds]
-    
+
     if Object.isString(id)
       id = new ObjectId(id)
-      
+
     @model.collection.update {_id: id}, {$pull: {locations: {_id: {$in: objIds} }}}, {safe: true}, callback
 
   @getGroup: (id, groupName, callback)->
@@ -819,23 +819,23 @@ class Businesses extends API
 
   @getGroupPending: (id, groupName, callback)->
     ClientInvitations.list id, groupName, callback
-    
+
   @deductFunds: (id, transactionId, amount, callback)->
     if Object.isString(id)
       id = new ObjectId(id)
-    
+
     if Object.isString(transactionId)
       transactionId = new ObjectId(transactionId)
-    
+
     @model.collection.findAndModify {_id: id, 'funds.remaining': {$gte: amount}, 'transactions.ids': {$ne: transactionId}}, [], {$addToSet: {"transactions.ids": transactionId}, $inc: {'funds.remaining': -1*amount }}, {new: true, safe: true}, callback
 
   @depositFunds: (id, transactionId, amount, callback)->
     if Object.isString(id)
       id = new ObjectId(id)
-    
+
     if Object.isString(transactionId)
       transactionId = new ObjectId(transactionId)
-    
+
     @model.collection.findAndModify {_id: id, 'transactions.ids': {$ne: transactionId}}, [], {$addToSet: {"transactions.ids": transactionId}, $inc: {'funds.remaining': amount, 'funds.allocated': amount }}, {new: true, safe: true}, callback
 
   @listWithTapins: (callback)->
@@ -852,7 +852,7 @@ class Campaigns extends API
     if(Object.isFunction(mediaKey))
       callback = mediaKey
       mediaKey = "media"
-    
+
     query = @_query()
     query.where("entity.type", entityType)
     query.where("entity.id", entityId)
@@ -887,13 +887,15 @@ class Polls extends Campaigns
     # query.where('dates.end').gte(options.start) if options.end?
     query.where('transaction.state', state) if options.state?
     return query
-  
+
   # @add = (data, amount, event, callback)-> #come back to this one, first transactions need to work
   @add: (data, amount, callback)->
     if Object.isString(data.entity.id)
       data.entity.id = new ObjectId data.entity.id
-    if Object.isString(data.mediaQuestion.mediaId) and data.mediaQuestion.mediaId.length>0
+    if data.mediaQuestion and Object.isString(data.mediaQuestion.mediaId) and data.mediaQuestion.mediaId.length>0
       data.mediaQuestion.mediaId = new ObjectId data.mediaQuestion.mediaId
+    if data.mediaResults? and Object.isString(data.mediaResults.mediaId) and data.mediaResults.mediaId.length>0
+      data.mediaResults.mediaId = new ObjectId data.mediaResults.mediaId
 
     instance = new @model(data)
 
@@ -902,7 +904,7 @@ class Polls extends Campaigns
     }
 
     transaction = @createTransaction(choices.transactions.states.PENDING, choices.transactions.actions.POLL_CREATED, transactionData, choices.transactions.directions.INBOUND, instance.entity)
-    
+
     instance.transactions.state = choices.transactions.states.PENDING #soley for reading purposes
     instance.transactions.locked = true
     instance.transactions.ids = [transaction.id]
@@ -931,7 +933,7 @@ class Polls extends Campaigns
       data.entity.id = new ObjectId(data.entity.id)
     entityType = data.entity.type
     entityId = data.entity.id
-    
+
     #Set the fields you want updated now, not afte the update
     #for the ones that you want set after the update put those
     #in the transactionData and make thsoe changes in the
@@ -943,6 +945,12 @@ class Polls extends Campaigns
         id            : data.entity.id
         name          : data.entity.name
       }
+
+      lastModifiedBy: {
+        type          : data.lastModifiedBy.type
+        id            : data.lastModifiedBy.id
+      }
+
       name            : data.name
       type            : data.type
       question        : data.question
@@ -954,7 +962,7 @@ class Polls extends Campaigns
         log           : data.responses.log
         dates         : data.responses.dates
         choiceCounts  : data.responses.choiceCounts
-      } 
+      }
       showStats       : data.showStats
       displayName     : data.displayName
       displayMediaQuestion    : data.displayMediaQuestion
@@ -963,7 +971,7 @@ class Polls extends Campaigns
       mediaQuestion : data.mediaQuestion
       mediaResults  : data.mediaResults
     }
-    
+
 
     entity = {
       type: data.entity.type
@@ -975,7 +983,7 @@ class Polls extends Campaigns
       perResponse: perResponse
     }
     transaction = self.createTransaction choices.transactions.states.PENDING, choices.transactions.actions.POLL_UPDATED, transactionData, choices.transactions.directions.INBOUND, entity
-    
+
     $set = {
       "dates.start": new Date(data.dates.start) #this is so that we don't lose the create date
       "transactions.locked": true #THIS IS A LOCKING TRANSACTION, SO IF ANYONE ELSE TRIES TO DO A LOKCING TRANSACTION IT WILL NOT HAPPEN (AS LONG AS YOU CHECK FOR THAT)
@@ -1014,7 +1022,7 @@ class Polls extends Campaigns
     query = @_query()
     query.where("entity.type", entityType)
     query.where("entity.id", entityId)
-    switch stage 
+    switch stage
       when "active"
         query.where('responses.remaining').gt(0)   #has responses remaining..
         query.where('dates.start').lte(new Date())
@@ -1080,26 +1088,31 @@ class Polls extends Campaigns
         }
     if !options.count
       query.sort("dates.start", -1)
-      query.fields(fieldsToReturn); 
+      query.fields(fieldsToReturn);
       query.skip(options.skip || 0)
       query.limit(options.limit || 25)
       query.exec callback
     else
       query.count callback
     return
-  
-  @del: (entityType, entityId, pollId, callback)->
+
+  @del: (entityType, entityId, pollId, lastModifiedBy, callback)->
     self = this
     if Object.isString(entityId)
       entityId = new ObjectId(entityId)
     if Object.isString(pollId)
       pollId = new ObjectId(pollId)
+    if Object.isString(lastModifiedBy.id)
+      lastModifiedBy.id = new ObjectId(lastModifiedBy.id)
 
     entity = {}
     transactionData = {}
     transaction = self.createTransaction choices.transactions.states.PENDING, choices.transactions.actions.POLL_DELETED, transactionData, choices.transactions.directions.OUTBOUND, entity
-    
+
     $set = {
+      "lastModifiedBy.type": lastModifiedBy.type
+      "lastModifiedBy.id": lastModifiedBy.id
+
       "deleted": true
       "transactions.locked": true #THIS IS A LOCKING TRANSACTION, SO IF ANYONE ELSE TRIES TO DO A LOKCING TRANSACTION IT WILL NOT HAPPEN (AS LONG AS YOU CHECK FOR THAT)
       "transactions.state": choices.transactions.states.PENDING
@@ -1144,7 +1157,7 @@ class Polls extends Campaigns
         "funds.perResponse" : 1
     }
     fieldsToReturn["responses.log.#{consumerId}"] = 1 #consumer answer info., only their info.
-    
+
     query.fields(fieldsToReturn)
     query.sort("responses.log.#{consumerId}.timestamp",-1)
     query.exec (error, polls)->
@@ -1161,7 +1174,7 @@ class Polls extends Campaigns
 
     if Object.isString(consumerId)
       consumerId = new ObjectId(consumerId)
-      
+
     minAnswer = Math.min.apply(Math,answers)
     maxAnswer = Math.max.apply(Math,answers)
     if(minAnswer < 0 || isNaN(minAnswer) || isNaN(maxAnswer))
@@ -1187,11 +1200,11 @@ class Polls extends Campaigns
             cb()
 
       save: (cb)->
-        
+
         inc = new Object()
         set = new Object()
         push = new Object()
-        
+
         transactionData = {
           amount: perResponse
           timestamp: new Date()
@@ -1204,23 +1217,23 @@ class Polls extends Campaigns
 
         # CREATE TRANSACTION
         transaction = self.createTransaction(choices.transactions.states.PENDING, choices.transactions.actions.POLL_ANSWERED, transactionData, choices.transactions.directions.OUTBOUND, entity)
-    
+
         push["transactions.ids"] = transaction.id
         push["transactions.log"] = transaction
         inc["funds.remaining"] = -1*perResponse
 
         inc["responses.remaining"] = -1;
-    
+
         i=0
         while i<answers.length
           inc["responses.choiceCounts."+answers[i]] = 1;
           i++
-      
+
         set["responses.log."+consumerId] = {
             answers   : answers,
             timestamp : timestamp
         }
-    
+
         push["responses.dates"] = {
           consumerId: consumerId
           timestamp: timestamp
@@ -1232,7 +1245,7 @@ class Polls extends Campaigns
           $push : push
           $set  : set
         }
-    
+
         fieldsToReturn = {
           _id                      : 1,
           question                 : 1,
@@ -1249,7 +1262,7 @@ class Polls extends Campaigns
 
         }
         fieldsToReturn["responses.log.#{consumerId}"] = 1
-    
+
         query = {
             _id                       : pollId,
             "entity.id"               : {$ne : consumerId} #can't answer a question you authored
@@ -1283,14 +1296,14 @@ class Polls extends Campaigns
       callback null, results.save
       return
     #TODO: transaction of funds.. per response gain to consumer..
-  
+
   @skip = (consumerId, pollId, callback)->
     if Object.isString(consumerId)
       consumerId = new ObjectId(consumerId)
     query = @_query()
     query.where('_id',pollId)
     query.where('entity.id').ne(consumerId)               #not author
-    query.where('responses.consumers'    ).ne(consumerId) #not already answerd 
+    query.where('responses.consumers'    ).ne(consumerId) #not already answerd
     query.where('responses.skipConsumers').ne(consumerId) #not already skipped
     query.where('responses.flagConsumers').ne(consumerId) #not already flagged
     query.where('dates.start').lte(new Date())            #poll has started
@@ -1307,7 +1320,7 @@ class Polls extends Campaigns
     query = @_query()
     query.where('_id',pollId)
     query.where('entity.id').ne(consumerId)               #not author
-    query.where('responses.consumers'    ).ne(consumerId) #not already answerd 
+    query.where('responses.consumers'    ).ne(consumerId) #not already answerd
     query.where('responses.skipConsumers').ne(consumerId) #not already skipped
     query.where('responses.flagConsumers').ne(consumerId) #not already flagged
     query.where('dates.start').lte(new Date())            #poll has started
@@ -1323,7 +1336,7 @@ class Polls extends Campaigns
       consumerId = new ObjectId(consumerId)
     query = @_query()
     query.where('entity.id').ne(consumerId)               #not author
-    query.where('responses.consumers'    ).ne(consumerId) #not already answerd 
+    query.where('responses.consumers'    ).ne(consumerId) #not already answerd
     query.where('responses.skipConsumers').ne(consumerId) #not already skipped
     query.where('responses.flagConsumers').ne(consumerId) #not already flagged
     query.where('responses.remaining').gt(0)
@@ -1348,7 +1361,7 @@ class Polls extends Campaigns
         callback error
         return
       #Polls.removePollPrivateFields(poll)
-      callback null, poll 
+      callback null, poll
       return
 
   @removePollPrivateFields = (polls)->
@@ -1358,7 +1371,7 @@ class Polls extends Campaigns
       if(!polls.displayMedia)
         delete media
       if(!polls.showStats && polls.responses?)
-        delete polls.responses.choiceCounts 
+        delete polls.responses.choiceCounts
     else                      #else polls is an array of poll objects
       i=0
       while i<polls.length
@@ -1367,16 +1380,16 @@ class Polls extends Campaigns
         if(!polls[i].displayMedia)
           delete media
         if(!polls[i].showStats)
-          delete polls[i].responses.choiceCounts 
+          delete polls[i].responses.choiceCounts
         i++
     return
-    
+
   @setTransactonPending: @__setTransactionPending
   @setTransactionProcessing: @__setTransactionProcessing
   @setTransactionProcessed: @__setTransactionProcessed
   @setTransactionError: @__setTransactionError
-      
-      
+
+
 class Discussions extends Campaigns
   @model = Discussion
 
@@ -1391,7 +1404,7 @@ class Discussions extends Campaigns
     query.where('dates.start').gte(options.start) if options.start?
     # query.where('dates.end').gte(options.start) if options.end?
     query.where('transaction.state', state) if options.state?
-    
+
     return query
 
   @update: (entityType, entityId, discussionId, data, callback)->
@@ -1399,9 +1412,9 @@ class Discussions extends Campaigns
       entityId = new ObjectId(entityId)
     if Object.isString(discussionId)
       discussionId = new ObjectId(discussionId)
-    if Object.isString(data.media.mediaId) && data.media.mediaId.length>0
+    if data.media? and Object.isString(data.media.mediaId) and data.media.mediaId.length>0
       data.media.mediaId = new ObjectId(data.media.mediaId)
-    
+
     @getByEntity entityType, entityId, discussionId, (error, discussion)->
       if error?
         callback error, discussion
@@ -1427,7 +1440,7 @@ class Discussions extends Campaigns
     }
 
     transaction = @createTransaction(choices.transactions.states.PENDING, choices.transactions.actions.DISCUSSION_CREATED, transactionData, choices.transactions.directions.INBOUND, instance.entity)
-    
+
     instance.transactions.locked = true
     instance.transactions.ids = [transaction.id]
     instance.transactions.log = [transaction]
@@ -1440,13 +1453,13 @@ class Discussions extends Campaigns
       else
         tp.process(discussion, transaction)
     return
-    
+
   @list: (entityType, entityId, stage, options, callback)->
     #options: count(boolean)-to return just the count, skip(int), limit(int)
     query = @_query()
     query.where("entity.type", entityType)
     query.where("entity.id", entityId)
-    switch stage 
+    switch stage
       when "active"
         query.where("funds.remaining").gte(0)
         query.where("dates.start").lte(new Date())
@@ -1516,7 +1529,7 @@ class Discussions extends Campaigns
     else
       query.count callback
     return
-  
+
   @del: (entityType, entityId, discussionId, callback)->
     self = this
     if Object.isString(entityId)
@@ -1527,7 +1540,7 @@ class Discussions extends Campaigns
     entity = {}
     transactionData = {}
     transaction = self.createTransaction choices.transactions.states.PENDING, choices.transactions.actions.POLL_DELETED, transactionData, choices.transactions.directions.OUTBOUND, entity
-    
+
     $set = {
       "deleted": true
       "transactions.locked": true #THIS IS A LOCKING TRANSACTION, SO IF ANYONE ELSE TRIES TO DO A LOKCING TRANSACTION IT WILL NOT HAPPEN (AS LONG AS YOU CHECK FOR THAT)
@@ -1560,24 +1573,24 @@ class Discussions extends Campaigns
   @getByEntity: (entityType, entityId, discussionId, callback)->
     @model.findOne {_id: discussionId, 'entity.type': entityType ,'entity.id': entityId}, callback
     return
-    
+
   @setTransactonPending: @__setTransactionPending
   @setTransactionProcessing: @__setTransactionProcessing
   @setTransactionProcessed: @__setTransactionProcessed
   @setTransactionError: @__setTransactionError
-    
-    
+
+
 class Responses extends API
   @model = Response
 
   @count = (entityType, businessId, discussionId, callback)->
     @model.count {'entity.id':businessId, 'entity.type':entityType, discussionId: discussionId}, (error, count)->
       callback error, count
-  
-      
+
+
 class Medias extends API
   @model = Media
-  
+
   @addOrUpdate: (media, callback)->
     if Object.isString(media.entity.id)
       media.entity.id = new ObjectId media.entity.id
@@ -1599,7 +1612,7 @@ class Medias extends API
     query.in('tags', options.tags) if options.tags?
     query.where('uploaddate').gte(options.start) if options.start?
     query.where('uploaddate').lte(options.end) if options.end?
-    
+
     return query
 
   #type is either image or video
@@ -1624,7 +1637,7 @@ class ClientInvitations extends API
   @add = (businessId, groupName, email, callback)->
     key = hashlib.md5(globals.secretWord + email+(new Date().toString()))+'-'+generatePassword(12, false, /\d/)
     @_add {businessId: businessId, groupName: groupName, email: email, key: key}, callback
-  
+
   @list = (businessId, groupName, callback)->
     query = @_query()
     query.where("businessId", businessId)
@@ -1633,7 +1646,7 @@ class ClientInvitations extends API
       email: 1
     })
     query.exec callback
-  
+
   @validate = (key, callback)->
     @model.collection.findAndModify {key: key, status: choices.invitations.state.PENDING},[],{$set: {status: choices.invitations.state.PROCESSED}}, {new: true, safe: true}, (error, invite)->
       if error?
@@ -1643,7 +1656,7 @@ class ClientInvitations extends API
       else
         callback null, invite #success
       return
-  
+
   @del = (businessId, groupName, pendingId, callback)->
     query = @_query()
     query.where("businessId", businessId)
@@ -1657,7 +1670,7 @@ class Tags extends API
 
   @add = (name, callback)->
     @_add {name: name}, callback
-  
+
   @search = (name, callback)->
     re = new RegExp("^"+name+".*", 'i')
     query = @_query()
@@ -1694,12 +1707,13 @@ class Events extends API
     if options.upcoming?
       query.where('dates.actual').$gt Date.now()
     return query
-  
+
   @unRsvp = (eventId, userId, callback)->
     if Object.isString eventId
       eventId = new ObjectId eventId
     if Object.isString userId
       userId = new ObjectId userId
+
     query = {_id: eventId}
     update = {$pop: {rsvp: userId}}
     options = {remove: false, new: true, upsert: false}
@@ -1711,27 +1725,19 @@ class Events extends API
     if Object.isString userId
       userId = new ObjectId userId
 
-    entity = {
-      type: choices.entities.CONSUMER
-      id: userId
-    }
-    transactionData = {}
-    transaction = @createTransaction choices.transactions.states.PENDING, choices.transactions.actions.EVENT_EVENT_RSVPED, transactionData, choices.transactions.directions.OUTBOUND, entity
-    
     $push = {
       rsvp: userId
-      "transactions.ids": transaction.id
-      "transactions.log": transaction
     }
-    
+
     $query = {_id: eventId}
     $update = {$push: $push}
     $options = {remove: false, new: true, upsert: false}
     @model.collection.findAndModify $query, [], $update, $options, (error, event)->
       callback error, event
       if !error?
-        tp.process(event, transaction)
-  
+        who = {type: choices.entities.CONSUMER, id: userId}
+        Streams.eventRsvped who, event
+
 
   @setTransactonPending: @__setTransactionPending
   @setTransactionProcessing: @__setTransactionProcessing
@@ -1741,7 +1747,15 @@ class Events extends API
 
 class BusinessTransactions extends API
   @model = db.BusinessTransaction
-  
+
+  @add: (data, callback)->
+    @_add data, (error, transaction)->
+      callback(error, transaction)
+      if !error?
+        if userEntity?
+          who = userEntity
+          Streams.tappedIn who, transaction
+
   @byUser = (userId, options, callback)->
     if Object.isFunction options
       callback = options
@@ -1760,7 +1774,7 @@ class BusinessTransactions extends API
       query.where 'locationId', options.location
     logger.info options
     query.exec callback
-  
+
   @byBusinessGbCostumers = (businessId, options, callback)->
     if Object.isFunction options
       callback = options
@@ -1777,7 +1791,7 @@ class BusinessTransactions extends API
     query.exec callback
 
   @test = (callback)->
-    data = 
+    data =
       "barcodeId" : "aldkfjs12lsdfl12lskdjf"
       "registerId" : "asdlf3jljsdlfoiuwirljf"
       "locationId" : new ObjectId("4efd61571927c5951200002b")
@@ -1785,11 +1799,11 @@ class BusinessTransactions extends API
       "time" : new Date(0,0,0,12,22,22)
       "amount" : 18.54
       "donationAmount" : 0.03
-      "organizationEntity" : 
+      "organizationEntity" :
         "id" : new ObjectId("4eda8f766412f8805e6e864c")
         "type" : "client"
-      
-      "userEntity" : 
+
+      "userEntity" :
         "id" : new ObjectId("4eebdcc12e7501d8d7036cb1")
         "type" : "consumer"
     @model.collection.insert data, {safe: true}, callback
@@ -1807,7 +1821,7 @@ class BusinessRequests extends API
     instance = new @model data
     instance.save callback
 
-    
+
 class Streams extends API
   @model: Stream
 
@@ -1822,6 +1836,7 @@ class Streams extends API
       events            : stream.events
       private           : stream.private || false #default to public
       data              : stream.data || {}
+      feeds             : stream.feeds
       dates: {
         created         : new Date()
         lastModified    : new Date()
@@ -1853,7 +1868,7 @@ class Streams extends API
       entitiesInvolved  : [who]
       what              : poll
       when              : pollDoc.dates.created
-      #where: 
+      #where:
       events            : [choices.eventTypes.POLL_CREATED]
       data              : {}
       feeds: {
@@ -1898,7 +1913,7 @@ class Streams extends API
       entitiesInvolved  : [who]
       what              : poll
       when              : pollDoc.dates.lastModified
-      #where: 
+      #where:
       events            : [choices.eventTypes.POLL_UPDATED]
       data              : {}
       feeds: {
@@ -1941,7 +1956,7 @@ class Streams extends API
       entitiesInvolved  : [who]
       what              : poll
       when              : pollDoc.dates.lastModified
-      #where: 
+      #where:
       events            : [choices.eventTypes.POLL_DELETED]
       data              : {}
       feeds: {
@@ -1963,7 +1978,6 @@ class Streams extends API
     @add stream, callback
 
   @pollAnswered: (who, timestamp, pollDoc, callback)->
-    logger.debug pollDoc
     if Object.isString(who.id)
       who.id = new ObjectId(who.id)
 
@@ -1980,7 +1994,7 @@ class Streams extends API
       entitiesInvolved  : [who, pollDoc.entity]
       what              : poll
       when              : timestamp
-      #where: 
+      #where:
       events            : [choices.eventTypes.POLL_ANSWERED]
       data              : {}
       feeds: {
@@ -1997,6 +2011,38 @@ class Streams extends API
 
     @add stream, callback
 
+  @eventRsvped: (who, eventDoc, callback)->
+    if Object.isString(who.id)
+      who.id = new ObjectId(who.id)
+
+    event = {type: choices.objects.EVENT, id: eventDoc._id}
+    stream = {
+      who               : who
+      entitiesInvolved  : [who, eventDoc.entity]
+      what              : event
+      when              : new Date()
+      events            : [choices.eventTypes.EVENT_RSVPED]
+      data              : {}
+      feeds: {
+        global          : true
+      }
+      private: false #THIS NEEDS TO BE UPDATED BASED ON PRIVACY SETTINGS OF WHO (if consumer)
+    }
+
+    stream.data = {
+      event: {
+        entity:{
+          name: eventDoc.entity.name
+        }
+        locationId: eventDoc.locationId
+        location: eventDoc.location
+        dates:{
+          actual: eventDoc.dates.actual
+        }
+      }
+    }
+
+    @add stream, callback
   ###
   example1: client created a poll:
     who = client
@@ -2047,12 +2093,55 @@ class Streams extends API
         spent: XX.xx
   ###
 
-  @global: (skip, callback)->
-    query = @query()
-    query.limit 25
-    query.skip skip || 0
+  @global: (options, callback)->
+    query = @optionParser(options)
+    query.where "feeds.global", true
     query.sort "dates.lastModified", -1
+    query.exec callback
 
+  @business: (businessId, options, callback)->
+    query = @optionParser(options)
+    query.sort "dates.lastModified", -1
+    query.where "entitiesInvolved.type", choices.entities.BUSINESS
+    query.where "entitiesInvolved.id", businessId
+    query.fields [
+      "who.type"
+      , "who.screenName"
+      , "by"
+      , "what"
+      , "when"
+      , "where"
+      , "events"
+      , "feeds"
+      , "dates"
+      , "data"
+    ]
+    query.exec callback
+
+  @businessWithConsumerByScreenName: (businessId, screenName, options, callback)->
+    query = @optionParser(options)
+    query.sort "dates.lastModified", -1
+    query.where "entitiesInvolved.type", choices.entities.BUSINESS
+    query.where "entitiesInvolved.id", businessId
+    query.where "who.type", choices.entities.CONSUMER
+    query.where "who.screenName", screenName
+    query.fields [
+      "who.type"
+      , "who.screenName"
+      , "what"
+      , "when"
+      , "where"
+      , "events"
+      , "dates"
+      , "data"
+    ]
+    query.exec callback
+
+  @consumerPersonal: (consumerId, options, callback)->
+    query = @optionParser(options)
+    query.sort "dates.lastModified", -1
+    query.where "who.type", choices.entities.CONSUMER
+    query.where "who.id", consumerId
     query.exec callback
 
   @getLatest: (entity, limit, offset, callback)->
@@ -2096,7 +2185,7 @@ class PasswordResetRequests extends API
   @consume: (id, callback)->
     if Object.isString(id)
       id = new ObjectId(id)
-    
+
     query = {_id: id}
     update = {$set: {consumed: true}}
     options = {remove: false, new: true, upsert: false}
@@ -2150,7 +2239,7 @@ class PasswordResetRequests extends API
 
 class Statistics extends API
   @model: Statistic
-  
+
   @add: (data, callback)->
     obj = {
       org: {
@@ -2160,10 +2249,10 @@ class Statistics extends API
       consumerId            : data.consumerId
       data                  : data.data || {}
     }
-    
+
     instance = new @model(obj)
     instance.save(callback)
-    
+
   @list: (org, callback)->
     query = @query()
     query.where("org.type", org.type)
@@ -2219,9 +2308,9 @@ class Statistics extends API
     @model.collection.update {org: org, consumerId: consumerId}, $update, {safe: true, upsert: true }, callback
 
   @discussionAnswered: (org, consumerId, transactionId, timestamp, callback)->
-    
+
   @eventRsvped: (org, consumerId, transactionId, timestamp, callback)->
-    
+
   @tapedIn: (org, consumerId, transactionId, spent, timestamp, callback)->
     query = @queryOne()
     query.where("org.type", org.type)
