@@ -24,6 +24,12 @@ process = (document, transaction)-> #this is just a router
     when choices.transactions.actions.DISCUSSION_CREATED
       discussionCreated(document, transaction)
 
+    when choices.transactions.actions.DISCUSSION_UPDATED
+      discussionUpdated(document, transaction)
+
+    when choices.transactions.actions.DISCUSSION_DELETED
+      discussionDeleted(document, transaction)
+
     #STAT - POLLS
     when choices.transactions.actions.STAT_POLL_ANSWERED
       statPollAnswered(document, transaction)
@@ -450,7 +456,7 @@ pollAnswered = (document, transaction)->
 #INBOUND
 discussionCreated = (document, transaction)->
   prepend = "ID: #{document._id} - TID: #{transaction.id}"
-  logger.info "Creating transaction for discussion"
+  logger.info "Creating transaction for discussion that was created"
   logger.info "ID: #{document._id} - TID: #{transaction.id} - #{transaction.direction}"
 
   setProcessed = true #setProcessed, unless something sets this to false
@@ -502,33 +508,248 @@ discussionCreated = (document, transaction)->
       if setProcessed is false
         callback(null, null) #we are not suppose to set to processed so exit cleanly
         return
-      #Create Poll Created Event Transaction
-      eventTransaction = api.Discussions.createTransaction(
-        choices.transactions.states.PENDING
-        , choices.transactions.actions.EVENT_DISCUSSION_CREATED
-        , {}
-        , choices.transactions.directions.OUTBOUND
-        , transaction.entity
-      )
 
       $set = {
         "funds.allocated": transaction.data.amount
         "funds.remaining": transaction.data.amount
       }
 
-      $push = {
-        "transactions.ids": eventTransaction.id
-        "transactions.temp": eventTransaction
+      $update = {
+        $set: $set
+      }
+
+      _setTransactionProcessed(api.Discussions, document, transaction, true, true, $update, callback)
+      #if it went through great, if it didn't go through then the poller will take care of it
+      #, no other state changes need to occur
+
+      #Write to the event stream
+      api.Streams.discussionCreated(document) #we don't care about the callback
+  },
+  (error, results)->
+    if error?
+      logger.error "#{prepend} the poller will try later"
+
+
+#INBOUND
+discussionUpdated = (document, transaction)->
+  prepend = "ID: #{document._id} - TID: #{transaction.id}"
+  logger.info "Creating transaction for a discussion that was updated"
+  logger.info "#{prepend} - #{transaction.direction}"
+
+  setProcessed = true #setProcessed, unless something sets this to false
+  async.series {
+    setProcessing: (callback)->
+      _setTransactionProcessing api.Discussions, document, transaction, true, callback
+      return
+
+    adjustFunds: (callback)->
+      #adjust balance before sending it to get adjusted
+      transaction.data.amount = transaction.data.newAllocated - document.funds.allocated
+
+      if transaction.entity.type is choices.entities.BUSINESS
+        _deductFunds api.Businesses, api.Discussions, document, transaction, true, true, (error, doc)->
+          if error? #mongo errored out
+            callback(error)
+          else if doc?  #transaction was successful, so continue to set processed
+            callback(null, doc)
+          else #null, null passed in which meas insufficient funds, so set error, and exit
+            error = {message: "there were insufficient funds"}
+            _setTransactionError api.Discussions, document, transaction, true, true, error, {}, (error, doc)->
+              #we don't care if it set or if it didn't set because:
+              # 1. if there was a mongo error then the poller will pick it up and work on it later
+              # 2. if it did set then fantastic, we will exit because we don't want to set to processed
+              # 3. if it did not set (no error, and no document updated) then we want to exit because
+              #    it is already in an error or processed state. In that case we want to do nothing
+              setProcessed = false
+              callback(null, null)
+      else if transaction.entity.type is choices.entities.CONSUMER
+        _deductFunds api.Consumers, api.Discussions, document, transaction, true, true, (error, doc)->
+          if error? #mongo errored out
+            callback(error)
+          else if doc?  #transaction was successful, so continue to set processed
+            callback(null, doc)
+          else #null, null passed in which meas insufficient funds, so set error, and exit
+            error = {message: "there were insufficient funds"}
+            _setTransactionError api.Discussions, document, transaction, true, true, error, {}, (error, doc)->
+              #we don't care if it set or if it didn't set because:
+              # 1. if there was a mongo error then the poller will pick it up and work on it later
+              # 2. if it did set then fantastic, we will exit because we don't want to set to processed
+              # 3. if it did not set (no error, and no document updated) then we want to exit because
+              #    it is already in an error or processed state. In that case we want to do nothing
+              setProcessed = false
+              callback(null, null)
+      else
+        callback({name:"NullError", message: "Unsupported Entity Type: #{transaction.entity.type}"})
+      return
+
+    setProcessed: (callback)->
+      if setProcessed is false
+        callback() #we are not suppose to set to processed so exit cleanly
+        return
+
+      $set = {
+        "funds.allocated": transaction.data.newAllocated
+        "funds.remaining": document.funds.remaining + transaction.data.amount
+        "funds.perResponse": transaction.data.perResponse
       }
 
       $update = {
         $set: $set
-        $push: $push
       }
 
-      _setTransactionProcessedAndCreateNew(api.Discussions, document, transaction, eventTransaction, true, true, $update, callback)
+      _setTransactionProcessed api.Discussions, document, transaction, true, true, $update, callback
       #if it went through great, if it didn't go through then the poller will take care of it
       #, no other state changes need to occur
+
+      #Write to the event stream
+      api.Streams.discussionUpdated(document) #we don't care about the callback
+  },
+  (error, results)->
+    if error?
+      logger.error "#{prepend} the poller will try later"
+
+
+discussionDeleted = (document, transaction)->
+  prepend = "ID: #{document._id} - TID: #{transaction.id}"
+  logger.info "Creating transaction for a discussion that was deleted"
+  logger.info "#{prepend} - #{transaction.direction}"
+
+  setProcessed = true #setProcessed, unless something sets this to false
+  async.series {
+    setTransactionProcessing: (callback)->
+      _setTransactionProcessing(api.Discussions, document, transaction, true, callback)
+      return
+
+    depositFunds: (callback)->
+      #we set this here, we want to use remaing not allocated, just in case money has been spent
+      transaction.entity.type = document.entity.type
+      transaction.entity.id = document.entity.id
+      transaction.data.amount = document.funds.remaining
+
+      logger.debug transaction
+
+      logger.debug "#{prepend} going to try and deposit funds: #{transaction.entity.id}"
+      if transaction.entity.type is choices.entities.BUSINESS
+        logger.debug "#{prepend} attempting to deposit funds to business: #{transaction.entity.id}"
+        _depositFunds api.Businesses, api.Discussions, document, transaction, true, true, (error, doc)->
+          if error? #mongo errored out
+            callback(error)
+          else if doc?  #transaction was successful, so continue to set processed
+            callback(null, doc)
+          else #null, null passed in which meas insufficient funds, so set error, and exit
+            error = {message: "unable to deposit funds back"}
+            _setTransactionError api.Discussions, document, transaction, true, true, error, {}, (error, doc)->
+              #we don't care if it set or if it didn't set because:
+              # 1. if there was a mongo error then the poller will pick it up and work on it later
+              # 2. if it did set then fantastic, we will exit because we don't want to set to processed
+              # 3. if it did not set (no error, and no document updated) then we want to exit because
+              #    it is already in an error or processed state. In that case we want to do nothing
+              setProcessed = false
+              callback(null, null)
+      else if transaction.entity.type is choices.entities.CONSUMER
+        logger.debug "#{prepend} attempting to deposit funds to consumer: #{transaction.entity.id}"
+        _depositFunds api.Consumers, api.Discussions, document, transaction, true, true, (error, doc)->
+          if error? #mongo errored out
+            callback(error)
+          else if doc?  #transaction was successful, so continue to set processed
+            callback(null, doc)
+          else #null, null passed in which meas insufficient funds, so set error, and exit
+            error = {message: "unabled to deposit funds back"}
+            _setTransactionError api.Discussions, document, transaction, true, true, error, {}, (error, doc)->
+              #we don't care if it set or if it didn't set because:
+              # 1. if there was a mongo error then the poller will pick it up and work on it later
+              # 2. if it did set then fantastic, we will exit because we don't want to set to processed
+              # 3. if it did not set (no error, and no document updated) then we want to exit because
+              #    it is already in an error or processed state. In that case we want to do nothing
+              setProcessed = false
+              callback(null, null)
+      else
+        callback({name:"NullError", message: "Unsupported Entity Type: #{transaction.entity.type}"})
+      return
+
+    setProcessed: (callback)->
+      if setProcessed is false
+        callback(null, null) #we are not suppose to set to processed so exit cleanly
+        return
+      #Create Poll Deleted Event Transaction
+
+      $update = {}
+
+      _setTransactionProcessed(api.Discussions, document, transaction, true, true, $update, callback)
+      #if it went through great, if it didn't go through then the poller will take care of it
+      #, no other state changes need to occur
+
+      #Write to the event stream
+      api.Streams.discussionDeleted(document) #we don't care about the callback
+  },
+  (error, results)->
+    if error?
+      logger.error "#{prepend} the poller will try later"
+
+#OUTBOUND
+discussionAnswered = (document, transaction)->
+  prepend = "ID: #{document._id} - TID: #{transaction.id}"
+  logger.info "Creating transaction for answered discussion question"
+  logger.info "#{prepend} - #{transaction.direction}"
+
+  setProcessed = true #setProcessed, unless something sets this to false
+  async.series {
+    setProcessing: (callback)->
+      _setTransactionProcessing api.Discussions, document, transaction, false, (error, doc)->
+        document = doc #we do this because the entities object is missing when the discussion is answered
+        callback error, doc
+      return
+    depositFunds: (callback)->
+      if transaction.entity.type is choices.entities.CONSUMER
+        logger.debug "#{prepend} attempting to deposit funds to consumer: #{transaction.entity.id}"
+        _depositFunds api.Consumers, api.Discussions, document, transaction, false, false, (error, doc)->
+          if error? #mongo errored out
+            callback(error)
+          else if doc?  #transaction was successful, so continue to set processed
+            callback(null, doc)
+          else #null, null passed in which meas insufficient funds, so set error, and exit
+            error = {message: "there were insufficient funds"}
+            _setTransactionError api.Discussions, document, transaction, false, false, error, {}, (error, doc)->
+              #we don't care if it set or if it didn't set because:
+              # 1. if there was a mongo error then the poller will pick it up and work on it later
+              # 2. if it did set then fantastic, we will exit because we don't want to set to processed
+              # 3. if it did not set (no error, and no document updated) then we want to exit because
+              #    it is already in an error or processed state. In that case we want to do nothing
+              setProcessed = false
+              callback(null, null)
+      else
+        callback({name:"NullError", message: "Unsupported Entity Type: #{transaction.entity.type}"})
+      return
+
+    setProcessed: (callback)->
+      if setProcessed is false
+        callback() #we are not suppose to set to processed so exit cleanly
+        return
+
+      #Create Discussion Created Statistic Transaction
+      statTransaction = api.Discussions.createTransaction(
+        choices.transactions.states.PENDING
+        , choices.transactions.actions.STAT_DISCUSSION_ANSWERED
+        , {timestamp: transaction.data.timestamp}
+        , choices.transactions.directions.OUTBOUND
+        , transaction.entity
+      )
+
+      $pushAll = {
+        "transactions.ids": [statTransaction.id]
+        "transactions.temp": [statTransaction]
+      }
+
+      $update = {
+        $pushAll: $pushAll
+      }
+
+      _setTransactionProcessedAndCreateNew api.Discussions, document, transaction, [statTransaction], false, false, $update, callback
+      #if it went through great, if it didn't go through then the poller will take care of it
+      #, no other state changes need to occur
+
+      #Write to the event stream
+      api.Streams.discussionAnswered(transaction.entity, transaction.data.timestamp, document) #we don't care about the callback
   },
   (error, results)->
     if error?

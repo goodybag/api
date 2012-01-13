@@ -268,6 +268,70 @@ Business = new Schema {
 ####################
 Poll = new Schema {
   entity: { #We support various types of users creating discussions (currently businesses and consumers can create discussions)
+    type               : {type: String, required: true, enum: choices.entities._enum}
+    id                 : {type: ObjectId, required: true}
+    name               : {type: String}
+  }
+
+  createdBy: { #if it was created by a business or any other organization type, we want to know by which user in that organization otherwise just the consumer
+    type               : {type: String, required: true, enum: choices.entities._enum}
+    id                 : {type: ObjectId, required: true}
+  }
+
+  lastModifiedBy: { #if it was created by a business or any other organization type, we want to know by which user in that organization otherwise just the consumer
+    type               : {type: String, required: true, enum: choices.entities._enum}
+    id                 : {type: ObjectId, required: true}
+  }
+
+  name                 : {type: String, required: true}
+  type                 : {type: String, required: true, enum: choices.polls.type._enum}
+  question             : {type: String, required: true}
+  choices              : [type: String, required: true]
+  numChoices           : {type: Number, required: true}
+  showStats            : {type: Boolean, required: true} #whether to display the stats to the user or not
+  displayName          : {type: Boolean, required: true}
+  displayMediaQuestion : {type: Boolean, required: true}
+  displayMediaResults  : {type: Boolean, required: true}
+
+  responses: {
+    remaining          : {type: Number,   required: true} #decrement each response
+    max                : {type: Number,   required: true}
+    consumers          : [type: ObjectId, required: true, default: new Array()] #append ObjectId(consumerId) each response
+    log                : {} #append consumerId:{answers:[1,2],timestamp:Date}
+    dates              : [] #append {consumerId:ObjId,timestamp:Date} -- for sorting by date
+    choiceCounts       : [type: Number,   required: true, default: new Array()] #increment each choice chosen, default should be a zero array..
+    flagConsumers      : [type: ObjectId, required: true, default: new Array()]
+    flagCount          : {type: Number,   required: true, default: 0}
+    skipConsumers      : [type: ObjectId, required: true, default: new Array()]
+    skipCount          : {type: Number,   required: true, default: 0}
+  }
+
+  mediaQuestion: media #if changed please update api calls, transloadit hook, frontend code (uploadify/transloadit)
+  mediaResults: media #if changed please update api calls, transloadit hook, frontend code (uploadify/transloadit)
+
+  dates: {
+    created            : {type: Date, required: true, default: new Date( (new Date()).toUTCString() )}
+    start              : {type: Date, required: true}
+    end                : {type: Date}
+  }
+
+  funds: {
+    perResponse        : {type: Number, required: true}
+    allocated          : {type: Number, required: true, default: 0.0}
+    remaining          : {type: Number, required: true, default: 0.0}
+  }
+
+  deleted              : {type: Boolean, default: false}
+
+  transactions: transactions
+}
+
+
+####################
+# Discussion #######
+####################
+Discussion = new Schema {
+  entity: { #We support various types of users creating discussions (currently businesses and consumers can create discussions)
     type              : {type: String, required: true, enum: choices.entities._enum}
     id                : {type: ObjectId, required: true}
     name              : {type: String}
@@ -284,69 +348,18 @@ Poll = new Schema {
   }
 
   name                : {type: String, required: true}
-  type                : {type: String, required: true, enum: choices.polls.type._enum}
-  question            : {type: String, required: true}
-  choices             : [type: String, required: true]
-  numChoices          : {type: Number, required: true}
-  showStats           : {type: Boolean, required: true} #whether to display the stats to the user or not
-  displayName         : {type: Boolean, required: true}
-  displayMediaQuestion : {type: Boolean, required: true}
-  displayMediaResults  : {type: Boolean, required: true}
-  responses: {
-    remaining     : {type: Number,   required: true} #decrement each response
-    max           : {type: Number,   required: true}
-    consumers     : [type: ObjectId, required: true, default: new Array()] #append ObjectId(consumerId) each response
-    log           : {}                             #append consumerId:{answers:[1,2],timestamp:Date}
-    dates         : []                             #append {consumerId:ObjId,timestamp:Date} -- for sorting by date
-    choiceCounts  : [type: Number,   required: true, default: new Array()] #increment each choice chosen, default should be a zero array..
-    flagConsumers : [type: ObjectId, required: true, default: new Array()]
-    flagCount     : {type: Number,   required: true, default: 0}
-    skipConsumers : [type: ObjectId, required: true, default: new Array()]
-    skipCount     : {type: Number,   required: true, default: 0}
-  }
-
-  mediaQuestion: media #if changed please update api calls, transloadit hook, frontend code (uploadify/transloadit)
-  mediaResults: media #if changed please update api calls, transloadit hook, frontend code (uploadify/transloadit)
-  dates: {
-    created           : {type: Date, required: true, default: new Date( (new Date()).toUTCString() )}
-    start             : {type: Date, required: true}
-    end               : {type: Date}
-  }
-  funds: {
-    perResponse       : {type: Number, required: true}
-    allocated         : {type: Number, required: true, default: 0.0}
-    remaining         : {type: Number, required: true, default: 0.0}
-  }
-
-
-  transactions: transactions
-
-  deleted             : {type: Boolean, default: false}
-}
-
-
-####################
-# Discussion #######
-####################
-Discussion = new Schema {
-  entity: { #We support various types of users creating discussions (currently businesses and consumers can create discussions)
-    type              : {type: String, required: true, enum: choices.entities._enum}
-    id                : {type: ObjectId, required: true}
-    name              : {type: String}
-  }
-  name                : {type: String, required: true}
   question            : {type: String, required: true}
   details             : {type: String}
   tags                : [String]
   displayName         : {type: Boolean, required: true}
   displayMedia        : {type: Boolean, required: true}
   responses: {
-    count         : {type: Number, required: true, default: 0}
-    consumers     : [type: ObjectId, required: true, default: new Array()] #append ObjectId(consumerId) each response
-    log           : {}                             #append consumerId:{answers:[1,2],timestamp:Date}
-    dates         : []                             #append {consumerId:ObjId,timestamp:Date} -- for sorting by date
-    flagConsumers : [type: ObjectId, required: true, default: new Array()]
-    flagCount     : {type: Number,   required: true, default: 0}
+    count             : {type: Number, required: true, default: 0}
+    consumers         : [type: ObjectId, required: true, default: new Array()] #append ObjectId(consumerId) each response
+    log               : {}                             #append consumerId:{answers:[1,2],timestamp:Date}
+    dates             : []                             #append {consumerId:ObjId,timestamp:Date} -- for sorting by date
+    flagConsumers     : [type: ObjectId, required: true, default: new Array()]
+    flagCount         : {type: Number,   required: true, default: 0}
   }
   media: media
   dates: {
@@ -360,10 +373,10 @@ Discussion = new Schema {
     allocated         : {type: Number, required: true, default: 0.0}
     remaining         : {type: Number, required: true, default: 0.0}
   }
+  deleted             : {type: Boolean, default: false}
 
   transactions: transactions
 
-  deleted             : {type: Boolean, default: false}
 }
 
 ####################
