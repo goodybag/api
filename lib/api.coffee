@@ -941,35 +941,35 @@ class Polls extends Campaigns
 
     updateDoc = {
       entity: {
-        type          : data.entity.type
-        id            : data.entity.id
-        name          : data.entity.name
+        type                  : data.entity.type
+        id                    : data.entity.id
+        name                  : data.entity.name
       }
 
       lastModifiedBy: {
-        type          : data.lastModifiedBy.type
-        id            : data.lastModifiedBy.id
+        type                  : data.lastModifiedBy.type
+        id                    : data.lastModifiedBy.id
       }
 
-      name            : data.name
-      type            : data.type
-      question        : data.question
-      choices         : data.choices
-      numChoices      : parseInt(data.numChoices)
+      name                    : data.name
+      type                    : data.type
+      question                : data.question
+      choices                 : data.choices
+      numChoices              : parseInt(data.numChoices)
       responses: {
-        remaining     : parseInt(data.responses.max)
-        max           : parseInt(data.responses.max)
-        log           : data.responses.log
-        dates         : data.responses.dates
-        choiceCounts  : data.responses.choiceCounts
+        remaining             : parseInt(data.responses.max)
+        max                   : parseInt(data.responses.max)
+        log                   : data.responses.log
+        dates                 : data.responses.dates
+        choiceCounts          : data.responses.choiceCounts
       }
-      showStats       : data.showStats
-      displayName     : data.displayName
+      showStats               : data.showStats
+      displayName             : data.displayName
       displayMediaQuestion    : data.displayMediaQuestion
-      displayMediaResults    : data.displayMediaResults
+      displayMediaResults     : data.displayMediaResults
 
-      mediaQuestion : data.mediaQuestion
-      mediaResults  : data.mediaResults
+      mediaQuestion           : data.mediaQuestion
+      mediaResults            : data.mediaResults
     }
 
 
@@ -1408,28 +1408,98 @@ class Discussions extends Campaigns
     return query
 
   @update: (entityType, entityId, discussionId, data, callback)->
+    self = this
+
+    instance = new @model(data)
+
     if Object.isString(entityId)
       entityId = new ObjectId(entityId)
     if Object.isString(discussionId)
       discussionId = new ObjectId(discussionId)
+    if Object.isString(data.entity.id)
+      data.entity.id = new ObjectId(data.entity.id)
     if data.media? and Object.isString(data.media.mediaId) and data.media.mediaId.length>0
       data.media.mediaId = new ObjectId(data.media.mediaId)
 
-    @getByEntity entityType, entityId, discussionId, (error, discussion)->
+    entityType = data.entity.type
+    entityId = data.entity.id
+
+
+    #Set the fields you want updated now, not afte the update
+    #for the ones that you want set after the update put those
+    #in the transactionData and make thsoe changes in the
+    #setTransactionProcessed function
+
+    updateDoc = {
+      entity: {
+        type          : data.entity.type
+        id            : data.entity.id
+        name          : data.entity.name
+      }
+
+      lastModifiedBy: {
+        type: data.lastModifiedBy.type
+        id: data.lastModifiedBy.id
+      }
+
+      name            : data.name
+      question        : data.question
+      details         : data.details
+      tags            : data.tags
+      displayMedia    : data.displayMedia
+      dates: {
+        start         : new Date(data.dates.start)
+      }
+      media           : data.media
+    }
+
+
+    # We don't do a transaction for discussion creation right now because they are a fixed amount at the moment
+    # this will change when we implement the consumer side
+    # entity = {
+    #   type: data.entity.type
+    #   id: data.entity.id
+    # }
+
+    # transactionData = {
+    #   newAllocated: newAllocated
+    #   perResponse: perResponse
+    # }
+    # transaction = self.createTransaction choices.transactions.states.PENDING, choices.transactions.actions.DISCUSSION_UPDATED, transactionData, choices.transactions.directions.INBOUND, entity
+
+    # $set = {
+    #   "dates.start": new Date(data.dates.start) #this is so that we don't lose the create date
+    #   "transactions.locked": true #THIS IS A LOCKING TRANSACTION, SO IF ANYONE ELSE TRIES TO DO A LOKCING TRANSACTION IT WILL NOT HAPPEN (AS LONG AS YOU CHECK FOR THAT)
+    #   "transactions.state": choices.transactions.states.PENDING
+    # }
+    # $push = {
+    #   "transactions.ids": transaction.id
+    #   "transactions.log": transaction
+    # }
+
+    # logger.info data
+
+    $set = {}
+    for own k,v of updateDoc
+      console.log k
+      $set[k] = v
+
+    $update = {
+      $set: $set
+      #$push: $push
+    }
+
+    @model.collection.findAndModify {_id: discussionId, "entity.type":entityType, "entity.id":entityId, "transactions.locked": false}, [], $update, {safe: true, new: true}, (error, discussion)->
       if error?
-        callback error, discussion
+        callback error, null
+      else if !discussion?
+        callback new errors.ValidationError({"discussion":"Discussion does not exist or Access Denied."})
       else
-        if (discussion.dates.start <= new Date())
-          callback {name: "DateTimeError", message: "Can not edit a discussion that is in progress or has completed."}, null
-        else
-          for own k,v of data
-            discussion[k] = v
-          logger.debug "discusison"
-          logger.debug "discusison"
-          logger.debug "discusison"
-          logger.debug discussion
-          discussion.save callback
-      return
+        callback null, discussion
+
+        Streams.discussionUpdated(discussion) #we don't care about the callback #if we use transacitons, remove this from here
+        #we do not do this right now
+        #tp.process(discussion, transaction)
     return
 
   @add = (data, amount, callback)->
@@ -1530,21 +1600,26 @@ class Discussions extends Campaigns
       query.count callback
     return
 
-  @del: (entityType, entityId, discussionId, callback)->
+  @del: (entityType, entityId, discussionId, lastModifiedBy, callback)->
     self = this
     if Object.isString(entityId)
       entityId = new ObjectId(entityId)
     if Object.isString(discussionId)
       discussionId = new ObjectId(discussionId)
+    if Object.isString(lastModifiedBy.id)
+      lastModifiedBy.id = new ObjectId(lastModifiedBy.id)
 
     entity = {}
     transactionData = {}
-    transaction = self.createTransaction choices.transactions.states.PENDING, choices.transactions.actions.POLL_DELETED, transactionData, choices.transactions.directions.OUTBOUND, entity
+    transaction = self.createTransaction choices.transactions.states.PENDING, choices.transactions.actions.DISCUSSION_DELETED, transactionData, choices.transactions.directions.OUTBOUND, entity
 
     $set = {
       "deleted": true
       "transactions.locked": true #THIS IS A LOCKING TRANSACTION, SO IF ANYONE ELSE TRIES TO DO A LOKCING TRANSACTION IT WILL NOT HAPPEN (AS LONG AS YOU CHECK FOR THAT)
       "transactions.state": choices.transactions.states.PENDING
+
+      "lastModifiedBy.type": lastModifiedBy.type
+      "lastModifiedBy.id": lastModifiedBy.id
     }
     $push = {
       "transactions.ids": transaction.id
@@ -1992,6 +2067,172 @@ class Streams extends API
     stream.data = {
       poll:{
         name: pollDoc.name
+      }
+    }
+
+    @add stream, callback
+
+  @discussionCreated: (discussionDoc, callback)->
+    logger.debug discussionDoc
+    if Object.isString(discussionDoc._id)
+      discussionDoc._id = new ObjectId(discussionDoc._id)
+
+    if Object.isString(discussionDoc.entity.id)
+      discussionDoc.entity.id = new ObjectId(discussionDoc.entity.id)
+
+    if Object.isString(discussionDoc.createdBy.id)
+      discussionDoc.createdBy.id = new ObjectId(discussionDoc.createdBy.id)
+
+    who = {type: discussionDoc.entity.type, id: discussionDoc.entity.id} #who ever created it
+    discussion = {type: choices.objects.DISCUSSION, id: discussionDoc._id }
+    user = undefined #will be set only if document.entity is an organization and not a consumer
+
+    if who.type is choices.entities.BUSINESS
+      user = {type: discussionDoc.createdBy.type, id: discussionDoc.createdBy.id}
+
+    stream = {
+      who               : who
+      entitiesInvolved  : [who]
+      what              : discussion
+      when              : discussionDoc.dates.created
+      #where:
+      events            : [choices.eventTypes.DISCUSSION_CREATED]
+      data              : {}
+      feeds: {
+        global          : false
+      }
+      private: false #THIS NEEDS TO BE UPDATED BASED ON PRIVACY SETTINGS OF WHO (if consumer)
+    }
+
+    if user?
+      stream.by = user
+      stream.entitiesInvolved.push(user)
+
+    stream.data = {
+      discussion:{
+        name: discussionDoc.name
+      }
+    }
+
+    logger.debug stream
+
+    @add stream, callback
+
+  @discussionUpdated: (discussionDoc, callback)->
+    if Object.isString(discussionDoc._id)
+      discussionDoc._id = new ObjectId(discussionDoc._id)
+
+    if Object.isString(discussionDoc.entity.id)
+      discussionDoc.entity.id = new ObjectId(discussionDoc.entity.id)
+
+    if Object.isString(discussionDoc.lastModifiedBy.id)
+      discussionDoc.lastModifiedBy.id = new ObjectId(discussionDoc.lastModifiedBy.id)
+
+    who = {type: discussionDoc.entity.type, id: discussionDoc.entity.id} #who ever created it
+    discussion = {type: choices.objects.DISCUSSION, id: discussionDoc._id }
+    user = undefined #will be set only if document.entity is an organization and not a consumer
+
+    if who.type is choices.entities.BUSINESS
+      user = {type: discussionDoc.lastModifiedBy.type, id: discussionDoc.lastModifiedBy.id}
+
+    stream = {
+      who               : who
+      entitiesInvolved  : [who]
+      what              : discussion
+      when              : discussionDoc.dates.lastModified
+      #where:
+      events            : [choices.eventTypes.DISCUSSION_UPDATED]
+      data              : {}
+      feeds: {
+        global          : false
+      }
+      private: false #THIS NEEDS TO BE UPDATED BASED ON PRIVACY SETTINGS OF WHO (if consumer)
+    }
+
+    if user?
+      stream.by = user
+      stream.entitiesInvolved.push(user)
+
+    stream.data = {
+      discussion:{
+        name: discussionDoc.name
+      }
+    }
+
+    @add stream, callback
+
+  @discussionDeleted: (discussionDoc, callback)->
+    if Object.isString(discussionDoc._id)
+      discussionDoc._id = new ObjectId(discussionDoc._id)
+
+    if Object.isString(discussionDoc.entity.id)
+      discussionDoc.entity.id = new ObjectId(discussionDoc.entity.id)
+
+    if Object.isString(discussionDoc.lastModifiedBy.id)
+      discussionDoc.lastModifiedBy.id = new ObjectId(discussionDoc.lastModifiedBy.id)
+
+    who = {type: discussionDoc.entity.type, id: discussionDoc.entity.id} #who ever created it
+    discussion = {type: choices.objects.DISCUSSION, id: discussionDoc._id }
+    user = undefined #will be set only if document.entity is an organization and not a consumer
+
+    if who.type is choices.entities.BUSINESS
+      user = {type: discussionDoc.lastModifiedBy.type, id: discussionDoc.lastModifiedBy.id}
+
+    stream = {
+      who               : who
+      entitiesInvolved  : [who]
+      what              : discussion
+      when              : discussionDoc.dates.lastModified
+      #where:
+      events            : [choices.eventTypes.DISCUSSION_DELETED]
+      data              : {}
+      feeds: {
+        global          : false
+      }
+      private: false #THIS NEEDS TO BE UPDATED BASED ON PRIVACY SETTINGS OF WHO (if consumer)
+    }
+
+    if user?
+      stream.by = user
+      stream.entitiesInvolved.push(user)
+
+    stream.data = {
+      discussion:{
+        name: discussionDoc.name
+      }
+    }
+
+    @add stream, callback
+
+  @discussionAnswered: (who, timestamp, discussionDoc, callback)->
+    if Object.isString(who.id)
+      who.id = new ObjectId(who.id)
+
+    if Object.isString(discussionDoc._id)
+      discussionDoc._id = new ObjectId(discussionDoc._id)
+
+    if Object.isString(discussionDoc.entity.id)
+      discussionDoc.entity.id = new ObjectId(discussionDoc.entity.id)
+
+    discussion = {type: choices.objects.DISCUSSION, id: discussionDoc._id }
+
+    stream = {
+      who               : who
+      entitiesInvolved  : [who, discussionDoc.entity]
+      what              : discussion
+      when              : timestamp
+      #where:
+      events            : [choices.eventTypes.DISCUSSION_ANSWERED]
+      data              : {}
+      feeds: {
+        global          : false
+      }
+      private: false #THIS NEEDS TO BE UPDATED BASED ON PRIVACY SETTINGS OF WHO (if consumer)
+    }
+
+    stream.data = {
+      discussion:{
+        name: discussionDoc.name
       }
     }
 
