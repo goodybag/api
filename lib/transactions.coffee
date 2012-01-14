@@ -34,8 +34,13 @@ process = (document, transaction)-> #this is just a router
     when choices.transactions.actions.STAT_POLL_ANSWERED
       statPollAnswered(document, transaction)
 
+    #STAT - TAPINS
+    when choices.transactions.actions.STAT_TAPIN_TAPPED
+      statTapInTapped(document, transaction)
+
 _setTransactionProcessing = (clazz, document, transaction, locking, callback)->
   prepend = "ID: #{document._id} - TID: #{transaction.id}"
+  logger.info "#{prepend} transitioning state to processing"
   clazz.setTransactionProcessing document._id, transaction.id, locking, (error, doc)->
     if error?
       logger.error "#{prepend} transitioning state to processing failed"
@@ -51,6 +56,7 @@ _setTransactionProcessing = (clazz, document, transaction, locking, callback)->
 
 _setTransactionProcessed = (clazz, document, transaction, locking, removeLock, modifierDoc, callback)->
   prepend = "ID: #{document._id} - TID: #{transaction.id}"
+  logger.info "#{prepend} transitioning state to processed"
   clazz.setTransactionProcessed document._id, transaction.id, locking, removeLock, modifierDoc, (error, doc)->
     if error?
       logger.error "#{prepend} transitioning to state processed failed"
@@ -65,9 +71,10 @@ _setTransactionProcessed = (clazz, document, transaction, locking, removeLock, m
 
 _setTransactionProcessedAndCreateNew = (clazz, document, transaction, newTransactions, locking, removeLock, modifierDoc, callback)->
   prepend = "ID: #{document._id} - TID: #{transaction.id}"
+  logger.info "#{prepend} transitioning state to processed and creating new transaction"
   clazz.setTransactionProcessed document._id, transaction.id, locking, removeLock, modifierDoc, (error, doc)->
     if error?
-      logger.error "#{prepend} transitioning to state processed failed"
+      logger.error "#{prepend} transitioning to state processed and create new transaction failed"
       callback(error)
     else if !doc?
       logger.warn "#{prepend} the transaction state may already be processed" #if not the poller will take care of it
@@ -795,5 +802,43 @@ statPollAnswered = (document, transaction)->
     if error?
       logger.error "#{prepend} the poller will try later"
 
+#OUTBOUND
+statTapInTapped = (document, transaction)->
+  prepend = "ID: #{document._id} - TID: #{transaction.id}"
+  logger.info "STAT - User tapped in at a business"
+  logger.info "#{prepend} - #{transaction.direction}"
+  # logger.debug document
+  async.series {
+    setProcessing: (callback)->
+      _setTransactionProcessing api.BusinessTransactions, document, transaction, false, (error, doc)->
+        #We need to replace the passed in document with this new one because
+        #the document passed in doesn't have the entity object (we had removed it)
+        document = doc
+        callback(error, doc)
+      return
+
+    updateStats: (callback)->
+      # logger.debug document
+      org = {type: document.organizationEntity.type, id: document.organizationEntity.id}
+      consumerId = document.userEntity.id
+      transactionId = transaction.id
+      api.Statistics.tapInTapped org, consumerId, transactionId, transaction.data.amount, transaction.data.timestamp, (error, count)->
+        if error? #mongo errored out
+          callback(error)
+        else if count>0
+          callback(null, count)
+        else #transaction already occurred - we did an upsert to create the relationship if it doesn't exist
+          callback(null, null)
+
+    setProcessed: (callback)->
+      _setTransactionProcessed api.BusinessTransactions, document, transaction, false, false, {}, callback
+      return
+      #if it went through great, if it didn't go through then the poller will take care of it,
+      #no other state changes need to occur
+
+  },
+  (error, results)->
+    if error?
+      logger.error "#{prepend} the poller will try later"
 
 exports.process = process

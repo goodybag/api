@@ -25,6 +25,7 @@ Entity = new Schema {
   type            : {type: String, required: true, enum: choices.entities._enum}
   id              : {type: ObjectId, required: true}
   name            : {type: String}
+  screenName      : {type: String} #only applies to consumers
 }
 
 
@@ -175,8 +176,10 @@ Consumer = new Schema {
     remaining     : {type: Number, default: 0.0}
   }
 
+  barcodeId       : {type:String}
+
   gbAdmin         : {type: Boolean, default: false}
-  transactions: transactions
+  transactions    : transactions
 
 }
 
@@ -202,7 +205,7 @@ Client = new Schema {
     remaining   : {type: Number, required: true, default: 0.0}
   }
 
-  transactions: transactions
+  transactions  : transactions
 
 }
 
@@ -248,6 +251,9 @@ Business = new Schema {
     allocated   : {type: Number, required: true, default: 0.0}
     remaining   : {type: Number, required: true, default: 0.0}
   }
+  gbEquipped    : {type: Boolean, default: false}
+
+  transactions  : transactions
 
   permissions: { #permissions for groups
   #nothing needs to be done for now, but in the future permissions for groups will be taken care of here.
@@ -257,10 +263,6 @@ Business = new Schema {
     #owners      : [String]
     #managers    : [String]
   }
-
-  transactions: transactions
-
-  gbEquipped    : {type: Boolean, default: false}
 }
 
 
@@ -324,7 +326,7 @@ Poll = new Schema {
 
   deleted              : {type: Boolean, default: false}
 
-  transactions: transactions
+  transactions         : transactions
 }
 
 
@@ -370,13 +372,15 @@ Discussion = new Schema {
 
     #end           : {type: Date, required: true, default: new Date( (new Date().addWeeks(3)).toUTCString() )} #three week later
   }
+
   funds: {
     allocated         : {type: Number, required: true, default: 0.0}
     remaining         : {type: Number, required: true, default: 0.0}
   }
+
   deleted             : {type: Boolean, default: false}
 
-  transactions: transactions
+  transactions        : transactions
 
 }
 
@@ -413,13 +417,14 @@ Response = new Schema {
   discussionId    : {type: ObjectId, required: true}
   response        : {type: String, required: true}
   parent          : {type: ObjectId} #was this in response to a previous response? which one?
+
   dates: {
     created       : {type: Date, default: new Date( (new Date()).toUTCString() )}
   }
 
-  transactions: transactions
+  deleted         : {type: Boolean, default: false}
 
-  deleted             : {type: Boolean, default: false}
+  transactions    : transactions
 }
 
 
@@ -428,23 +433,25 @@ Response = new Schema {
 ####################
 Media = new Schema {
   entity: { #We support different types of users creating and uploading content
-    type      : {type: String, required: true, enum: choices.entities._enum}
-    id        : {type: ObjectId, required: true}
-    name      : {type: String}
+    type        : {type: String, required: true, enum: choices.entities._enum}
+    id          : {type: ObjectId, required: true}
+    name        : {type: String}
   }
-  type        : {type: String, required: true, enum: choices.media.type._enum}
-  name        : {type: String, required: true}
-  duration    : {type: Number}
-  thumbs      : [] #only populated if video
-  sizes       : {} #only for images, not yet implemented in transloaded's template, or api
-  tags        : []
+
+  type          : {type: String, required: true, enum: choices.media.type._enum}
+  name          : {type: String, required: true}
+  duration      : {type: Number}
+  thumbs        : [] #only populated if video
+  sizes         : {} #only for images, not yet implemented in transloaded's template, or api
+  tags          : []
+
   dates: {
-    created   : {type: Date, required: true, default: new Date( (new Date()).toUTCString() )}
+    created     : {type: Date, required: true, default: new Date( (new Date()).toUTCString() )}
   }
 
-  transactions: transactions
+  transactions  : transactions
 
-  deleted             : {type: Boolean, default: false}
+  deleted       : {type: Boolean, default: false}
 }
 
 #indexes
@@ -464,12 +471,13 @@ ClientInvitation = new Schema {
   email           : {type: String, required: true, validate: Email}
   key             : {type: String, required: true}
   status          : {type: String, required: true, enum: choices.invitations.state._enum, default: choices.invitations.state.PENDING}
+
   dates: {
     created       : {type: Date, default: new Date( (new Date()).toUTCString() )}
     expires       : {type: Date}
   }
 
-  transactions: transactions
+  transactions    : transactions
 }
 
 #unique index on businessId + group + email address is required
@@ -510,7 +518,7 @@ Stream = new Schema {
   data                : {}#eventTypes to info mapping:=> eventType: {id: XX, extraFF: GG}
   deleted             : {type: Boolean, default: false}
 
-  transactions: transactions
+  transactions        : transactions
 }
 
 #indexes
@@ -546,47 +554,41 @@ EventDateRange = new Schema {
 
 Event = new Schema {
   entity: {
-    type      : {type: String, required: true, enum: choices.entities._enum}
-    id        : {type: ObjectId, required: true}
-    name      : {type: String}
+    type        : {type: String, required: true, enum: choices.entities._enum}
+    id          : {type: ObjectId, required: true}
+    name        : {type: String}
   }
 
-  locationId  : {type: ObjectId}
-  location    : {
-    name      : {type: String}
-    street1   : {type: String, required: true}
-    street2   : {type: String}
-    city      : {type: String, required: true}
-    state     : {type: String, required: true}
-    zip       : {type: Number, required: true}
-    country   : {type: String, enum: countries.codes, required: true, default: "us"}
-    phone     : {type: String}
-    fax       : {type: String}
-    lat       : {type: Number}
-    lng       : {type: Number}
+  locationId    : {type: ObjectId}
+  location      : {
+    name        : {type: String}
+    street1     : {type: String, required: true}
+    street2     : {type: String}
+    city        : {type: String, required: true}
+    state       : {type: String, required: true}
+    zip         : {type: Number, required: true}
+    country     : {type: String, enum: countries.codes, required: true, default: "us"}
+    phone       : {type: String}
+    fax         : {type: String}
+    lat         : {type: Number}
+    lng         : {type: Number}
   }
 
   dates: {
-    requested : {type: Date, required: true}
-    responded : {type: Date, required: true}
-    actual    : {type: Date, required: true}
+    requested   : {type: Date, required: true}
+    responded   : {type: Date, required: true}
+    actual      : {type: Date, required: true}
   }
 
-  hours       : [EventDateRange]
-  pledge      : {type: Number, min: 0, max: 100, required: true}
-  externalUrl : {type: String, validate: Url}
-  rsvp        : [ObjectId]
-  rsvpUsers   : {}
+  hours         : [EventDateRange]
+  pledge        : {type: Number, min: 0, max: 100, required: true}
+  externalUrl   : {type: String, validate: Url}
+  rsvp          : [ObjectId]
+  rsvpUsers     : {}
 
-  transactions: {
-    ids       : [ObjectId]
-    failed    : [ObjectId]
-    log       : [Transaction]
-    temp      : [Transaction]
-    locked    : {type: Boolean}
-    state     : {type: String, enum: choices.transactions.states._enum}
-  }
+  transactions  : transactions
 }
+
 
 #####################
 # Events Requests ###
@@ -609,24 +611,22 @@ EventRequest = new Schema {
     responded           : {type: Date}
   }
 
-  transactions: transactions
+  transactions          : transactions
 }
+
 
 #########################
 # BusinessTransaction ###
 #########################
 BusinessTransaction = new Schema {
-  userEntity: { # Not required since they may not registered
+  userEntity: { # Not required since they may not be registered
     type                : {type: String, enum: choices.entities._enum}
     id                  : {type: ObjectId}
     name                : {type: String}
+    screenName          : {type: String}
   }
 
-  organizationEntity: {
-    type                : {type: String, required: true, enum: choices.entities._enum}
-    id                  : {type: ObjectId, required: true}
-    name                : {type: String}
-  }
+  organizationEntity    : organization
 
   locationId            : {type: ObjectId, required: true}
   registerId            : {type: String, required: true}
@@ -636,6 +636,8 @@ BusinessTransaction = new Schema {
   time                  : {type: Date, required: true}
   amount                : {type: Number, required: true}
   donationAmount        : {type: Number}
+
+  transactions          : transactions
 }
 
 
@@ -675,7 +677,7 @@ Statistic = new Schema {
   consumerId              : {type: ObjectId, required: true}
   data                    : {} #store counts, totals, dates, etc
 
-  transactions: transactions
+  transactions            : transactions
 }
 
 Statistic.index {'org.type': 1, 'org.id':1, consumerId: 1}, {unique: true}

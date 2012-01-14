@@ -346,6 +346,11 @@ class Consumers extends API
     query.in("_id", ids)
     query.exec callback
 
+  @getByBarcodeId: (barcodeId, callback)->
+    query = @queryOne()
+    query.where("barcodeId", barcodeId)
+    query.exec callback
+
   @facebookLogin: (accessToken, callback)->
     self = this
     accessToken = accessToken.split("&")
@@ -843,6 +848,7 @@ class Businesses extends API
     query.where('locations.tapins', true)
     query.exec callback
 
+
 class Campaigns extends API
   @updateMedia: (entityType, entityId, guid, data, mediaKey, callback)->
     if(Object.isString(entityId))
@@ -871,6 +877,7 @@ class Campaigns extends API
         callback null, success
       return
     return
+
 
 class Polls extends Campaigns
   @model = Poll
@@ -1824,12 +1831,93 @@ class BusinessTransactions extends API
   @model = db.BusinessTransaction
 
   @add: (data, callback)->
-    @_add data, (error, transaction)->
-      callback(error, transaction)
-      if !error?
-        if userEntity?
-          who = userEntity
-          Streams.tappedIn who, transaction
+    if Object.isString(data.organizationEntity.id)
+      data.organizationEntity.id = new ObjectId(data.organizationEntity.id)
+    if Object.isString(data.locationId)
+      data.locationId = new ObjectId(data.locationId)
+
+    timestamp = Date.create(data.timestamp)
+
+    doc = {
+      organizationEntity: {
+        type          : data.organizationEntity.type
+        id            : data.organizationEntity.id
+        name          : data.organizationEntity.name
+      }
+
+      locationId      : data.locationId
+      registerId      : data.registerId
+      barcodeId       : data.barcodeId
+      transactionId   : data.transactionId
+      date            : Date.create(timestamp)
+      time            : new Date(0,0,0, timestamp.getHours(), timestamp.getMinutes(), timestamp.getSeconds(), timestamp.getMilliseconds()) #this is for slicing by time
+      amount          : parseFloat(data.amount).round(2)
+      #donationAmount  : data.donationAmount #business don't have a donation $ or % field in db
+    }
+
+    self = this
+    async.series {
+      findConsumer: (cb)-> #find only if there was a barcode that needed to be analyzed
+        if doc.barcodeId?
+          Consumers.getByBarcodeId doc.barcodeId, (error, consumer)->
+            if error?
+              cb(error, null)
+              return
+            else if consumer?
+              doc.userEntity = {
+                type            : choices.entities.CONSUMER
+                id              : consumer._id
+                name            : "#{consumer.firstName} #{consumer.lastName}"
+                screenName      : consumer.screenName
+              }
+              cb(null)
+            else
+              cb(null) #insert the transaction anyway, it is an invalid bar code though
+              #cb(new errors.ValidationError {"DNE": "Consumer Does Not Exist"})
+        else
+          cb(null)
+
+      findOrg: (cb)-> #do 3 things, make sure org exists, get the name, get donation amount
+        if doc.organizationEntity.type is choices.entities.BUSINESS
+          Businesses.one doc.organizationEntity.id, (error, business)->
+            if error?
+              cb(error, null)
+              return
+            else if business?
+              doc.organizationEntity.name = business.name
+              # if doc.userEntity? #donate only if this was a goodybag user
+              #   doc.donationAmount = (business.donationPercentage * doc.amount).round(2)
+              cb(null)
+            else
+              cb(new errors.ValidationError {"DNE": "Business Does Not Exist"})
+
+      saveTapIn: (cb)=> #save it and write to the statistics table
+        instance = new @model(doc)
+
+        transactionData = {
+          amount: doc.amount
+        }
+
+        statTransaction = @createTransaction(choices.transactions.states.PENDING, choices.transactions.actions.STAT_TAPIN_TAPPED, transactionData, choices.transactions.directions.INBOUND, instance.organizationEntity)
+
+        instance.transactions.locked = false
+        instance.transactions.ids = [statTransaction.id]
+        instance.transactions.log = [statTransaction]
+
+        instance.save (error, tapIn)->
+          cb error, tapIn
+          if error?
+            return
+          if doc.userEntity?
+            who = doc.userEntity
+            tp.process(tapIn, statTransaction) #write stat to collection
+            Streams.tapInTapped tapIn._doc #NOTICE THE _doc HERE, BECAUSE !!!! #we don't care about the callback
+        return
+    }, (error, results)->
+      if error?
+        callback(error)
+      else if results.saveTapIn?
+        callback(null, results.saveTapIn)
 
   @byUser = (userId, options, callback)->
     if Object.isFunction options
@@ -1882,6 +1970,11 @@ class BusinessTransactions extends API
         "id" : new ObjectId("4eebdcc12e7501d8d7036cb1")
         "type" : "consumer"
     @model.collection.insert data, {safe: true}, callback
+
+  @setTransactonPending: @__setTransactionPending
+  @setTransactionProcessing: @__setTransactionProcessing
+  @setTransactionProcessed: @__setTransactionProcessed
+  @setTransactionError: @__setTransactionError
 
 
 class BusinessRequests extends API
@@ -2284,6 +2377,38 @@ class Streams extends API
     }
 
     @add stream, callback
+
+  @tapInTapped: (tapInDoc, callback)->
+    if Object.isString(tapInDoc._id)
+      tapInDoc._id = new ObjectId(tapInDoc._id)
+    if Object.isString(tapInDoc.userEntity.id)
+      tapInDoc.userEntity.id = new ObjectId(tapInDoc.userEntity.id)
+    if Object.isString(tapInDoc.organizationEntity.id)
+      tapInDoc.organizationEntity.id = new ObjectId(tapInDoc.organizationEntity.id)
+
+    tapIn = {type: choices.objects.TAPIN, id: tapInDoc._id}
+    who = tapInDoc.userEntity
+
+    stream = {
+      who               : who
+      entitiesInvolved  : [who, tapInDoc.organizationEntity]
+      what              : tapIn
+      when              : tapIn.date
+      events            : [choices.eventTypes.TAPIN_TAPPED]
+      data              : {}
+      feeds: {
+        global          : true #unless a user's preferences are do that
+      }
+    }
+
+    stream.data = {
+      tapIn: {
+        amount: tapInDoc.amount
+        timestamp: tapInDoc.date
+      }
+    }
+
+    @add stream, callback
   ###
   example1: client created a poll:
     who = client
@@ -2552,7 +2677,12 @@ class Statistics extends API
 
   @eventRsvped: (org, consumerId, transactionId, timestamp, callback)->
 
-  @tapedIn: (org, consumerId, transactionId, spent, timestamp, callback)->
+  @tapInTapped: (org, consumerId, transactionId, spent, timestamp, callback)->
+    if Object.isString(consumerId)
+      consumerId = new ObjectId(consumerId)
+    if Object.isString(transactionId)
+      transactionID = new ObjectId(transactionId)
+
     query = @queryOne()
     query.where("org.type", org.type)
     query.where("org.id", org.id)
