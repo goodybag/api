@@ -1836,9 +1836,7 @@ class BusinessTransactions extends API
     if Object.isString(data.locationId)
       data.locationId = new ObjectId(data.locationId)
 
-    logger.error(data.timestamp)
     timestamp = Date.create(data.timestamp)
-    logger.error(timestamp)
 
     doc = {
       organizationEntity: {

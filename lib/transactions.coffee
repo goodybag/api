@@ -821,7 +821,6 @@ statTapInTapped = (document, transaction)->
       org = {type: document.organizationEntity.type, id: document.organizationEntity.id}
       consumerId = document.userEntity.id
       transactionId = transaction.id
-      logger.error document.date
       api.Statistics.tapInTapped org, consumerId, transactionId, transaction.data.amount, document.date, (error, count)->
         if error? #mongo errored out
           callback(error)
