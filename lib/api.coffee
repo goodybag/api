@@ -883,7 +883,6 @@ class Polls extends Campaigns
     query = @_optionParser options, q
     query.where('entity.type', options.entityType) if options.entityType?
     query.where('entity.id', options.entityId) if options.entityId?
-    query.where('dates.start').gte(options.start) if options.start?
     # query.where('dates.end').gte(options.start) if options.end?
     query.where('transaction.state', state) if options.state?
     return query
@@ -1019,7 +1018,7 @@ class Polls extends Campaigns
 
   @list: (entityType, entityId, stage, options, callback)->
     #options: count(boolean)-to return just the count, skip(int), limit(int)
-    query = @_query()
+    query = @optionParser options
     query.where("entity.type", entityType)
     query.where("entity.id", entityId)
     switch stage
@@ -1087,10 +1086,7 @@ class Polls extends Campaigns
             "funds.allocated"     : 1
         }
     if !options.count
-      query.sort("dates.start", -1)
       query.fields(fieldsToReturn);
-      query.skip(options.skip || 0)
-      query.limit(options.limit || 25)
       query.exec callback
     else
       query.count callback
@@ -1407,6 +1403,13 @@ class Discussions extends Campaigns
 
     return query
 
+  @test: (callback)->
+    query = @_query()
+    query.where('dates.start').gt(new Date())
+    query.where('dates.start').$lte(new Date('2012-02-03 00:00:00'))
+    query.exec callback
+    return
+
   @update: (entityType, entityId, discussionId, data, callback)->
     if Object.isString(entityId)
       entityId = new ObjectId(entityId)
@@ -1456,7 +1459,7 @@ class Discussions extends Campaigns
 
   @list: (entityType, entityId, stage, options, callback)->
     #options: count(boolean)-to return just the count, skip(int), limit(int)
-    query = @_query()
+    query = @_optionParser options
     query.where("entity.type", entityType)
     query.where("entity.id", entityId)
     switch stage
@@ -1523,7 +1526,8 @@ class Discussions extends Campaigns
     if !options.count
       query.sort("dates.start", -1)
       query.fields(fieldsToReturn)
-      query.skip(options.skip)
+      if options.last?
+        query.where('dates.start').$lte(new Date(options.last))
       query.limit(options.limit)
       query.exec callback
     else
@@ -1689,10 +1693,10 @@ class EventRequests extends API
     query.exec callback
 
   @respond: (requestId, callback)->
+    if Object.isString requestId
+      requestId = new ObjectId requestId
     $query = {_id: requestId}
-    $update =
-      $set:
-        'date.responded': new Date()
+    $update = {$set: { 'date.responded': new Date()}}
     $options = {remove: false, new: true, upsert: false}
     @model.collection.findAndModify $query, [], $update, $options, callback
 
