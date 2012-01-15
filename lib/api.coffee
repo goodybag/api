@@ -1836,7 +1836,9 @@ class BusinessTransactions extends API
     if Object.isString(data.locationId)
       data.locationId = new ObjectId(data.locationId)
 
+    logger.error(data.timestamp)
     timestamp = Date.create(data.timestamp)
+    logger.error(timestamp)
 
     doc = {
       organizationEntity: {
@@ -2024,7 +2026,7 @@ class Streams extends API
     if Object.isString(pollDoc.createdBy.id)
       pollDoc.createdBy.id = new ObjectId(pollDoc.createdBy.id)
 
-    who = {type: pollDoc.entity.type, id: pollDoc.entity.id} #who ever created it
+    who = pollDoc.entity
     poll = {type: choices.objects.POLL, id: pollDoc._id }
     user = undefined #will be set only if document.entity is an organization and not a consumer
 
@@ -2069,7 +2071,7 @@ class Streams extends API
     if Object.isString(pollDoc.lastModifiedBy.id)
       pollDoc.lastModifiedBy.id = new ObjectId(pollDoc.lastModifiedBy.id)
 
-    who = {type: pollDoc.entity.type, id: pollDoc.entity.id} #who ever created it
+    who = pollDoc.entity
     poll = {type: choices.objects.POLL, id: pollDoc._id }
     user = undefined #will be set only if document.entity is an organization and not a consumer
 
@@ -2112,12 +2114,12 @@ class Streams extends API
     if Object.isString(pollDoc.lastModifiedBy.id)
       pollDoc.lastModifiedBy.id = new ObjectId(pollDoc.lastModifiedBy.id)
 
-    who = {type: pollDoc.entity.type, id: pollDoc.entity.id} #who ever created it
+    who = pollDoc.entity.type #who ever created it
     poll = {type: choices.objects.POLL, id: pollDoc._id }
     user = undefined #will be set only if document.entity is an organization and not a consumer
 
     if who.type is choices.entities.BUSINESS
-      user = {type: pollDoc.lastModifiedBy.type, id: pollDoc.lastModifiedBy.id}
+      user = pollDoc.lastModifiedBy
 
     stream = {
       who               : who
@@ -2190,7 +2192,7 @@ class Streams extends API
     if Object.isString(discussionDoc.createdBy.id)
       discussionDoc.createdBy.id = new ObjectId(discussionDoc.createdBy.id)
 
-    who = {type: discussionDoc.entity.type, id: discussionDoc.entity.id} #who ever created it
+    who = discussionDoc.entity
     discussion = {type: choices.objects.DISCUSSION, id: discussionDoc._id }
     user = undefined #will be set only if document.entity is an organization and not a consumer
 
@@ -2235,7 +2237,7 @@ class Streams extends API
     if Object.isString(discussionDoc.lastModifiedBy.id)
       discussionDoc.lastModifiedBy.id = new ObjectId(discussionDoc.lastModifiedBy.id)
 
-    who = {type: discussionDoc.entity.type, id: discussionDoc.entity.id} #who ever created it
+    who = discussionDoc.entity #who ever created it
     discussion = {type: choices.objects.DISCUSSION, id: discussionDoc._id }
     user = undefined #will be set only if document.entity is an organization and not a consumer
 
@@ -2278,7 +2280,7 @@ class Streams extends API
     if Object.isString(discussionDoc.lastModifiedBy.id)
       discussionDoc.lastModifiedBy.id = new ObjectId(discussionDoc.lastModifiedBy.id)
 
-    who = {type: discussionDoc.entity.type, id: discussionDoc.entity.id} #who ever created it
+    who = discussionDoc.entity #who ever created it
     discussion = {type: choices.objects.DISCUSSION, id: discussionDoc._id }
     user = undefined #will be set only if document.entity is an organization and not a consumer
 
@@ -2678,21 +2680,21 @@ class Statistics extends API
   @eventRsvped: (org, consumerId, transactionId, timestamp, callback)->
 
   @tapInTapped: (org, consumerId, transactionId, spent, timestamp, callback)->
+    if Object.isString(org.id)
+      org.id = new ObjectId(org.id)
+
     if Object.isString(consumerId)
       consumerId = new ObjectId(consumerId)
-    if Object.isString(transactionId)
-      transactionID = new ObjectId(transactionId)
 
-    query = @queryOne()
-    query.where("org.type", org.type)
-    query.where("org.id", org.id)
-    query.where("consumerId", consumerId)
+    if Object.isString(transactionId)
+      transactionId = new ObjectId(transactionId)
 
     $inc = {}
     $inc["data.tapIns.totalTapIns"] = 1
     $inc["data.tapIns.totalAmountPurchased"] = parseFloat(spent) #parse just incase it's a string
 
     $set = {}
+    logger.error(timestamp)
     $set["data.tapIns.lastVisited"] = new Date(timestamp) #if it is a string it will become a date hopefully
 
     $push = {}
@@ -2704,7 +2706,7 @@ class Statistics extends API
       $push: $push
     }
 
-    query.update {$inc: $inc, $set: $set}, callback
+    @model.collection.update {org: org, consumerId: consumerId}, $update, {safe: true, upsert: true }, callback
     return
 
   @_inc: (org, consumerId, field, value, callback)->

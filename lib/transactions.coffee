@@ -161,6 +161,8 @@ _depositFunds = (classTo, initialTransactionClass, document, transaction, lockin
       callback(null, doc)
     return
 
+#TODO: WE MAY NOT NEED TO KEEP TRACK OF INBOUND/OUTBOUND ANYMORE, DETERMINE IF THIS IS CORRECT
+
 #INBOUND
 pollCreated = (document, transaction)->
   prepend = "ID: #{document._id} - TID: #{transaction.id}"
@@ -234,7 +236,7 @@ pollCreated = (document, transaction)->
     if error?
       logger.error "#{prepend} the poller will try later"
 
-#INBOUND
+#INBOUND (Money may go back to the entity if but it's done so the transaction is a negative deduction)
 pollUpdated = (document, transaction)->
   prepend = "ID: #{document._id} - TID: #{transaction.id}"
   logger.info "Creating transaction for a poll that was updated"
@@ -312,7 +314,7 @@ pollUpdated = (document, transaction)->
     if error?
       logger.error "#{prepend} the poller will try later"
 
-
+#OUTBOUND
 pollDeleted = (document, transaction)->
   prepend = "ID: #{document._id} - TID: #{transaction.id}"
   logger.info "Creating transaction for a poll that was deleted"
@@ -389,7 +391,6 @@ pollDeleted = (document, transaction)->
   (error, results)->
     if error?
       logger.error "#{prepend} the poller will try later"
-
 
 #OUTBOUND
 pollAnswered = (document, transaction)->
@@ -536,8 +537,7 @@ discussionCreated = (document, transaction)->
     if error?
       logger.error "#{prepend} the poller will try later"
 
-
-#INBOUND
+#INBOUND (Money may back to the entity if but it's done so the transaction is a negative deduction)
 discussionUpdated = (document, transaction)->
   prepend = "ID: #{document._id} - TID: #{transaction.id}"
   logger.info "Creating transaction for a discussion that was updated"
@@ -615,7 +615,7 @@ discussionUpdated = (document, transaction)->
     if error?
       logger.error "#{prepend} the poller will try later"
 
-
+#OUTBOUND
 discussionDeleted = (document, transaction)->
   prepend = "ID: #{document._id} - TID: #{transaction.id}"
   logger.info "Creating transaction for a discussion that was deleted"
@@ -762,7 +762,6 @@ discussionAnswered = (document, transaction)->
     if error?
       logger.error "#{prepend} the poller will try later"
 
-
 #OUTBOUND
 statPollAnswered = (document, transaction)->
   prepend = "ID: #{document._id} - TID: #{transaction.id}"
@@ -822,7 +821,8 @@ statTapInTapped = (document, transaction)->
       org = {type: document.organizationEntity.type, id: document.organizationEntity.id}
       consumerId = document.userEntity.id
       transactionId = transaction.id
-      api.Statistics.tapInTapped org, consumerId, transactionId, transaction.data.amount, transaction.data.timestamp, (error, count)->
+      logger.error document.date
+      api.Statistics.tapInTapped org, consumerId, transactionId, transaction.data.amount, document.date, (error, count)->
         if error? #mongo errored out
           callback(error)
         else if count>0

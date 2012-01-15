@@ -107,7 +107,7 @@ reference = {
 entity = {
   type              : {type: String, required: true, enum: choices.entities._enum}
   id                : {type: ObjectId, required: true}
-  name              : {type: String}
+  name              : {type: String} #TODO: consider making this required with a default of  ""
   screenName        : {type: String} #only applies to consumers
 }
 
