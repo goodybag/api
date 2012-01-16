@@ -126,6 +126,7 @@ class API
   #TRANSACTIONS
   @createTransaction: (state, action, data, direction, entity)->
     transaction = {
+      _id: new ObjectId() #We are putting this in here only because mongoose does for us. #CONSIDER REMOVING THE REGULAR ID FIELD AND ONLY USE THIS
       id: new ObjectId()
       state: state
       action: action
@@ -167,6 +168,19 @@ class API
     }
 
     @model.collection.findAndModify $query, [], $update, {safe: true, new: true}, callback
+
+  @removeTransactionInvolvement: (transactionId, callback)->
+    if Object.isString(transactionId)
+      transactionId = new ObjectId(transactionId)
+
+    $update = {
+      "$pull": {"transactions.ids": transactionId}
+    }
+
+    @model.collection.update {"transactions.ids": transactionId}, $update, {safe: true, multi: true}, (error, count)->  #will return count of documents matched
+      if error?
+        logger.error error
+      callback(error, count)
 
   #TRANSACTION STATE
   #locking variable is to ask if this is a locking transaction or not (usually creates/updates are locking in our case)
@@ -213,7 +227,7 @@ class API
         $elemMatch: {
           "id": transactionId
           "state":{
-            $nin: [choices.transactions.states.PROCESSED, choices.transactions.states.ERROR]
+            $nin: [choices.transactions.states.PROCESSED, choices.transactions.states.ERROR] #purposefully keeping choices.transactions.state.PROCESSING out of this list
           }
         }
       }
@@ -925,7 +939,7 @@ class Polls extends Campaigns
       if error?
         logger.debug "error"
       else
-        tp.process(poll, transaction)
+        tp.process(poll._doc, transaction)
       return
     return
 
@@ -1528,7 +1542,7 @@ class Discussions extends Campaigns
       if error?
         return
       else
-        tp.process(discussion, transaction)
+        tp.process(discussion._doc, transaction)
     return
 
   @list: (entityType, entityId, stage, options, callback)->
@@ -2692,7 +2706,6 @@ class Statistics extends API
     $inc["data.tapIns.totalAmountPurchased"] = parseFloat(spent) #parse just incase it's a string
 
     $set = {}
-    logger.error(timestamp)
     $set["data.tapIns.lastVisited"] = new Date(timestamp) #if it is a string it will become a date hopefully
 
     $push = {}

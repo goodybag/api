@@ -46,8 +46,8 @@ _setTransactionProcessing = (clazz, document, transaction, locking, callback)->
       logger.error "#{prepend} transitioning state to processing failed"
       callback(error)
     else if !doc? #if document doesn't exist
-      logger.warn "#{prepend} the transaction state may have moved to processed or error" #if not the poller will take care of it
-      callback({name: "NullError", message: "Document Does Not Exist"})
+      logger.warn "#{prepend} the transaction state is either processed or error - can not set to processing" #if not the poller will take care of it
+      callback({name: "TransactionAlreadyCompleted", message: "Document Does Not Exist"})
     else
       logger.info "#{prepend} Processing Transaction"
 
@@ -62,8 +62,8 @@ _setTransactionProcessed = (clazz, document, transaction, locking, removeLock, m
       logger.error "#{prepend} transitioning to state processed failed"
       callback(error)
     else if !doc?
-      logger.warn "#{prepend} the transaction state may already be processed" #if not the poller will take care of it
-      callback({name: "TransactionWarning", message:"Unable to set state to processed. Transaction may have already been processed, quitting further processing"})
+      logger.warn "#{prepend} the transaction state is either processed or error - can not set to processed" #if not the poller will take care of it
+      callback({name: "TransactionAlreadyCompleted", message:"Unable to set state to processed. Transaction has already been processed, quitting further processing"})
     else
       logger.info "#{prepend} transaction state is set to processed successfully"
       callback(null, doc)
@@ -77,8 +77,8 @@ _setTransactionProcessedAndCreateNew = (clazz, document, transaction, newTransac
       logger.error "#{prepend} transitioning to state processed and create new transaction failed"
       callback(error)
     else if !doc?
-      logger.warn "#{prepend} the transaction state may already be processed" #if not the poller will take care of it
-      callback({name: "TransactionWarning", message:"Unable to set state to processed. Transaction may have already been processed, quitting further processing"})
+      logger.warn "#{prepend} the transaction state is either processed or error - can not set to processed" #if not the poller will take care of it
+      callback({name: "TransactionAlreadyCompleted", message:"Unable to set state to processed. Transaction may have already been processed, quitting further processing"})
     else
       logger.info "#{prepend} transaction state is set to processed successfully"
       callback(null, doc)
@@ -109,11 +109,36 @@ _setTransactionError = (clazz, document, transaction, locking, removeLock, error
       logger.error "#{prepend} problem setting transaction state to error"
       callback(error)
     else if !doc?
-      logger.error "#{prepend} the document is already in a processed or error state" #if not the poller will retry
-      callback({name: "TransactionError", messge: "Unable to set transaction state to error"})
+      logger.warn "#{prepend} the document is already in a processed or error state" #if not the poller will retry
+      callback({name: "TransactionWarning", messge: "Unable to set transaction state to error"})
     else
       logger.info "#{prepend} set transaction state to error successfully"
       callback(null, doc)
+
+_cleanupTransaction = (document, transaction, collections, callback)->
+  for collection in collections
+    collection.removeTransactionInvolvement transaction.id, (error, count)->
+      if error?
+        callback(error)
+        return
+
+  doc = {
+    document: {
+      type: choices.objects.POLL
+      id: document._id
+    }
+    entity: document.entity
+    by: document.createdBy #if it was created by an organization who is that client?
+    transaction: transaction
+  }
+
+  # DO THIS SOON
+  # api.DBTransactions.add doc, (error, dbTransaction)->
+  #   callback(error, dbTransaction)
+  #   return
+
+  callback(null)
+  return
 
 _deductFunds = (classFrom, initialTransactionClass, document, transaction, locking, removeLock, callback)->
   prepend = "ID: #{document._id} - TID: #{transaction.id}"
@@ -168,6 +193,15 @@ pollCreated = (document, transaction)->
   prepend = "ID: #{document._id} - TID: #{transaction.id}"
   logger.info "Creating transaction for poll"
   logger.info "ID: #{document._id} - TID: #{transaction.id} - #{transaction.direction}"
+
+  cleanup = (callback)->
+    logger.info "#{prepend} cleaning up"
+    if transaction.entity.type is choices.entities.CONSUMER
+      entityClass = api.Consumers
+    else if transaction.entity.type is choices.entities.BUSINESS
+      entityClass = api.Businesses
+
+    _cleanupTransaction document, transaction, [api.Polls, entityClass], callback
 
   setProcessed = true #setProcessed, unless something sets this to false
   async.series {
@@ -233,14 +267,35 @@ pollCreated = (document, transaction)->
       api.Streams.pollCreated(document) #we don't care about the callback
   },
   (error, results)->
+    clean = false
     if error?
-      logger.error "#{prepend} the poller will try later"
+      if error.name is "TransactionAlreadyCompleted" #we recevied a null document while trying to set the state - the state is already set to processed or error, just needs to cleaned up
+        clean = true
+      else
+        logger.error "#{prepend} the poller will try later" #we received some other type of error, so we will try again later
+        return
+    else if results and results.setProcessed?
+      clean = true
+
+    if clean is true
+      cleanup (error, dbTransaction)-> #start cleaning up
+        if error?
+          logger.error "#{prepend} unable to properly clean up - the poller will try later"
 
 #INBOUND (Money may go back to the entity if but it's done so the transaction is a negative deduction)
 pollUpdated = (document, transaction)->
   prepend = "ID: #{document._id} - TID: #{transaction.id}"
   logger.info "Creating transaction for a poll that was updated"
   logger.info "#{prepend} - #{transaction.direction}"
+
+  cleanup = (callback)->
+    logger.info "#{prepend} cleaning up"
+    if transaction.entity.type is choices.entities.CONSUMER
+      entityClass = api.Consumers
+    else if transaction.entity.type is choices.entities.BUSINESS
+      entityClass = api.Businesses
+
+    _cleanupTransaction document, transaction, [api.Polls, entityClass], callback
 
   setProcessed = true #setProcessed, unless something sets this to false
   async.series {
@@ -311,14 +366,35 @@ pollUpdated = (document, transaction)->
       api.Streams.pollUpdated(document) #we don't care about the callback
   },
   (error, results)->
+    clean = false
     if error?
-      logger.error "#{prepend} the poller will try later"
+      if error.name is "TransactionAlreadyCompleted" #we recevied a null document while trying to set the state - the state is already set to processed or error, just needs to cleaned up
+        clean = true
+      else
+        logger.error "#{prepend} the poller will try later" #we received some other type of error, so we will try again later
+        return
+    else if results and results.setProcessed?
+      clean = true
+
+    if clean is true
+      cleanup (error, dbTransaction)-> #start cleaning up
+        if error?
+          logger.error "#{prepend} unable to properly clean up - the poller will try later"
 
 #OUTBOUND
 pollDeleted = (document, transaction)->
   prepend = "ID: #{document._id} - TID: #{transaction.id}"
   logger.info "Creating transaction for a poll that was deleted"
   logger.info "#{prepend} - #{transaction.direction}"
+
+  cleanup = (callback)->
+    logger.info "#{prepend} cleaning up"
+    if transaction.entity.type is choices.entities.CONSUMER
+      entityClass = api.Consumers
+    else if transaction.entity.type is choices.entities.BUSINESS
+      entityClass = api.Businesses
+
+    _cleanupTransaction document, transaction, [api.Polls, entityClass], callback
 
   setProcessed = true #setProcessed, unless something sets this to false
   async.series {
@@ -389,14 +465,30 @@ pollDeleted = (document, transaction)->
       api.Streams.pollDeleted(document) #we don't care about the callback
   },
   (error, results)->
+    clean = false
     if error?
-      logger.error "#{prepend} the poller will try later"
+      if error.name is "TransactionAlreadyCompleted" #we recevied a null document while trying to set the state - the state is already set to processed or error, just needs to cleaned up
+        clean = true
+      else
+        logger.error "#{prepend} the poller will try later" #we received some other type of error, so we will try again later
+        return
+    else if results and results.setProcessed?
+      clean = true
+
+    if clean is true
+      cleanup (error, dbTransaction)-> #start cleaning up
+        if error?
+          logger.error "#{prepend} unable to properly clean up - the poller will try later"
 
 #OUTBOUND
 pollAnswered = (document, transaction)->
   prepend = "ID: #{document._id} - TID: #{transaction.id}"
   logger.info "Creating transaction for answered poll question"
   logger.info "#{prepend} - #{transaction.direction}"
+
+  cleanup = (callback)->
+    logger.info "#{prepend} cleaning up"
+    _cleanupTransaction document, transaction, [api.Polls, api.Consumers], callback
 
   setProcessed = true #setProcessed, unless something sets this to false
   async.series {
@@ -458,14 +550,35 @@ pollAnswered = (document, transaction)->
       api.Streams.pollAnswered(transaction.entity, transaction.data.timestamp, document) #we don't care about the callback
   },
   (error, results)->
+    clean = false
     if error?
-      logger.error "#{prepend} the poller will try later"
+      if error.name is "TransactionAlreadyCompleted" #we recevied a null document while trying to set the state - the state is already set to processed or error, just needs to cleaned up
+        clean = true
+      else
+        logger.error "#{prepend} the poller will try later" #we received some other type of error, so we will try again later
+        return
+    else if results and results.setProcessed?
+      clean = true
+
+    if clean is true
+      cleanup (error, dbTransaction)-> #start cleaning up
+        if error?
+          logger.error "#{prepend} unable to properly clean up - the poller will try later"
 
 #INBOUND
 discussionCreated = (document, transaction)->
   prepend = "ID: #{document._id} - TID: #{transaction.id}"
   logger.info "Creating transaction for discussion that was created"
   logger.info "ID: #{document._id} - TID: #{transaction.id} - #{transaction.direction}"
+
+  cleanup = (callback)->
+    logger.info "#{prepend} cleaning up"
+    if transaction.entity.type is choices.entities.CONSUMER
+      entityClass = api.Consumers
+    else if transaction.entity.type is choices.entities.BUSINESS
+      entityClass = api.Businesses
+
+    _cleanupTransaction document, transaction, [api.Discussions, entityClass], callback
 
   setProcessed = true #setProcessed, unless something sets this to false
   async.series {
@@ -534,14 +647,35 @@ discussionCreated = (document, transaction)->
       api.Streams.discussionCreated(document) #we don't care about the callback
   },
   (error, results)->
+    clean = false
     if error?
-      logger.error "#{prepend} the poller will try later"
+      if error.name is "TransactionAlreadyCompleted" #we recevied a null document while trying to set the state - the state is already set to processed or error, just needs to cleaned up
+        clean = true
+      else
+        logger.error "#{prepend} the poller will try later" #we received some other type of error, so we will try again later
+        return
+    else if results and results.setProcessed?
+      clean = true
+
+    if clean is true
+      cleanup (error, dbTransaction)-> #start cleaning up
+        if error?
+          logger.error "#{prepend} unable to properly clean up - the poller will try later"
 
 #INBOUND (Money may back to the entity if but it's done so the transaction is a negative deduction)
 discussionUpdated = (document, transaction)->
   prepend = "ID: #{document._id} - TID: #{transaction.id}"
   logger.info "Creating transaction for a discussion that was updated"
   logger.info "#{prepend} - #{transaction.direction}"
+
+  cleanup = (callback)->
+    logger.info "#{prepend} cleaning up"
+    if transaction.entity.type is choices.entities.CONSUMER
+      entityClass = api.Consumers
+    else if transaction.entity.type is choices.entities.BUSINESS
+      entityClass = api.Businesses
+
+    _cleanupTransaction document, transaction, [api.Discussions, entityClass], callback
 
   setProcessed = true #setProcessed, unless something sets this to false
   async.series {
@@ -612,14 +746,35 @@ discussionUpdated = (document, transaction)->
       api.Streams.discussionUpdated(document) #we don't care about the callback
   },
   (error, results)->
+    clean = false
     if error?
-      logger.error "#{prepend} the poller will try later"
+      if error.name is "TransactionAlreadyCompleted" #we recevied a null document while trying to set the state - the state is already set to processed or error, just needs to cleaned up
+        clean = true
+      else
+        logger.error "#{prepend} the poller will try later" #we received some other type of error, so we will try again later
+        return
+    else if results and results.setProcessed?
+      clean = true
+
+    if clean is true
+      cleanup (error, dbTransaction)-> #start cleaning up
+        if error?
+          logger.error "#{prepend} unable to properly clean up - the poller will try later"
 
 #OUTBOUND
 discussionDeleted = (document, transaction)->
   prepend = "ID: #{document._id} - TID: #{transaction.id}"
   logger.info "Creating transaction for a discussion that was deleted"
   logger.info "#{prepend} - #{transaction.direction}"
+
+  cleanup = (callback)->
+    logger.info "#{prepend} cleaning up"
+    if transaction.entity.type is choices.entities.CONSUMER
+      entityClass = api.Consumers
+    else if transaction.entity.type is choices.entities.BUSINESS
+      entityClass = api.Businesses
+
+    _cleanupTransaction document, transaction, [api.Discussions, entityClass], callback
 
   setProcessed = true #setProcessed, unless something sets this to false
   async.series {
@@ -690,14 +845,30 @@ discussionDeleted = (document, transaction)->
       api.Streams.discussionDeleted(document) #we don't care about the callback
   },
   (error, results)->
+    clean = false
     if error?
-      logger.error "#{prepend} the poller will try later"
+      if error.name is "TransactionAlreadyCompleted" #we recevied a null document while trying to set the state - the state is already set to processed or error, just needs to cleaned up
+        clean = true
+      else
+        logger.error "#{prepend} the poller will try later" #we received some other type of error, so we will try again later
+        return
+    else if results and results.setProcessed?
+      clean = true
+
+    if clean is true
+      cleanup (error, dbTransaction)-> #start cleaning up
+        if error?
+          logger.error "#{prepend} unable to properly clean up - the poller will try later"
 
 #OUTBOUND
 discussionAnswered = (document, transaction)->
   prepend = "ID: #{document._id} - TID: #{transaction.id}"
   logger.info "Creating transaction for answered discussion question"
   logger.info "#{prepend} - #{transaction.direction}"
+
+  cleanup = (callback)->
+    logger.info "#{prepend} cleaning up"
+    _cleanupTransaction document, transaction, [api.Discussions, api.Consumers], callback
 
   setProcessed = true #setProcessed, unless something sets this to false
   async.series {
@@ -759,15 +930,31 @@ discussionAnswered = (document, transaction)->
       api.Streams.discussionAnswered(transaction.entity, transaction.data.timestamp, document) #we don't care about the callback
   },
   (error, results)->
+    clean = false
     if error?
-      logger.error "#{prepend} the poller will try later"
+      if error.name is "TransactionAlreadyCompleted" #we recevied a null document while trying to set the state - the state is already set to processed or error, just needs to cleaned up
+        clean = true
+      else
+        logger.error "#{prepend} the poller will try later" #we received some other type of error, so we will try again later
+        return
+    else if results and results.setProcessed?
+      clean = true
+
+    if clean is true
+      cleanup (error, dbTransaction)-> #start cleaning up
+        if error?
+          logger.error "#{prepend} unable to properly clean up - the poller will try later"
 
 #OUTBOUND
 statPollAnswered = (document, transaction)->
   prepend = "ID: #{document._id} - TID: #{transaction.id}"
   logger.info "STAT - User answered poll question"
   logger.info "#{prepend} - #{transaction.direction}"
-  # logger.debug document
+
+  cleanup = (callback)->
+    logger.info "#{prepend} cleaning up"
+    _cleanupTransaction document, transaction, [api.Polls, api.Statistics], callback
+
   async.series {
     setProcessing: (callback)->
       _setTransactionProcessing api.Polls, document, transaction, false, (error, doc)->
@@ -798,15 +985,31 @@ statPollAnswered = (document, transaction)->
 
   },
   (error, results)->
+    clean = false
     if error?
-      logger.error "#{prepend} the poller will try later"
+      if error.name is "TransactionAlreadyCompleted" #we recevied a null document while trying to set the state - the state is already set to processed or error, just needs to cleaned up
+        clean = true
+      else
+        logger.error "#{prepend} the poller will try later" #we received some other type of error, so we will try again later
+        return
+    else if results and results.setProcessed?
+      clean = true
+
+    if clean is true
+      cleanup (error, dbTransaction)-> #start cleaning up
+        if error?
+          logger.error "#{prepend} unable to properly clean up - the poller will try later"
 
 #OUTBOUND
 statTapInTapped = (document, transaction)->
   prepend = "ID: #{document._id} - TID: #{transaction.id}"
   logger.info "STAT - User tapped in at a business"
   logger.info "#{prepend} - #{transaction.direction}"
-  # logger.debug document
+
+  cleanup = (callback)->
+    logger.info "#{prepend} cleaning up"
+    _cleanupTransaction document, transaction, [api.BusinessTransactions, api.Statistics], callback
+
   async.series {
     setProcessing: (callback)->
       _setTransactionProcessing api.BusinessTransactions, document, transaction, false, (error, doc)->
@@ -837,7 +1040,19 @@ statTapInTapped = (document, transaction)->
 
   },
   (error, results)->
+    clean = false
     if error?
-      logger.error "#{prepend} the poller will try later"
+      if error.name is "TransactionAlreadyCompleted" #we recevied a null document while trying to set the state - the state is already set to processed or error, just needs to cleaned up
+        clean = true
+      else
+        logger.error "#{prepend} the poller will try later" #we received some other type of error, so we will try again later
+        return
+    else if results and results.setProcessed?
+      clean = true
+
+    if clean is true
+      cleanup (error, dbTransaction)-> #start cleaning up
+        if error?
+          logger.error "#{prepend} unable to properly clean up - the poller will try later"
 
 exports.process = process
