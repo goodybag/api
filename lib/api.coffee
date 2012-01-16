@@ -21,6 +21,7 @@ errors = globals.errors
 
 ObjectId = globals.mongoose.Types.ObjectId
 
+DBTransaction = db.DBTransaction
 Client = db.Client
 Consumer = db.Consumer
 Business = db.Business
@@ -168,6 +169,21 @@ class API
     }
 
     @model.collection.findAndModify $query, [], $update, {safe: true, new: true}, callback
+
+  @removeTransaction: (documentId, transactionId, callback)->
+    if Object.isString(documentId)
+      documentId = new ObjectId(documentId)
+    if Object.isString(transactionId)
+      transactionId = new ObjectId(transactionId)
+
+    $update = {
+      "$pull": {"transactions.log": {id: transactionId} }
+    }
+
+    @model.collection.update {"_id": documentId}, $update, {safe: true, multi: true}, (error, count)->  #will return count of documents matched
+      if error?
+        logger.error error
+      callback(error, count)
 
   @removeTransactionInvolvement: (transactionId, callback)->
     if Object.isString(transactionId)
@@ -341,6 +357,9 @@ class API
     }
 
     @model.findOne $query, callback
+
+class DBTransactions extends API
+  @model = DBTransaction
 
 
 class Consumers extends API
@@ -2743,6 +2762,7 @@ class Statistics extends API
   @setTransactionError: @__setTransactionError
 
 
+exports.DBTransactions = DBTransactions
 exports.Clients = Clients
 exports.Consumers = Consumers
 exports.Businesses = Businesses

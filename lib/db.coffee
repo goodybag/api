@@ -41,7 +41,7 @@ Reference = new Schema {
 ####################
 # TRANSACTION ######
 ####################
-Transaction = new Schema {
+TransactionSchema =  {
   id              : {type: ObjectId, required: true}
   state           : {type: String, required: true, enum: choices.transactions.states._enum}
   action          : {type: String, required: true, enum: choices.transactions.actions._enum}
@@ -51,9 +51,9 @@ Transaction = new Schema {
   }
 
   dates: {
-    created       : {type: Date, required: true, default: new Date( (new Date()).toUTCString() )}
+    created       : {type: Date, required: true, default: new Date()}
     completed     : {type: Date}
-    lastModified  : {type: Date, required: true, default: new Date( (new Date()).toUTCString() )}
+    lastModified  : {type: Date, required: true, default: new Date()}
   }
 
   #EXTRA INFO GOES IN HERE
@@ -71,8 +71,8 @@ Transaction = new Schema {
 
   attempts        : {type: Number, default: 0}
   pollerId        : {type: ObjectId} #THIS IS FOR IF WE FAIL AND THE POLLER PICKS IT UP
-
 }
+Transaction = new Schema TransactionSchema
 
 
 ####################
@@ -137,12 +137,41 @@ media = {
 ###################################################################
 ###################################################################
 
+#################################
+# DATABASE TRANSACTIONS #########
+#################################
+DBTransaction = new Schema {
+  document: {
+    type            : {type: String, required: true, enum: choices.objects._enum}
+    id              : {type: ObjectId, required: true}
+  }
+
+  entity            : entity
+
+  by: {
+    type            : {type: String, enum: choices.entities._enum}
+    id              : {type: ObjectId}
+    name            : {type: String} #TODO: consider making this required with a default of  ""
+    screenName      : {type: String} #only applies to consumers
+  }
+
+  timesdtamp        : {type: Date, default: new Date()}
+  transaction       : TransactionSchema
+}
+
+DBTransaction.index {"document.type": 1, "document.id": 1, "transaction.id": 1}, {unique: true}
+DBTransaction.index {"transaction.id": 1, "transaction.state": 1, "transaction.action": 1}
+DBTransaction.index {"transaction.state": 1}
+DBTransaction.index {"transaction.action": 1}
+DBTransaction.index {"entity.type": 1, "entity.id": 1}
+DBTransaction.index {"by.type": 1, "by.id": 1}
+
 
 ##################################
 # PASSWORD RESET REQUEST #########
 ##################################
 PasswordResetRequest = new Schema {
-  date        : {type: Date, default: new Date( (new Date()).toUTCString() )}
+  date        : {type: Date, default: new Date()}
   key         : {type: String, required: true, unique: true}
   entity: {
     type      : {type: String, required: true, enum: choices.entities._enum}
@@ -151,6 +180,7 @@ PasswordResetRequest = new Schema {
   }
   consumed    : {type: Boolean, default: false}
 }
+
 
 ####################
 # CONSUMER #########
@@ -166,7 +196,7 @@ Consumer = new Schema {
     access_token  : String
     #id            : Number
   }
-  created         : {type: Date, default: new Date( (new Date()).toUTCString() )}
+  created         : {type: Date, default: new Date()}
   logins          : []
   honorScore      : {type: Number, default: 0}
   charities       : {}
@@ -180,7 +210,6 @@ Consumer = new Schema {
 
   gbAdmin         : {type: Boolean, default: false}
   transactions    : transactions
-
 }
 
 
@@ -197,7 +226,7 @@ Client = new Schema {
   media:media
 
   dates: {
-    created     : {type: Date, required: true, default: new Date( (new Date()).toUTCString() )}
+    created     : {type: Date, required: true, default: new Date()}
   }
 
   funds: {
@@ -244,7 +273,7 @@ Business = new Schema {
   }
 
   dates: {
-    created     : {type: Date, required: true, default: new Date( (new Date()).toUTCString() )}
+    created     : {type: Date, required: true, default: new Date()}
   }
 
   funds: {
@@ -313,7 +342,7 @@ Poll = new Schema {
   mediaResults: media #if changed please update api calls, transloadit hook, frontend code (uploadify/transloadit)
 
   dates: {
-    created            : {type: Date, required: true, default: new Date( (new Date()).toUTCString() )}
+    created            : {type: Date, required: true, default: new Date()}
     start              : {type: Date, required: true}
     end                : {type: Date}
   }
@@ -366,8 +395,8 @@ Discussion = new Schema {
   }
   media: media
   dates: {
-    created           : {type: Date, required: true, default: new Date( (new Date()).toUTCString() )}
-    start             : {type: Date, required: true, default: new Date( (new Date()).toUTCString() )}
+    created           : {type: Date, required: true, default: new Date()}
+    start             : {type: Date, required: true, default: new Date()}
     end               : {type: Date}
 
     #end           : {type: Date, required: true, default: new Date( (new Date().addWeeks(3)).toUTCString() )} #three week later
@@ -419,7 +448,7 @@ Response = new Schema {
   parent          : {type: ObjectId} #was this in response to a previous response? which one?
 
   dates: {
-    created       : {type: Date, default: new Date( (new Date()).toUTCString() )}
+    created       : {type: Date, default: new Date()}
   }
 
   deleted         : {type: Boolean, default: false}
@@ -446,7 +475,7 @@ Media = new Schema {
   tags          : []
 
   dates: {
-    created     : {type: Date, required: true, default: new Date( (new Date()).toUTCString() )}
+    created     : {type: Date, required: true, default: new Date()}
   }
 
   transactions  : transactions
@@ -473,7 +502,7 @@ ClientInvitation = new Schema {
   status          : {type: String, required: true, enum: choices.invitations.state._enum, default: choices.invitations.state.PENDING}
 
   dates: {
-    created       : {type: Date, default: new Date( (new Date()).toUTCString() )}
+    created       : {type: Date, default: new Date()}
     expires       : {type: Date}
   }
 
@@ -512,7 +541,7 @@ Stream = new Schema {
     global            : {type: Boolean, required: true, default: false}
   }
   dates: {
-    created           : {type: Date, default: new Date( (new Date()).toUTCString() )}
+    created           : {type: Date, default: new Date()}
     lastModified      : {type: Date}
   }
   data                : {}#eventTypes to info mapping:=> eventType: {id: XX, extraFF: GG}
@@ -689,7 +718,7 @@ Statistic.index {'org.type': 1, 'org.id':1, consumerId: 1, "tapIns.lastVisited":
 Statistic.index {'org.type': 1, 'org.id':1, consumerId: 1, "polls.totalAnswered": 1}
 Statistic.index {'org.type': 1, 'org.id':1, consumerId: 1, "polls.lastAnsweredDate": 1}
 
-
+exports.DBTransaction         = mongoose.model 'DBTransaction', DBTransaction
 exports.Consumer              = mongoose.model 'Consumer', Consumer
 exports.Client                = mongoose.model 'Client', Client
 exports.Business              = mongoose.model 'Business', Business
