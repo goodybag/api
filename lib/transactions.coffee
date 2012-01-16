@@ -115,9 +115,9 @@ _setTransactionError = (clazz, document, transaction, locking, removeLock, error
       logger.info "#{prepend} set transaction state to error successfully"
       callback(null, doc)
 
-_cleanupTransaction = (document, transaction, collections, callback)->
-  for collection in collections
-    collection.removeTransactionInvolvement transaction.id, (error, count)->
+_cleanupTransaction = (document, transaction, transactionContainerApiClass, transactionMemberApiClasses, callback)->
+  for apiClass in transactionMemberApiClasses
+    apiClass.removeTransactionInvolvement transaction.id, (error, count)->
       if error?
         callback(error)
         return
@@ -128,17 +128,20 @@ _cleanupTransaction = (document, transaction, collections, callback)->
       id: document._id
     }
     entity: document.entity
-    by: document.createdBy #if it was created by an organization who is that client?
+    by: if document.createdBy? then document.createdBy #if it was created by an organization who is that client?
     transaction: transaction
   }
 
-  # DO THIS SOON
-  # api.DBTransactions.add doc, (error, dbTransaction)->
-  #   callback(error, dbTransaction)
-  #   return
+  #Add it to the DBTransactions Collections and then remove it from the current apiClass
+  logger.debug doc
+  api.DBTransactions.add doc, (error, dbTransaction)->
+    if error?
+      callback(error)
+      return
 
-  callback(null)
-  return
+    transactionContainerApiClass.removeTransaction document._id, transaction.id, (error, count)->
+      callback(error, count)
+      return
 
 _deductFunds = (classFrom, initialTransactionClass, document, transaction, locking, removeLock, callback)->
   prepend = "ID: #{document._id} - TID: #{transaction.id}"
@@ -201,7 +204,7 @@ pollCreated = (document, transaction)->
     else if transaction.entity.type is choices.entities.BUSINESS
       entityClass = api.Businesses
 
-    _cleanupTransaction document, transaction, [api.Polls, entityClass], callback
+    _cleanupTransaction document, transaction, api.Polls, [api.Polls, entityClass], callback
 
   setProcessed = true #setProcessed, unless something sets this to false
   async.series {
@@ -295,7 +298,7 @@ pollUpdated = (document, transaction)->
     else if transaction.entity.type is choices.entities.BUSINESS
       entityClass = api.Businesses
 
-    _cleanupTransaction document, transaction, [api.Polls, entityClass], callback
+    _cleanupTransaction document, transaction, api.Polls, [api.Polls, entityClass], callback
 
   setProcessed = true #setProcessed, unless something sets this to false
   async.series {
@@ -394,7 +397,7 @@ pollDeleted = (document, transaction)->
     else if transaction.entity.type is choices.entities.BUSINESS
       entityClass = api.Businesses
 
-    _cleanupTransaction document, transaction, [api.Polls, entityClass], callback
+    _cleanupTransaction document, transaction, api.Polls, [api.Polls, entityClass], callback
 
   setProcessed = true #setProcessed, unless something sets this to false
   async.series {
@@ -488,7 +491,7 @@ pollAnswered = (document, transaction)->
 
   cleanup = (callback)->
     logger.info "#{prepend} cleaning up"
-    _cleanupTransaction document, transaction, [api.Polls, api.Consumers], callback
+    _cleanupTransaction document, transaction, api.Polls, [api.Polls, api.Consumers], callback
 
   setProcessed = true #setProcessed, unless something sets this to false
   async.series {
@@ -578,7 +581,7 @@ discussionCreated = (document, transaction)->
     else if transaction.entity.type is choices.entities.BUSINESS
       entityClass = api.Businesses
 
-    _cleanupTransaction document, transaction, [api.Discussions, entityClass], callback
+    _cleanupTransaction document, transaction, api.Discussions, [api.Discussions, entityClass], callback
 
   setProcessed = true #setProcessed, unless something sets this to false
   async.series {
@@ -675,7 +678,7 @@ discussionUpdated = (document, transaction)->
     else if transaction.entity.type is choices.entities.BUSINESS
       entityClass = api.Businesses
 
-    _cleanupTransaction document, transaction, [api.Discussions, entityClass], callback
+    _cleanupTransaction document, transaction, api.Discussions, [api.Discussions, entityClass], callback
 
   setProcessed = true #setProcessed, unless something sets this to false
   async.series {
@@ -774,7 +777,7 @@ discussionDeleted = (document, transaction)->
     else if transaction.entity.type is choices.entities.BUSINESS
       entityClass = api.Businesses
 
-    _cleanupTransaction document, transaction, [api.Discussions, entityClass], callback
+    _cleanupTransaction document, transaction, api.Discussions, [api.Discussions, entityClass], callback
 
   setProcessed = true #setProcessed, unless something sets this to false
   async.series {
@@ -868,7 +871,7 @@ discussionAnswered = (document, transaction)->
 
   cleanup = (callback)->
     logger.info "#{prepend} cleaning up"
-    _cleanupTransaction document, transaction, [api.Discussions, api.Consumers], callback
+    _cleanupTransaction document, transaction, api.Discussions, [api.Discussions, api.Consumers], callback
 
   setProcessed = true #setProcessed, unless something sets this to false
   async.series {
@@ -953,7 +956,7 @@ statPollAnswered = (document, transaction)->
 
   cleanup = (callback)->
     logger.info "#{prepend} cleaning up"
-    _cleanupTransaction document, transaction, [api.Polls, api.Statistics], callback
+    _cleanupTransaction document, transaction, api.Polls, [api.Polls, api.Statistics], callback
 
   async.series {
     setProcessing: (callback)->
@@ -1008,7 +1011,7 @@ statTapInTapped = (document, transaction)->
 
   cleanup = (callback)->
     logger.info "#{prepend} cleaning up"
-    _cleanupTransaction document, transaction, [api.BusinessTransactions, api.Statistics], callback
+    _cleanupTransaction document, transaction, api.BusinessTransactions, [api.BusinessTransactions, api.Statistics], callback
 
   async.series {
     setProcessing: (callback)->
