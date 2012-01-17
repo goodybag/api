@@ -962,83 +962,73 @@ class Polls extends Campaigns
       return
     return
 
-  @update: (pollId, data, newAllocated, perResponse, callback)->
+  @update: (entityType, entityId, pollId, data, newAllocated, perResponse, callback)->
     self = this
 
     instance = new @model(data)
 
     if Object.isString(pollId)
       pollId = new ObjectId(pollId)
-    if Object.isString(data.entity.id)
-      data.entity.id = new ObjectId(data.entity.id)
-    entityType = data.entity.type
-    entityId = data.entity.id
+    if Object.isString(entityId)
+      entityId = new ObjectId(entityId)
 
     #Set the fields you want updated now, not afte the update
     #for the ones that you want set after the update put those
     #in the transactionData and make thsoe changes in the
     #setTransactionProcessed function
 
-    updateDoc = {
+    $set = {
       entity: {
-        type                  : data.entity.type
-        id                    : data.entity.id
-        name                  : data.entity.name
+        type          : entityType
+        id            : entityId
+        name          : data.entity.name
       }
 
       lastModifiedBy: {
-        type                  : data.lastModifiedBy.type
-        id                    : data.lastModifiedBy.id
+        type          : data.lastModifiedBy.type
+        id            : data.lastModifiedBy.id
       }
 
-      name                    : data.name
-      type                    : data.type
-      question                : data.question
-      choices                 : data.choices
-      numChoices              : parseInt(data.numChoices)
+      name            : data.name
+      type            : data.type
+      question        : data.question
+      choices         : data.choices
+      numChoices      : parseInt(data.numChoices)
       responses: {
-        remaining             : parseInt(data.responses.max)
-        max                   : parseInt(data.responses.max)
-        log                   : data.responses.log
-        dates                 : data.responses.dates
-        choiceCounts          : data.responses.choiceCounts
+        remaining     : parseInt(data.responses.max)
+        max           : parseInt(data.responses.max)
+        log           : data.responses.log
+        dates         : data.responses.dates
+        choiceCounts  : data.responses.choiceCounts
       }
-      showStats               : data.showStats
-      displayName             : data.displayName
+      showStats       : data.showStats
+      displayName     : data.displayName
       displayMediaQuestion    : data.displayMediaQuestion
-      displayMediaResults     : data.displayMediaResults
+      displayMediaResults    : data.displayMediaResults
 
-      mediaQuestion           : data.mediaQuestion
-      mediaResults            : data.mediaResults
+      mediaQuestion : data.mediaQuestion
+      mediaResults  : data.mediaResults
     }
+    #flat properties so that they dont overwrite their entire subdoc
+    $set["dates.start"]= new Date(data.dates.start) #this is so that we don't lose the create date
+    $set["transactions.locked"]= true #THIS IS A LOCKING TRANSACTION, SO IF ANYONE ELSE TRIES TO DO A LOKCING TRANSACTION IT WILL NOT HAPPEN (AS LONG AS YOU CHECK FOR THAT)
+    $set["transactions.state"]= choices.transactions.states.PENDING
 
-
-    entity = {
-      type: data.entity.type
-      id: data.entity.id
+    #TRANSACTION updates
+    transactionEntity = {
+        type          : entityType
+        id            : entityId
     }
-
     transactionData = {
       newAllocated: newAllocated
       perResponse: perResponse
     }
     transaction = self.createTransaction choices.transactions.states.PENDING, choices.transactions.actions.POLL_UPDATED, transactionData, choices.transactions.directions.INBOUND, entity
 
-    $set = {
-      "dates.start": new Date(data.dates.start) #this is so that we don't lose the create date
-      "transactions.locked": true #THIS IS A LOCKING TRANSACTION, SO IF ANYONE ELSE TRIES TO DO A LOKCING TRANSACTION IT WILL NOT HAPPEN (AS LONG AS YOU CHECK FOR THAT)
-      "transactions.state": choices.transactions.states.PENDING
-    }
     $push = {
       "transactions.ids": transaction.id
       "transactions.log": transaction
     }
-
-    logger.info data
-
-    for own k,v of updateDoc
-      console.log k
-      $set[k] = v
 
     $update = {
       $set: $set
@@ -1046,16 +1036,26 @@ class Polls extends Campaigns
     }
 
     console.log $update
-
-    @model.collection.findAndModify {_id: pollId, "entity.type":entityType, "entity.id":entityId, "transactions.locked": false}, [], $update, {safe: true, new: true}, (error, poll)->
+    where = {
+      _id: pollId,
+      "entity.type":entityType,
+      "entity.id":entityId,
+      "transactions.locked": false
+      $or : [
+        {"dates.start": {$lt:new Date()}, "transactions.state": choices.transactions.states.PROCESSED},
+        {"transactions.state": choices.transactions.states.ERROR}
+      ]
+    }
+    @model.collection.findAndModify where, [], $update, {safe: true, new: true}, (error, poll)->
       if error?
         callback error, null
       else if !poll?
-        callback new errors.ValidationError({"poll":"Poll does not exist or Access Denied."})
+        callback new errors.ValidationError({"poll":"Poll does not exist or not editable."})
       else
         callback null, poll
         tp.process(poll, transaction)
     return
+
 
   @list: (entityType, entityId, stage, options, callback)->
     #options: count(boolean)-to return just the count, skip(int), limit(int)
@@ -1456,24 +1456,18 @@ class Discussions extends Campaigns
       entityId = new ObjectId(entityId)
     if Object.isString(discussionId)
       discussionId = new ObjectId(discussionId)
-    if Object.isString(data.entity.id)
-      data.entity.id = new ObjectId(data.entity.id)
     if data.media? and Object.isString(data.media.mediaId) and data.media.mediaId.length>0
       data.media.mediaId = new ObjectId(data.media.mediaId)
-
-    entityType = data.entity.type
-    entityId = data.entity.id
-
 
     #Set the fields you want updated now, not afte the update
     #for the ones that you want set after the update put those
     #in the transactionData and make thsoe changes in the
     #setTransactionProcessed function
 
-    updateDoc = {
+    $set = {
       entity: {
-        type          : data.entity.type
-        id            : data.entity.id
+        type          : entityType
+        id            : entityId
         name          : data.entity.name
       }
 
@@ -1487,11 +1481,9 @@ class Discussions extends Campaigns
       details         : data.details
       tags            : data.tags
       displayMedia    : data.displayMedia
-      dates: {
-        start         : new Date(data.dates.start)
-      }
       media           : data.media
     }
+    $set["dates.start"] = new Date(data.dates.start)
 
 
     # We don't do a transaction for discussion creation right now because they are a fixed amount at the moment
@@ -1519,17 +1511,21 @@ class Discussions extends Campaigns
 
     # logger.info data
 
-    $set = {}
-    for own k,v of updateDoc
-      console.log k
-      $set[k] = v
-
     $update = {
       $set: $set
       #$push: $push
     }
-
-    @model.collection.findAndModify {_id: discussionId, "entity.type":entityType, "entity.id":entityId, "transactions.locked": false}, [], $update, {safe: true, new: true}, (error, discussion)->
+    where = {
+      _id: discussionId,
+      "entity.type":entityType,
+      "entity.id":entityId,
+      "transactions.locked": false
+      $or : [
+        {"dates.start": {$lt:new Date()}, "transactions.state": choices.transactions.states.PROCESSED},
+        {"transactions.state": choices.transactions.states.ERROR}
+      ]
+    }
+    @model.collection.findAndModify where, [], $update, {safe: true, new: true}, (error, discussion)->
       if error?
         callback error, null
       else if !discussion?
