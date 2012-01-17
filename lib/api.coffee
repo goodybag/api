@@ -1,5 +1,6 @@
 exports = module.exports
 
+bcrypt = require "bcrypt"
 generatePassword = require "password-generator"
 hashlib = require "hashlib"
 util = require "util"
@@ -445,19 +446,50 @@ class Consumers extends API
     )
     return
 
-  @register: (user, callback)->
-    @.add(user, callback)
+  @register: (data, callback)->
+    self = this
+    bcrypt.gen_salt 10, (error, salt)=>
+      if error?
+        callback error
+        return
+      bcrypt.encrypt data.password+defaults.passwordSalt, salt, (error, hash)=>
+        if error?
+          callback error
+          return
+        data.password = hash
+        self.add data, (error, consumer)->
+          if error?
+            if error.code is 11000
+              callback new errors.ValidationError "Email Already Exists", {"email":"Email Already Exists"} #email exists error
+              return
+            else
+              callback error
+              return
+          else
+            callback error, consumer
+            return
 
   @login: (email, password, callback)->
     query = @_query()
-    query.where('email', email).where('password', password)
+    query.where('email', email)#.where('password', password)
     query.findOne (error, consumer)->
-      if(error)
-        return callback error, consumer
+      if error?
+        callback error, consumer
+        return
       else if consumer?
-        return callback error, consumer
+        if !consumer.password? #if there is no pasword set then they are a facebook user
+          callback new errors.ValidationError "Please authenticate via Facebook", {"login":"invalid authentication mechanism - use facebook"}
+          return
+        bcrypt.compare password+defaults.passwordSalt, consumer.password, (error, success)->
+          if error? or !success
+            callback new errors.ValidationError "Invalid Password", {"login":"invalid password"}
+            return
+          else
+            callback error, consumer
+            return
       else
-        return callback new errors.ValidationError {"login":"invalid username/password"}
+        callback new errors.ValidationError "Invalid Email Address", {"login":"invalid email address"}
+        return
 
   @updateHonorScore: (id, eventId, amount, callback)->
     if Object.isString(id)
@@ -509,30 +541,46 @@ class Clients extends API
   @model = Client
 
   @register: (data, callback)->
-    #if !utils.mustContain(data, ['email','firstname', 'lastname', 'password'])
-    #  return callback(new Error("at least one required field is missing."))
     self = this
-    query = @_query()
-    query.where('email', data.email)
-    query.findOne (error, client)->
+    bcrypt.gen_salt 10, (error, salt)=>
       if error?
-        callback error #db error
-      else if !client?
-        self.add(data, callback) #registration success
-      else if client?
-        callback new errors.ValidationError {"email":"Email Already Exists"} #email exists error
-      return
+        callback error
+        return
+      bcrypt.encrypt data.password+defaults.passwordSalt, salt, (error, hash)=>
+        if error?
+          callback error
+          return
+        data.password = hash
+        self.add data, (error, client)->
+          if error?
+            if error.code is 11000
+              callback new errors.ValidationError "Email Already Exists", {"email":"Email Already Exists"} #email exists error
+              return
+            else
+              callback error
+              return
+          else
+            callback error, client
+            return
 
   @login: (email, password, callback)->
     query = @_query()
-    query.where('email', email).where('password', password)
+    query.where('email', email)#.where('password', password)
     query.findOne (error, client)->
-      if(error)
-        return callback error, client
+      if error?
+        callback error, client
+        return
       else if client?
-        return callback error, client
+        bcrypt.compare password+defaults.passwordSalt, client.password, (error, success)->
+          if error? or !success
+            callback new errors.ValidationError "Invalid Password", {"login":"invalid password"}
+            return
+          else
+            callback error, client
+            return
       else
-        return callback new Error("invalid username/password")
+        callback new errors.ValidationError "Invalid Email Address", {"login":"invalid email address"}
+        return
 
   @getBusinessIds: (id, callback)->
     query = Businesses.model.find()

@@ -14,6 +14,7 @@
   },
   "dependencies": {
     "async": "=0.1.9",
+    "bcrypt": "=0.4.1",
     "groupon": "=0.0.4",
     "poolr": "=0.0.4",
     "password-generator": "=0.1.2",
