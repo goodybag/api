@@ -2006,7 +2006,7 @@ class BusinessTransactions extends API
             return
           if doc.userEntity?
             who = doc.userEntity
-            tp.process(tapIn, statTransaction) #write stat to collection
+            tp.process(tapIn._doc, statTransaction) #write stat to collection
             Streams.tapInTapped tapIn._doc #NOTICE THE _doc HERE, BECAUSE !!!! #we don't care about the callback
         return
     }, (error, results)->

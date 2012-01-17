@@ -43,6 +43,7 @@ _setTransactionProcessing = (clazz, document, transaction, locking, callback)->
   logger.info "#{prepend} transitioning state to processing"
   clazz.setTransactionProcessing document._id, transaction.id, locking, (error, doc)->
     if error?
+      logger.error error
       logger.error "#{prepend} transitioning state to processing failed"
       callback(error)
     else if !doc? #if document doesn't exist
@@ -59,6 +60,7 @@ _setTransactionProcessed = (clazz, document, transaction, locking, removeLock, m
   logger.info "#{prepend} transitioning state to processed"
   clazz.setTransactionProcessed document._id, transaction.id, locking, removeLock, modifierDoc, (error, doc)->
     if error?
+      logger.error error
       logger.error "#{prepend} transitioning to state processed failed"
       callback(error)
     else if !doc?
@@ -74,6 +76,7 @@ _setTransactionProcessedAndCreateNew = (clazz, document, transaction, newTransac
   logger.info "#{prepend} transitioning state to processed and creating new transaction"
   clazz.setTransactionProcessed document._id, transaction.id, locking, removeLock, modifierDoc, (error, doc)->
     if error?
+      logger.error error
       logger.error "#{prepend} transitioning to state processed and create new transaction failed"
       callback(error)
     else if !doc?
@@ -93,6 +96,7 @@ _setTransactionProcessedAndCreateNew = (clazz, document, transaction, newTransac
             logger.debug trans
             clazz.moveTransactionToLog document._id, trans, (error, doc2)->
               if error?
+                logger.error error
                 logger.error "#{prepend} moving #{trans.action} transaction from temporary to log failed"
               else if !doc2?
                 logger.warn "#{prepend} the new transaction is already in progress - pollers will move it if it is still in temp"
@@ -106,6 +110,7 @@ _setTransactionError = (clazz, document, transaction, locking, removeLock, error
   prepend = "ID: #{document._id} - TID: #{transaction.id}"
   clazz.setTransactionError document._id, transaction.id, locking, removeLock, error, data, (error, doc)->
     if error?
+      logger.error error
       logger.error "#{prepend} problem setting transaction state to error"
       callback(error)
     else if !doc?
@@ -119,23 +124,25 @@ _cleanupTransaction = (document, transaction, transactionContainerApiClass, tran
   for apiClass in transactionMemberApiClasses
     apiClass.removeTransactionInvolvement transaction.id, (error, count)->
       if error?
+        logger.error error
         callback(error)
         return
 
   doc = {
     document: {
-      type: choices.objects.POLL
+      type: transactionContainerApiClass.model.collection.name
       id: document._id
     }
-    entity: document.entity
-    by: if document.createdBy? then document.createdBy #if it was created by an organization who is that client?
     transaction: transaction
   }
+
+  logger.debug document
 
   #Add it to the DBTransactions Collections and then remove it from the current apiClass
   logger.debug doc
   api.DBTransactions.add doc, (error, dbTransaction)->
     if error?
+      logger.error error
       callback(error)
       return
 
@@ -146,13 +153,15 @@ _cleanupTransaction = (document, transaction, transactionContainerApiClass, tran
 _deductFunds = (classFrom, initialTransactionClass, document, transaction, locking, removeLock, callback)->
   prepend = "ID: #{document._id} - TID: #{transaction.id}"
   classFrom.deductFunds transaction.entity.id, transaction.id, transaction.data.amount, (error, doc)->
-    if error? #determine what type of error it is and then whether to setTransactionError or ignore and let the poller pick it up later (the later is probably the case)
+    if error?
+      logger.error error #determine what type of error it is and then whether to setTransactionError or ignore and let the poller pick it up later (the later is probably the case)
       logger.error "#{prepend} deducting funds from #{transaction.entity.type}: #{transaction.entity.id} failed - database error"
       callback(error)
     else if !doc? #if the entity  object doesn't exist then either the transaction occured previously, there aren't enough funds, or the entity doesn't exist
       logger.info "#{prepend} transaction may have occured, VERIFYING"
       classFrom.checkIfTransactionExists transaction.entity.id, transaction.id, (error, doc2)->
-        if error? #error querying, try again later
+        if error?
+          logger.error error #error querying, try again later
           callback(error)
         else if doc2? #transaction already occured
           logger.info "#{prepend} transaction already occured"
@@ -170,12 +179,14 @@ _depositFunds = (classTo, initialTransactionClass, document, transaction, lockin
   prepend = "ID: #{document._id} - TID: #{transaction.id}"
   classTo.depositFunds transaction.entity.id, transaction.id, transaction.data.amount, (error, doc)->
     if error?
+      logger.error error
       logger.error "#{prepend} depositing funds into #{transaction.entity.type}: #{transaction.entity.id} failed - database error"
       callback(error) #determine what type of error it is and then whether to setTransactionError or ignore and let the poller pick it up later (the later is probably the case)
     else if !doc? #if the consumer object doesn't exist then either the transaction occured previously, there aren't enough funds, or the entity doesn't exist
       logger.info "#{prepend} transaction may have occured, VERIFYING"
       classTo.checkIfTransactionExists transaction.entity.id, transaction.id, (error, doc2)->
-        if error? #error querying, try again later
+        if error?
+          logger.error error #error querying, try again later
           logger.error "#{prepend} database error"
           callback(error)
         else if doc2? #transaction already occured
@@ -215,7 +226,8 @@ pollCreated = (document, transaction)->
     deductFunds: (callback)->
       if transaction.entity.type is choices.entities.BUSINESS
         _deductFunds api.Businesses, api.Polls, document, transaction, true, true, (error, doc)->
-          if error? #mongo errored out
+          if error?
+            logger.error error #mongo errored out
             callback(error)
           else if doc?  #transaction was successful, so continue to set processed
             callback(null, doc)
@@ -231,7 +243,8 @@ pollCreated = (document, transaction)->
               callback(null, null)
       else if transaction.entity.type is choices.entities.CONSUMER
         _deductFunds api.Consumers, api.Polls, document, transaction, true, true, (error, doc)->
-          if error? #mongo errored out
+          if error?
+            logger.error error #mongo errored out
             callback(error)
           else if doc?  #transaction was successful, so continue to set processed
             callback(null, doc)
@@ -272,6 +285,7 @@ pollCreated = (document, transaction)->
   (error, results)->
     clean = false
     if error?
+      logger.error error
       if error.name is "TransactionAlreadyCompleted" #we recevied a null document while trying to set the state - the state is already set to processed or error, just needs to cleaned up
         clean = true
       else
@@ -283,6 +297,7 @@ pollCreated = (document, transaction)->
     if clean is true
       cleanup (error, dbTransaction)-> #start cleaning up
         if error?
+          logger.error error
           logger.error "#{prepend} unable to properly clean up - the poller will try later"
 
 #INBOUND (Money may go back to the entity if but it's done so the transaction is a negative deduction)
@@ -312,7 +327,8 @@ pollUpdated = (document, transaction)->
 
       if transaction.entity.type is choices.entities.BUSINESS
         _deductFunds api.Businesses, api.Polls, document, transaction, true, true, (error, doc)->
-          if error? #mongo errored out
+          if error?
+            logger.error error #mongo errored out
             callback(error)
           else if doc?  #transaction was successful, so continue to set processed
             callback(null, doc)
@@ -328,7 +344,8 @@ pollUpdated = (document, transaction)->
               callback(null, null)
       else if transaction.entity.type is choices.entities.CONSUMER
         _deductFunds api.Consumers, api.Polls, document, transaction, true, true, (error, doc)->
-          if error? #mongo errored out
+          if error?
+            logger.error error #mongo errored out
             callback(error)
           else if doc?  #transaction was successful, so continue to set processed
             callback(null, doc)
@@ -371,6 +388,7 @@ pollUpdated = (document, transaction)->
   (error, results)->
     clean = false
     if error?
+      logger.error error
       if error.name is "TransactionAlreadyCompleted" #we recevied a null document while trying to set the state - the state is already set to processed or error, just needs to cleaned up
         clean = true
       else
@@ -382,6 +400,7 @@ pollUpdated = (document, transaction)->
     if clean is true
       cleanup (error, dbTransaction)-> #start cleaning up
         if error?
+          logger.error error
           logger.error "#{prepend} unable to properly clean up - the poller will try later"
 
 #OUTBOUND
@@ -417,7 +436,8 @@ pollDeleted = (document, transaction)->
       if transaction.entity.type is choices.entities.BUSINESS
         logger.debug "#{prepend} attempting to deposit funds to business: #{transaction.entity.id}"
         _depositFunds api.Businesses, api.Polls, document, transaction, true, true, (error, doc)->
-          if error? #mongo errored out
+          if error?
+            logger.error error #mongo errored out
             callback(error)
           else if doc?  #transaction was successful, so continue to set processed
             callback(null, doc)
@@ -434,7 +454,8 @@ pollDeleted = (document, transaction)->
       else if transaction.entity.type is choices.entities.CONSUMER
         logger.debug "#{prepend} attempting to deposit funds to consumer: #{transaction.entity.id}"
         _depositFunds api.Consumers, api.Polls, document, transaction, true, true, (error, doc)->
-          if error? #mongo errored out
+          if error?
+            logger.error error #mongo errored out
             callback(error)
           else if doc?  #transaction was successful, so continue to set processed
             callback(null, doc)
@@ -470,6 +491,7 @@ pollDeleted = (document, transaction)->
   (error, results)->
     clean = false
     if error?
+      logger.error error
       if error.name is "TransactionAlreadyCompleted" #we recevied a null document while trying to set the state - the state is already set to processed or error, just needs to cleaned up
         clean = true
       else
@@ -481,6 +503,7 @@ pollDeleted = (document, transaction)->
     if clean is true
       cleanup (error, dbTransaction)-> #start cleaning up
         if error?
+          logger.error error
           logger.error "#{prepend} unable to properly clean up - the poller will try later"
 
 #OUTBOUND
@@ -504,7 +527,8 @@ pollAnswered = (document, transaction)->
       if transaction.entity.type is choices.entities.CONSUMER
         logger.debug "#{prepend} attempting to deposit funds to consumer: #{transaction.entity.id}"
         _depositFunds api.Consumers, api.Polls, document, transaction, false, false, (error, doc)->
-          if error? #mongo errored out
+          if error?
+            logger.error error #mongo errored out
             callback(error)
           else if doc?  #transaction was successful, so continue to set processed
             callback(null, doc)
@@ -555,6 +579,7 @@ pollAnswered = (document, transaction)->
   (error, results)->
     clean = false
     if error?
+      logger.error error
       if error.name is "TransactionAlreadyCompleted" #we recevied a null document while trying to set the state - the state is already set to processed or error, just needs to cleaned up
         clean = true
       else
@@ -566,6 +591,7 @@ pollAnswered = (document, transaction)->
     if clean is true
       cleanup (error, dbTransaction)-> #start cleaning up
         if error?
+          logger.error error
           logger.error "#{prepend} unable to properly clean up - the poller will try later"
 
 #INBOUND
@@ -592,7 +618,8 @@ discussionCreated = (document, transaction)->
     deductFunds: (callback)->
       if transaction.entity.type is choices.entities.BUSINESS
         _deductFunds api.Businesses, api.Discussions, document, transaction, true, true, (error, doc)->
-          if error? #mongo errored out
+          if error?
+            logger.error error #mongo errored out
             callback(error)
           else if doc?  #transaction was successful, so continue to set processed
             callback(null, doc)
@@ -609,7 +636,8 @@ discussionCreated = (document, transaction)->
 
       else if transaction.entity.type is choices.entities.CONSUMER
         _deductFunds api.Consumers, api.Discussions, document, transaction, true, true, (error, doc)->
-          if error? #mongo errored out
+          if error?
+            logger.error error #mongo errored out
             callback(error)
           else if doc?  #transaction was successful, so continue to set processed
             callback(null, doc)
@@ -652,6 +680,7 @@ discussionCreated = (document, transaction)->
   (error, results)->
     clean = false
     if error?
+      logger.error error
       if error.name is "TransactionAlreadyCompleted" #we recevied a null document while trying to set the state - the state is already set to processed or error, just needs to cleaned up
         clean = true
       else
@@ -663,6 +692,7 @@ discussionCreated = (document, transaction)->
     if clean is true
       cleanup (error, dbTransaction)-> #start cleaning up
         if error?
+          logger.error error
           logger.error "#{prepend} unable to properly clean up - the poller will try later"
 
 #INBOUND (Money may back to the entity if but it's done so the transaction is a negative deduction)
@@ -692,7 +722,8 @@ discussionUpdated = (document, transaction)->
 
       if transaction.entity.type is choices.entities.BUSINESS
         _deductFunds api.Businesses, api.Discussions, document, transaction, true, true, (error, doc)->
-          if error? #mongo errored out
+          if error?
+            logger.error error #mongo errored out
             callback(error)
           else if doc?  #transaction was successful, so continue to set processed
             callback(null, doc)
@@ -708,7 +739,8 @@ discussionUpdated = (document, transaction)->
               callback(null, null)
       else if transaction.entity.type is choices.entities.CONSUMER
         _deductFunds api.Consumers, api.Discussions, document, transaction, true, true, (error, doc)->
-          if error? #mongo errored out
+          if error?
+            logger.error error #mongo errored out
             callback(error)
           else if doc?  #transaction was successful, so continue to set processed
             callback(null, doc)
@@ -751,6 +783,7 @@ discussionUpdated = (document, transaction)->
   (error, results)->
     clean = false
     if error?
+      logger.error error
       if error.name is "TransactionAlreadyCompleted" #we recevied a null document while trying to set the state - the state is already set to processed or error, just needs to cleaned up
         clean = true
       else
@@ -762,6 +795,7 @@ discussionUpdated = (document, transaction)->
     if clean is true
       cleanup (error, dbTransaction)-> #start cleaning up
         if error?
+          logger.error error
           logger.error "#{prepend} unable to properly clean up - the poller will try later"
 
 #OUTBOUND
@@ -797,7 +831,8 @@ discussionDeleted = (document, transaction)->
       if transaction.entity.type is choices.entities.BUSINESS
         logger.debug "#{prepend} attempting to deposit funds to business: #{transaction.entity.id}"
         _depositFunds api.Businesses, api.Discussions, document, transaction, true, true, (error, doc)->
-          if error? #mongo errored out
+          if error?
+            logger.error error #mongo errored out
             callback(error)
           else if doc?  #transaction was successful, so continue to set processed
             callback(null, doc)
@@ -814,7 +849,8 @@ discussionDeleted = (document, transaction)->
       else if transaction.entity.type is choices.entities.CONSUMER
         logger.debug "#{prepend} attempting to deposit funds to consumer: #{transaction.entity.id}"
         _depositFunds api.Consumers, api.Discussions, document, transaction, true, true, (error, doc)->
-          if error? #mongo errored out
+          if error?
+            logger.error error #mongo errored out
             callback(error)
           else if doc?  #transaction was successful, so continue to set processed
             callback(null, doc)
@@ -850,6 +886,7 @@ discussionDeleted = (document, transaction)->
   (error, results)->
     clean = false
     if error?
+      logger.error error
       if error.name is "TransactionAlreadyCompleted" #we recevied a null document while trying to set the state - the state is already set to processed or error, just needs to cleaned up
         clean = true
       else
@@ -861,6 +898,7 @@ discussionDeleted = (document, transaction)->
     if clean is true
       cleanup (error, dbTransaction)-> #start cleaning up
         if error?
+          logger.error error
           logger.error "#{prepend} unable to properly clean up - the poller will try later"
 
 #OUTBOUND
@@ -884,7 +922,8 @@ discussionAnswered = (document, transaction)->
       if transaction.entity.type is choices.entities.CONSUMER
         logger.debug "#{prepend} attempting to deposit funds to consumer: #{transaction.entity.id}"
         _depositFunds api.Consumers, api.Discussions, document, transaction, false, false, (error, doc)->
-          if error? #mongo errored out
+          if error?
+            logger.error error #mongo errored out
             callback(error)
           else if doc?  #transaction was successful, so continue to set processed
             callback(null, doc)
@@ -935,6 +974,7 @@ discussionAnswered = (document, transaction)->
   (error, results)->
     clean = false
     if error?
+      logger.error error
       if error.name is "TransactionAlreadyCompleted" #we recevied a null document while trying to set the state - the state is already set to processed or error, just needs to cleaned up
         clean = true
       else
@@ -946,6 +986,7 @@ discussionAnswered = (document, transaction)->
     if clean is true
       cleanup (error, dbTransaction)-> #start cleaning up
         if error?
+          logger.error error
           logger.error "#{prepend} unable to properly clean up - the poller will try later"
 
 #OUTBOUND
@@ -973,7 +1014,8 @@ statPollAnswered = (document, transaction)->
       consumerId = transaction.entity.id
       transactionId = transaction.id
       api.Statistics.pollAnswered org, consumerId, transactionId, transaction.data.timestamp, (error, count)->
-        if error? #mongo errored out
+        if error?
+          logger.error error #mongo errored out
           callback(error)
         else if count>0
           callback(null, count)
@@ -990,6 +1032,7 @@ statPollAnswered = (document, transaction)->
   (error, results)->
     clean = false
     if error?
+      logger.error error
       if error.name is "TransactionAlreadyCompleted" #we recevied a null document while trying to set the state - the state is already set to processed or error, just needs to cleaned up
         clean = true
       else
@@ -1001,6 +1044,7 @@ statPollAnswered = (document, transaction)->
     if clean is true
       cleanup (error, dbTransaction)-> #start cleaning up
         if error?
+          logger.error error
           logger.error "#{prepend} unable to properly clean up - the poller will try later"
 
 #OUTBOUND
@@ -1028,7 +1072,8 @@ statTapInTapped = (document, transaction)->
       consumerId = document.userEntity.id
       transactionId = transaction.id
       api.Statistics.tapInTapped org, consumerId, transactionId, transaction.data.amount, document.date, (error, count)->
-        if error? #mongo errored out
+        if error?
+          logger.error error #mongo errored out
           callback(error)
         else if count>0
           callback(null, count)
@@ -1045,6 +1090,7 @@ statTapInTapped = (document, transaction)->
   (error, results)->
     clean = false
     if error?
+      logger.error error
       if error.name is "TransactionAlreadyCompleted" #we recevied a null document while trying to set the state - the state is already set to processed or error, just needs to cleaned up
         clean = true
       else
@@ -1056,6 +1102,7 @@ statTapInTapped = (document, transaction)->
     if clean is true
       cleanup (error, dbTransaction)-> #start cleaning up
         if error?
+          logger.error error
           logger.error "#{prepend} unable to properly clean up - the poller will try later"
 
 exports.process = process

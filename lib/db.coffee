@@ -142,19 +142,9 @@ media = {
 #################################
 DBTransaction = new Schema {
   document: {
-    type            : {type: String, required: true, enum: choices.objects._enum}
+    type            : {type: String, required: true}
     id              : {type: ObjectId, required: true}
   }
-
-  entity            : entity
-
-  by: {
-    type            : {type: String, enum: choices.entities._enum}
-    id              : {type: ObjectId}
-    name            : {type: String} #TODO: consider making this required with a default of  ""
-    screenName      : {type: String} #only applies to consumers
-  }
-
   timesdtamp        : {type: Date, default: new Date()}
   transaction       : TransactionSchema
 }
