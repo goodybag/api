@@ -1044,7 +1044,7 @@ class Polls extends Campaigns
       "transactions.locked": false,
       "deleted": false
       $or : [
-        {"dates.start": {$lt:new Date()}, "transactions.state": choices.transactions.states.PROCESSED},
+        {"dates.start": {$gt:new Date()}, "transactions.state": choices.transactions.states.PROCESSED},
         {"transactions.state": choices.transactions.states.ERROR}
       ]
     }
@@ -1176,7 +1176,7 @@ class Polls extends Campaigns
       "transactions.locked": false,
       "deleted": false
       $or : [
-        {"dates.start": {$lt:new Date()}, "transactions.state": choices.transactions.states.PROCESSED},
+        {"dates.start": {$gt:new Date()}, "transactions.state": choices.transactions.states.PROCESSED},
         {"transactions.state": choices.transactions.states.ERROR}
       ]
     }
@@ -1503,10 +1503,9 @@ class Discussions extends Campaigns
     # We don't do a transaction for discussion creation right now because they are a fixed amount at the moment
     # this will change when we implement the consumer side
     entity = {
-      type: data.entity.type
-      id: data.entity.id
+      type: entityType
+      id: entityId
     }
-
     transactionData = {
       newAllocated: newAllocated
     }
@@ -1533,7 +1532,7 @@ class Discussions extends Campaigns
       "transactions.locked": false,
       "deleted": false
       $or : [
-        {"dates.start": {$lt:new Date()}, "transactions.state": choices.transactions.states.PROCESSED},
+        {"dates.start": {$gt:new Date()}, "transactions.state": choices.transactions.states.PROCESSED},
         {"transactions.state": choices.transactions.states.ERROR}
       ]
     }
@@ -1683,7 +1682,7 @@ class Discussions extends Campaigns
       "transactions.locked": false,
       "deleted": false
       $or : [
-        {"dates.start": {$lt:new Date()}, "transactions.state": choices.transactions.states.PROCESSED},
+        {"dates.start": {$gt:new Date()}, "transactions.state": choices.transactions.states.PROCESSED},
         {"transactions.state": choices.transactions.states.ERROR}
       ]
     }
