@@ -1024,7 +1024,7 @@ class Polls extends Campaigns
       newAllocated: newAllocated
       perResponse: perResponse
     }
-    transaction = self.createTransaction choices.transactions.states.PENDING, choices.transactions.actions.POLL_UPDATED, transactionData, choices.transactions.directions.INBOUND, entity
+    transaction = self.createTransaction choices.transactions.states.PENDING, choices.transactions.actions.POLL_UPDATED, transactionData, choices.transactions.directions.INBOUND, transactionEntity
 
     $push = {
       "transactions.ids": transaction.id
