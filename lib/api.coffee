@@ -525,14 +525,20 @@ class Clients extends API
 
   @login: (email, password, callback)->
     query = @_query()
-    query.where('email', email).where('password', password)
+    query.where('email', email)#.where('password', password)
     query.findOne (error, client)->
-      if(error)
-        return callback error, client
-      else if client?
-        return callback error, client
-      else
-        return callback new Error("invalid username/password")
+      if error?
+        callback error
+        return
+      if !client?
+        callback new errors.ValidationError "Email address not found.", {"login":"emailnotfound"} #do not change unless you update the frontend javascript
+        return
+      if client.password != password
+        callback new errors.ValidationError "Incorrect password.", {"login":"passwordincorrect"} #do not change unless you update the frontend javascript
+        return
+      callback null, client
+      return
+    return
 
   @getBusinessIds: (id, callback)->
     query = Businesses.model.find()
