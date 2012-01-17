@@ -187,23 +187,37 @@ PasswordResetRequest = new Schema {
 ####################
 Consumer = new Schema {
   email           : {type: String, set: utils.toLower, validate: Email, unique: true}
-  password        : {type: String, validate:/.{5,}/, required: true}
+  password        : {type: String, min:5, default: mongoose.Types.ObjectId.createPk(), required:true}
   firstName       : {type: String, required: true}
   lastName        : {type: String, required: true}
   screenName      : {type: String, default: mongoose.Types.ObjectId.createPk(), unique: true}
   setScreenName   : {type: Boolean, default: false}
-  facebook: {
-    access_token  : String
-    #id            : Number
-  }
   created         : {type: Date, default: new Date()}
   logins          : []
   honorScore      : {type: Number, default: 0}
   charities       : {}
 
+  facebook: {
+    access_token  : {type: String}
+    id            : {type: String}
+  }
+
+  profile: {
+    birthday      : {type: Date}
+    gender        : {} #fb
+    education     : {} #fb
+    work          : {} #fb
+    location      : {} #fb
+    hometown      : {} #fb
+    interests     : {} #not fb
+    aboutme       : {} #not fb
+    timezone      : {}
+    #interests movies music books?
+  }
+
   funds: {
-    allocated     : {type: Number, default: 0.0}
-    remaining     : {type: Number, default: 0.0}
+    allocated     : {type: Number, default: 0.0, required: true}
+    remaining     : {type: Number, default: 0.0, required: true}
   }
 
   barcodeId       : {type:String}
@@ -355,7 +369,9 @@ Poll = new Schema {
 
   deleted              : {type: Boolean, default: false}
 
-  transactions         : transactions
+  transactions: transactions
+
+  deleted             : {type: Boolean, default: false}
 }
 
 
@@ -412,6 +428,7 @@ Discussion = new Schema {
   transactions        : transactions
 
 }
+
 
 ####################
 # Response #########
@@ -471,7 +488,7 @@ Media = new Schema {
   name          : {type: String, required: true}
   duration      : {type: Number}
   thumbs        : [] #only populated if video
-  sizes         : {} #only for images, not yet implemented in transloaded's template, or api
+  sizes         : {} #this should match transloadits sizes
   tags          : []
 
   dates: {
@@ -523,7 +540,6 @@ Stream = new Schema {
     id                : {type: ObjectId}
     name              : {type:String}
   }
-
   entitiesInvolved    : [Entity]
   what                : reference #the document this stream object is about
   when                : {type: Date, required: true, default: new Date()}

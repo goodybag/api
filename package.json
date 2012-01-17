@@ -17,7 +17,6 @@
     "groupon": "=0.0.4",
     "poolr": "=0.0.4",
     "password-generator": "=0.1.2",
-    "hashlib": "=1.0.1",
-    "node-wwwdude" : "https://github.com/pfleidi/node-wwwdude/tarball/master"
+    "hashlib": "=1.0.1"
   }
 }

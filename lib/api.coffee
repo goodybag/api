@@ -4,7 +4,6 @@ generatePassword = require "password-generator"
 hashlib = require "hashlib"
 util = require "util"
 async = require "async"
-wwwdude = require "wwwdude"
 
 globals = require "globals"
 loggers = require "./loggers"
@@ -18,6 +17,7 @@ utils = globals.utils
 choices = globals.choices
 defaults = globals.defaults
 errors = globals.errors
+fb = globals.facebook
 
 ObjectId = globals.mongoose.Types.ObjectId
 
@@ -41,11 +41,55 @@ Statistic = db.Statistic
 
 #TODO:
 #Make sure that all necessary fields exist for each function before sending the query to the db
-
 class API
   @model = null
   constructor: ()->
     #nothing to say
+
+  @_flattenDoc = (doc)->
+    if Object.isObject doc
+      flat = {}
+      for key of doc
+        flat[key] = flatten doc[key]
+    else if Object.isArray doc
+      flat = []
+      i = 0
+      while i<doc.length
+        flat[i] = flatten doc[i]
+        i++
+    else
+      flat = doc
+    return flat
+
+  @_copyFields = (obj, fields) ->
+    ret = {}
+    for field in fields
+      keys = field.split(".")
+      o = obj
+      r = ret
+      i = 0
+      newobj = null
+      newkey = null
+      while i<keys.length
+        key = keys[i]
+        if !o[key]?
+          j=0
+          r = ret
+          if newobj? && newkey?
+            delete newobj[newkey]
+          break;
+        if i==keys.length-1
+          r[key] = o[key]
+          break;
+        if !r[key]?
+          r[key] = {}
+          if !newobj? && !newkey?
+            newobj = r
+            newkey = key
+        o = o[key]
+        r = r[key]
+        i++
+    ret
 
   @_query: ()->
     return @model.find() #instance of query object
@@ -99,12 +143,14 @@ class API
 
   @del = @remove
 
-  @one: (id, callback)->
-    return @_one(id, callback)
+  # @one: (id, callback)->
+  #   return @_one(id, callback)
 
-  @_one: (id, callback)->
-    @model.findOne {_id: id}, callback
-    return
+  # @_one: (id, callback)->
+  #   if Object.isString id
+  #     id = new ObjectId id
+  #   @model.findOne {_id: id}, callback
+  #   return
 
   @get: (options, callback)->
     query = @optionParser(options)
@@ -358,12 +404,134 @@ class API
 
     @model.findOne $query, callback
 
-
 class DBTransactions extends API
   @model = DBTransaction
 
+class Users extends API
+  #start potential new API functions
+  #model.findById id, fields, options callback
+  #model.findOne
 
-class Consumers extends API
+  @getByEmail: (email, callback)->
+    query = @_query()
+    query.where('email', email)
+    query.findOne (error, user)->
+      if error?
+        callback error #db error
+      else
+        callback null, user #if no consumer with that email will return null
+      return
+    return
+
+  @one: (id, fieldsToReturn, dbOptions, callback)->
+    if Object.isString id
+      id = new ObjectId id
+    if Object.isFunction fieldsToReturn && !fieldsToReturn?
+      #Fields to return must always be specified for consumers...
+      callback new errors.ValidationError {"fieldsToReturn","Database error, fields must always be specified."}
+      return
+      # callback = fieldsToReturn
+      # fields = {}
+      # dbOptions = {}
+    if Object.isFunction dbOptions
+      callback = dbOptions
+      dbOptions = {}
+    @model.findById id, fieldsToReturn, dbOptions, callback
+    return
+
+  @update: (id, doc, dbOptions, callback)->
+    if Object.isString id
+      id = new ObjectId id
+    if Object.isFunction dbOptions
+      callback = dbOptions
+      dbOptions = {safe:true}
+    #id typecheck is done in .update
+    query = {_id:id}
+    @model.update query, doc, dbOptions, callback
+    return
+
+  #end potential new API functions
+
+  @updateWithPassword: (id, password, doc, dbOptions, callback)->
+    if Object.isString id
+      id = new ObjectId id
+    if Object.isFunction dbOptions
+      callback = dbOptions
+      dbOptions = {safe:true}
+    #id typecheck is done in .update
+    query = {_id:id, password: password}
+    @model.update query, doc, dbOptions, (error, count)->
+      if error
+        callback new error.ValidationError {"password":"Incorrect password."}
+        return
+      callback error, count
+    return
+
+  @updateImage: (id, media, callback)->
+    #id typecheck is done in @update
+    #media.mediaId typecheck is done in validateMedia
+    Medias.validateMedia media, "square", (error, validatedMedia)->
+      if error?
+        callback error
+        return
+      data =
+        media: validatedMedia
+      @update id, data, callback #error,count
+      return
+
+  #@updateEmail
+  @updateEmailRequest: (id, password, newEmail, callback)->
+    #id typecheck is done in @update
+    @getByEmail newEmail, (error, user)->
+      if error?
+        callback error
+        return
+      if user?
+        if id == user._id
+          callback new errors.ValidationError({"email":"That is your current email"})
+        else
+          callback new errors.ValidationError({"email":"Another user is already using this email"}) #email exists error
+        return
+    data = {}
+    data.changeEmail =
+      newEmail: newEmail
+      key: hashlib.md5(globals.secretWord + newEmail+(new Date().toString()))+'-'+generatePassword(12, false, /\d/)
+      expirationDate: Date.create("next week")
+    @updateWithPassword id, password, data, (error, count)-> #error,count
+      if count==0
+        callback new errors.ValidationError({"password":"Incorrect password."}) #assuming id is correct..
+        return
+      callback error, count>0
+      return
+    return
+
+  @updateEmailConfirm: (key, callback)->
+    query = @_query()
+    query.where('changeEmail.key', key)
+    query.fields("changeEmail")
+    query.findOne (error, user)->
+      if error?
+        callback error #dberror
+        return
+      if !user?
+        callback new errors.ValidationError({"key":"Invalid key, expired or already used."})
+        return
+      #user found
+      if(new Date()>user.changeEmail.expirationDate)
+        callback new errors.ValidationError({"key":"Key expired."})
+        query.update {$set:{changeEmail:null}}, (error, success)->
+          return #clear expired email request.
+        return
+      query.update {$set:{email:user.changeEmail.newEmail, changeEmail:null}}, (error, count)->
+        if error?
+          callback error #dberror
+          return
+        callback null, count>0
+        return
+      return
+    return
+
+class Consumers extends Users
   @model = Consumer
 
   # List all consumers (limit to 25 at a time for now - not taking in a limit arg on purpose)
@@ -379,70 +547,82 @@ class Consumers extends API
     query.only("_id", "screenName")
     query.in("_id", ids)
     query.exec callback
-
   @getByBarcodeId: (barcodeId, callback)->
     query = @queryOne()
     query.where("barcodeId", barcodeId)
     query.exec callback
 
-  @facebookLogin: (accessToken, callback)->
+  @facebookLogin: (accessToken, fieldsToReturn, callback)->
+    if Object.isFunction fieldsToReturn
+      callback = fieldsToReturn
+      fieldsToReturn = {}
     self = this
-    accessToken = accessToken.split("&")
-    wwwClient = wwwdude.createClient({
-        contentParser: wwwdude.parsers.json
-    })
-    wwwClient.get("https://graph.facebook.com/me?access_token="+accessToken)
-    .on('success', (facebookData, res)->
-      if(facebookData.error?)
-        callback new errors.ValidationError {"facebook":facebookData.error.type+": "+facebookData.error.message}
-      else
-        fbid = facebookData.id
-        consumer = {
-          firstName: facebookData.first_name,
-          lastName:  facebookData.last_name,
-          email:     facebookData.email,
-          facebook: {
-              me           : facebookData,
-              access_token : accessToken,
-              id           : fbid
-          }
-        }
-        #self.model.update {"facebook.id": fbid}, {$set: consumer, $inc: {loginCount:1}}, {}, (error, success)->
-        self.model.collection.findAndModify {"facebook.id": fbid}, [], {$set: consumer, $inc: {loginCount:1}}, {new:true, safe:true}, (error, consumerUpdated)->
-          if error?
-            callback error
-          else if consumerUpdated? #if success>0
-            callback null, consumerUpdated #streamlined process for returning logins..
-          else
-            query = self._query()
-            query.where("email", facebookData.email) #email account with
-            query.where("facebook").exists(false)    #no facebook
-            query.findOne (error, consumerWithEmail)->
-              if error?
-                callback error
-              else if consumerWithEmail?
-                callback new errors.ValidationError {"email":"Account with email already exists, please enter password."}
-              else
-                #self.model.update {'facebook.id': fbid}, {$set: consumer, $inc: {loginCount:1}}, {}, (error, success)->
-                consumerModel = new self.model(consumer)
-                consumerModel.save consumer, (error, success)->
-                  if error?
-                    callback error
-                  else #success is true
-                    callback null, consumer #slow process...for new fb regs..
-                  return
+    accessToken = accessToken.split("&")[0]
+    #verify accessToken and get User Profile
+    urls = ["app","me"]
+    fb.get urls, accessToken, (error,data)->
+      if error?
+        callback error
+        return
+      appResponse = data[0] #same order as url array..
+      meResponse = data[1]
+      if appResponse.code!=200
+        callback new errors.HttpError "Error connecting with Facebook, try again later.", "facebookBatch:"+url[0], appResponse.code
+        return
+      if meResponse.code!=200
+        callback new errors.HttpError "Error connecting with Facebook, try again later.", "facebookBatch:"+url[0], appResponse.code
+        return
+      facebookData =
+        me : JSON.parse(meResponse.body)
+      createOrUpdateUser(facebookData)
+      return
+
+    #create user if new, or update user where fbid
+    createOrUpdateUser = (facebookData)->
+      fbid = facebookData.me.id
+      consumer = {
+        firstName: facebookData.me.first_name,
+        lastName:  facebookData.me.last_name,
+        #email:     facebookData.me.email #this is set only for new users, bc users can edit their email
+      }
+      consumer["facebook.access_token"] = accessToken
+      consumer["facebook.id"] = facebookData.me.id
+      consumer["facebook.me"] = facebookData.me
+      birthday = new Date facebookDate.me.birthday
+      birthdayUTC = Date.UTC(birthday.getYear(),birthday.getMonth(),birthday.getDate(),0,0,0,0)
+      consumer["profile.birthday"] = new Date(birthdayUTC)
+      consumer["profile.gender"]   = facebookDate.me.gender
+      consumer["profile.work"]   = facebookDate.me.work
+      consumer["profile.education"] = facebookDate.me.education
+      consumer["profile.location"] = facebookDate.me.location
+      consumer["profile.hometown"] = facebookDate.me.hometown
+      #check if user is returning facebook authenticated user
+      self.model.collection.findAndModify {"facebook.id": fbid}, [], {$set: consumer, $inc: {loginCount:1}}, {fields:fieldsToReturn,new:true,safe:true}, (error, returningFacebookUser)->
+        if error? or returningFacebookUser? #if error or returning facebook user found, else null, null
+          callback error, returningFacebookUser
           return
-      return
-    ).on('error', (error, res)->
-      callback error
-      return
-    ).on('http-error', (data, res)->
-      if(data.error?)
-        callback new errors.ValidationError {"facebook":data.error.type+": "+data.error.message}
-      else
-        callback new errors.ValidationError {"http":"HTTP Error"}
-      return
-    )
+        #check if user is returning email authenticated user, if yes merge in facebook info
+        self.model.collection.findAndModify {'email': facebookData.me.email}, [], {$set: consumer, $inc: {loginCount:1}}, {fields:fieldsToReturn,new:true,safe:true}, (error, emailToFacebookUser)->
+          if error? or emailToFacebookUser? #if error or email user found, else null, null
+            callback error, emailToFacebookUser
+            return
+          #brand new user
+          consumer.email = facebookData.me.email
+          newUserModel = new self.model(consumer)
+          newUserModel.save (error, newUserAllFields)->
+            if error?
+              callback error
+              return
+            newUserSelectFields = self._copyFields(newUserAllFields, fieldsToReturn)
+            callback null, newUserSelectFields
+            return
+          return
+        return
+      return #end createorupdateuser
+    return
+
+  @test: ()->
+    console.log "fdsa"
     return
 
   @register: (user, callback)->
@@ -459,6 +639,20 @@ class Consumers extends API
       else
         return callback new errors.ValidationError {"login":"invalid username/password"}
 
+  @profile: (id, callback)->
+    profileFields = {
+        _id           : 1
+        firstName     : 1
+        lastName      : 1
+        email         : 1
+        media         : 1
+        funds         : 1
+        honorScore    : 1
+        screenName    : 1
+        setScreenName : 1
+    }
+    @one id, profileFields, callback
+
   @updateHonorScore: (id, eventId, amount, callback)->
     if Object.isString(id)
       id = new ObjectId(id)
@@ -471,7 +665,6 @@ class Consumers extends API
   @deductFunds: (id, transactionId, amount, callback)->
     if Object.isString(id)
       id = new ObjectId(id)
-
     if Object.isString(transactionId)
       transactionId = new ObjectId(transactionId)
 
@@ -641,11 +834,13 @@ class Clients extends API
         callback error #dberror
         return
       if !client? || !client.changeEmail?
-        callback new errors.ValidationError({"key":"Invalid key or already used."})
+        callback new errors.ValidationError({"key":"Invalid key, expired or already used."})
         return
       #client found
       if(new Date()>client.changeEmail.expirationDate)
         callback new errors.ValidationError({"key":"Key expired."})
+        query.update {$set:{changeEmail:null}}, (error, success)->
+          return #clear expired email request.
         return
       query.update {$set:{email:client.changeEmail.newEmail, changeEmail:null}}, (error, success)->
         if error?
@@ -1721,6 +1916,37 @@ class Responses extends API
 class Medias extends API
   @model = Media
 
+  #validate Media Objects for other collections
+  @validateMedia: (media, imageType, callback)->
+    if media.mediaId? and (!media.url? or !media.thumb?) #new mediaId and no urls -> look up urls
+      #mediaId typecheck is done in one
+      Medias.one mediaId (error, data)->
+        if error?
+          callback error #callback
+          return
+        else if media.length==0
+          callback errors.ValidationError({"mediaId":"Invalid MediaId"})
+          return
+        if imageType=="square"
+          media.thumb = data.sizes.s85
+          media.url   = data.sizes.s128
+        else if imageType=="landscape"
+          media.thumb = data.sizes.s100x75
+          media.url   = data.sizes.s320x240
+        return media
+    else if media.guid?
+      if !media.url?
+        callback errors.ValidationError({"media.url":"Media url (temp. url) is required when supplying guid."})
+        return
+      else if !media.thumb?
+        callback errors.ValidationError({"media.thumb":"Media thumb (temp. url) is required when supplying guid."})
+        return
+    else if (data.media.url || data.media.thumb) #and !data.media.guid and !data.media.mediaId
+      callback errors.ValidationError({"media":"Guid or MediaId is required when supplying a media.url"})
+      return
+    else
+      return media #guid and urls supplied
+
   @addOrUpdate: (media, callback)->
     if Object.isString(media.entity.id)
       media.entity.id = new ObjectId media.entity.id
@@ -1843,7 +2069,6 @@ class Events extends API
       eventId = new ObjectId eventId
     if Object.isString userId
       userId = new ObjectId userId
-
     query = {_id: eventId}
     update = {$pop: {rsvp: userId}}
     options = {remove: false, new: true, upsert: false}
