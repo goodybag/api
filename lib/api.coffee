@@ -573,13 +573,13 @@ class Clients extends API
       else if client?
         bcrypt.compare password+defaults.passwordSalt, client.password, (error, success)->
           if error? or !success
-            callback new errors.ValidationError "Invalid Password", {"login":"invalid password"}
+            callback new errors.ValidationError "Incorrect Password.", {"login":"incorrectpassword"} #do not update this error without updating the frontend javascript
             return
           else
             callback error, client
             return
       else
-        callback new errors.ValidationError "Invalid Email Address", {"login":"invalid email address"}
+        callback new errors.ValidationError "Email address not found.", {"login":"emailnotfound"} #do not update this erro without updating the frontend javascript
         return
 
   @getBusinessIds: (id, callback)->
