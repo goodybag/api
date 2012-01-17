@@ -358,6 +358,7 @@ class API
 
     @model.findOne $query, callback
 
+
 class DBTransactions extends API
   @model = DBTransaction
 
@@ -1041,7 +1042,7 @@ class Polls extends Campaigns
       "entity.type":entityType,
       "entity.id":entityId,
       "transactions.locked": false,
-      "delete": {$ne:true}
+      "deleted": false
       $or : [
         {"dates.start": {$lt:new Date()}, "transactions.state": choices.transactions.states.PROCESSED},
         {"transactions.state": choices.transactions.states.ERROR}
@@ -1173,7 +1174,7 @@ class Polls extends Campaigns
       "entity.type":entityType,
       "entity.id":entityId,
       "transactions.locked": false,
-      "delete": {$ne:true}
+      "deleted": false
       $or : [
         {"dates.start": {$lt:new Date()}, "transactions.state": choices.transactions.states.PROCESSED},
         {"transactions.state": choices.transactions.states.ERROR}
@@ -1459,7 +1460,7 @@ class Discussions extends Campaigns
 
     return query
 
-  @update: (entityType, entityId, discussionId, data, callback)->
+  @update: (entityType, entityId, discussionId, newAllocated, data, callback)->
     self = this
 
     instance = new @model(data)
@@ -1495,44 +1496,42 @@ class Discussions extends Campaigns
       displayMedia    : data.displayMedia
       media           : data.media
     }
+     #this is flattened so that it does not overwrite the entire dates subdocument
     $set["dates.start"] = new Date(data.dates.start)
 
 
     # We don't do a transaction for discussion creation right now because they are a fixed amount at the moment
     # this will change when we implement the consumer side
-    # entity = {
-    #   type: data.entity.type
-    #   id: data.entity.id
-    # }
+    entity = {
+      type: data.entity.type
+      id: data.entity.id
+    }
 
-    # transactionData = {
-    #   newAllocated: newAllocated
-    #   perResponse: perResponse
-    # }
-    # transaction = self.createTransaction choices.transactions.states.PENDING, choices.transactions.actions.DISCUSSION_UPDATED, transactionData, choices.transactions.directions.INBOUND, entity
+    transactionData = {
+      newAllocated: newAllocated
+    }
+    transaction = self.createTransaction choices.transactions.states.PENDING, choices.transactions.actions.DISCUSSION_UPDATED, transactionData, choices.transactions.directions.INBOUND, entity
 
-    # $set = {
-    #   "dates.start": new Date(data.dates.start) #this is so that we don't lose the create date
-    #   "transactions.locked": true #THIS IS A LOCKING TRANSACTION, SO IF ANYONE ELSE TRIES TO DO A LOKCING TRANSACTION IT WILL NOT HAPPEN (AS LONG AS YOU CHECK FOR THAT)
-    #   "transactions.state": choices.transactions.states.PENDING
-    # }
-    # $push = {
-    #   "transactions.ids": transaction.id
-    #   "transactions.log": transaction
-    # }
+    $set["transactions.locked"] = true #THIS IS A LOCKING TRANSACTION, SO IF ANYONE ELSE TRIES TO DO A LOKCING TRANSACTION IT WILL NOT HAPPEN (AS LONG AS YOU CHECK FOR THAT)
+    $set["transactions.state"] = choices.transactions.states.PENDING
 
-    # logger.info data
+    $push = {
+      "transactions.ids": transaction.id
+      "transactions.log": transaction
+    }
+
+    logger.info data
 
     $update = {
       $set: $set
-      #$push: $push
+      $push: $push
     }
     where = {
       _id: discussionId,
       "entity.type":entityType,
       "entity.id":entityId,
       "transactions.locked": false,
-      "delete": {$ne:true}
+      "deleted": false
       $or : [
         {"dates.start": {$lt:new Date()}, "transactions.state": choices.transactions.states.PROCESSED},
         {"transactions.state": choices.transactions.states.ERROR}
@@ -1545,10 +1544,7 @@ class Discussions extends Campaigns
         callback new errors.ValidationError({"discussion":"Discussion does not exist or Access Denied."})
       else
         callback null, discussion
-
-        Streams.discussionUpdated(discussion) #we don't care about the callback #if we use transacitons, remove this from here
-        #we do not do this right now
-        #tp.process(discussion, transaction)
+        tp.process(discussion, transaction)
     return
 
   @add = (data, amount, callback)->
@@ -1684,8 +1680,8 @@ class Discussions extends Campaigns
       _id: discussionId,
       "entity.type":entityType,
       "entity.id":entityId,
-      "transactions.locked": false
-      "delete": {$ne:false}
+      "transactions.locked": false,
+      "deleted": false
       $or : [
         {"dates.start": {$lt:new Date()}, "transactions.state": choices.transactions.states.PROCESSED},
         {"transactions.state": choices.transactions.states.ERROR}
