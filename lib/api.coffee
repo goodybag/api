@@ -358,6 +358,7 @@ class API
 
     @model.findOne $query, callback
 
+
 class DBTransactions extends API
   @model = DBTransaction
 
@@ -1045,8 +1046,6 @@ class Polls extends Campaigns
       $push: $push
     }
 
-    console.log $update
-
     @model.collection.findAndModify {_id: pollId, "entity.type":entityType, "entity.id":entityId, "transactions.locked": false}, [], $update, {safe: true, new: true}, (error, poll)->
       if error?
         callback error, null
@@ -1447,7 +1446,7 @@ class Discussions extends Campaigns
 
     return query
 
-  @update: (entityType, entityId, discussionId, data, callback)->
+  @update: (entityType, entityId, discussionId, newAllocated, data, callback)->
     self = this
 
     instance = new @model(data)
@@ -1487,46 +1486,41 @@ class Discussions extends Campaigns
       details         : data.details
       tags            : data.tags
       displayMedia    : data.displayMedia
-      dates: {
-        start         : new Date(data.dates.start)
-      }
       media           : data.media
     }
 
 
     # We don't do a transaction for discussion creation right now because they are a fixed amount at the moment
     # this will change when we implement the consumer side
-    # entity = {
-    #   type: data.entity.type
-    #   id: data.entity.id
-    # }
+    entity = {
+      type: data.entity.type
+      id: data.entity.id
+    }
 
-    # transactionData = {
-    #   newAllocated: newAllocated
-    #   perResponse: perResponse
-    # }
-    # transaction = self.createTransaction choices.transactions.states.PENDING, choices.transactions.actions.DISCUSSION_UPDATED, transactionData, choices.transactions.directions.INBOUND, entity
+    transactionData = {
+      newAllocated: newAllocated
+    }
+    transaction = self.createTransaction choices.transactions.states.PENDING, choices.transactions.actions.DISCUSSION_UPDATED, transactionData, choices.transactions.directions.INBOUND, entity
 
-    # $set = {
-    #   "dates.start": new Date(data.dates.start) #this is so that we don't lose the create date
-    #   "transactions.locked": true #THIS IS A LOCKING TRANSACTION, SO IF ANYONE ELSE TRIES TO DO A LOKCING TRANSACTION IT WILL NOT HAPPEN (AS LONG AS YOU CHECK FOR THAT)
-    #   "transactions.state": choices.transactions.states.PENDING
-    # }
-    # $push = {
-    #   "transactions.ids": transaction.id
-    #   "transactions.log": transaction
-    # }
+    $set = {
+      "dates.start": new Date(data.dates.start) #this is so that we don't lose the create date
+      "transactions.locked": true #THIS IS A LOCKING TRANSACTION, SO IF ANYONE ELSE TRIES TO DO A LOKCING TRANSACTION IT WILL NOT HAPPEN (AS LONG AS YOU CHECK FOR THAT)
+      "transactions.state": choices.transactions.states.PENDING
+    }
+    $push = {
+      "transactions.ids": transaction.id
+      "transactions.log": transaction
+    }
 
-    # logger.info data
+    logger.info data
 
-    $set = {}
     for own k,v of updateDoc
       console.log k
       $set[k] = v
 
     $update = {
       $set: $set
-      #$push: $push
+      $push: $push
     }
 
     @model.collection.findAndModify {_id: discussionId, "entity.type":entityType, "entity.id":entityId, "transactions.locked": false}, [], $update, {safe: true, new: true}, (error, discussion)->
@@ -1536,10 +1530,7 @@ class Discussions extends Campaigns
         callback new errors.ValidationError({"discussion":"Discussion does not exist or Access Denied."})
       else
         callback null, discussion
-
-        Streams.discussionUpdated(discussion) #we don't care about the callback #if we use transacitons, remove this from here
-        #we do not do this right now
-        #tp.process(discussion, transaction)
+        tp.process(discussion, transaction)
     return
 
   @add = (data, amount, callback)->
