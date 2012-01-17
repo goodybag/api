@@ -573,7 +573,7 @@ class Clients extends API
       else if client?
         bcrypt.compare password+defaults.passwordSalt, client.password, (error, success)->
           if error? or !success
-            callback new errors.ValidationError "Incorrect Password.", {"login":"incorrectpassword"} #do not update this error without updating the frontend javascript
+            callback new errors.ValidationError "Incorrect Password.", {"login":"passwordincorrect"} #do not update this error without updating the frontend javascript
             return
           else
             callback error, client
