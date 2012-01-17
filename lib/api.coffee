@@ -1040,7 +1040,8 @@ class Polls extends Campaigns
       _id: pollId,
       "entity.type":entityType,
       "entity.id":entityId,
-      "transactions.locked": false
+      "transactions.locked": false,
+      "delete": {$ne:true}
       $or : [
         {"dates.start": {$lt:new Date()}, "transactions.state": choices.transactions.states.PROCESSED},
         {"transactions.state": choices.transactions.states.ERROR}
@@ -1167,7 +1168,18 @@ class Polls extends Campaigns
       $push: $push
     }
 
-    @model.collection.findAndModify {"entity.type":entityType, "entity.id":entityId, _id: pollId, "transactions.locked": false, "deleted": false}, [], $update, {safe: true, new: true}, (error, poll)->
+    where = {
+      _id: pollId,
+      "entity.type":entityType,
+      "entity.id":entityId,
+      "transactions.locked": false,
+      "delete": {$ne:true}
+      $or : [
+        {"dates.start": {$lt:new Date()}, "transactions.state": choices.transactions.states.PROCESSED},
+        {"transactions.state": choices.transactions.states.ERROR}
+      ]
+    }
+    @model.collection.findAndModify where, [], $update, {safe: true, new: true}, (error, poll)->
       if error?
         logger.error "POLLS - DELETE: unable to findAndModify"
         logger.error error
@@ -1519,7 +1531,8 @@ class Discussions extends Campaigns
       _id: discussionId,
       "entity.type":entityType,
       "entity.id":entityId,
-      "transactions.locked": false
+      "transactions.locked": false,
+      "delete": {$ne:true}
       $or : [
         {"dates.start": {$lt:new Date()}, "transactions.state": choices.transactions.states.PROCESSED},
         {"transactions.state": choices.transactions.states.ERROR}
@@ -1667,7 +1680,18 @@ class Discussions extends Campaigns
       $push: $push
     }
 
-    @model.collection.findAndModify {"entity.type":entityType, "entity.id":entityId, _id: discussionId, "transactions.locked": false, "deleted": false}, [], $update, {safe: true, new: true}, (error, discussion)->
+    where = {
+      _id: discussionId,
+      "entity.type":entityType,
+      "entity.id":entityId,
+      "transactions.locked": false
+      "delete": {$ne:false}
+      $or : [
+        {"dates.start": {$lt:new Date()}, "transactions.state": choices.transactions.states.PROCESSED},
+        {"transactions.state": choices.transactions.states.ERROR}
+      ]
+    }
+    @model.collection.findAndModify where, [], $update, {safe: true, new: true}, (error, discussion)->
       if error?
         logger.error "DISCUSSIONS - DELETE: unable to findAndModify"
         logger.error error
