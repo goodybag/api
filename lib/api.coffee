@@ -2104,19 +2104,21 @@ class Streams extends API
 
   @add: (stream, callback)->
     model = {
-      who               : stream.who
-      by                : stream.by
-      entitiesInvolved  : stream.entitiesInvolved
-      what              : stream.what
-      when              : stream.when || new Date()
-      where             : stream.where
-      events            : stream.events
-      private           : stream.private || false #default to public
-      data              : stream.data || {}
-      feeds             : stream.feeds
+      who                : stream.who
+      by                 : stream.by
+      entitiesInvolved   : stream.entitiesInvolved
+      what               : stream.what
+      when               : stream.when || new Date()
+      where              : stream.where
+      events             : stream.events
+      private            : stream.private || false #default to public
+      data               : stream.data || {}
+      feeds              : stream.feeds
+      feedSpecificData   : stream.feedSpecificData
+      entitySpecificData : stream.entitySpecificData
       dates: {
-        created         : new Date()
-        lastModified    : new Date()
+        created           : new Date()
+        lastModified      : new Date()
       }
     }
 
@@ -2517,6 +2519,8 @@ class Streams extends API
       amount: tapInDoc.amount
       donationAmount: tapInDoc.donationAmount
     }
+
+    logger.debug(stream)
 
     @add stream, callback
   ###
