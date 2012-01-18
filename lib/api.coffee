@@ -1974,10 +1974,10 @@ class BusinessTransactions extends API
               return
             else if consumer?
               doc.userEntity = {
-                type            : choices.entities.CONSUMER
-                id              : consumer._id
-                name            : "#{consumer.firstName} #{consumer.lastName}"
-                screenName      : consumer.screenName
+                type        : choices.entities.CONSUMER
+                id          : consumer._id
+                name        : "#{consumer.firstName} #{consumer.lastName}"
+                screenName  : consumer.screenName
               }
               cb(null)
             else
@@ -1993,7 +1993,7 @@ class BusinessTransactions extends API
               cb(error, null)
               return
             else if business?
-              doc.organizationEntity.name = business.name
+              doc.organizationEntity.name = business.publicName
               # if doc.userEntity? #donate only if this was a goodybag user
               #   doc.donationAmount = (business.donationPercentage * doc.amount).round(2)
               cb(null)
@@ -2317,7 +2317,6 @@ class Streams extends API
       feeds: {
         global          : false
       }
-      private: false #THIS NEEDS TO BE UPDATED BASED ON PRIVACY SETTINGS OF WHO (if consumer)
     }
 
     if user?
@@ -2362,7 +2361,6 @@ class Streams extends API
       feeds: {
         global          : false
       }
-      private: false #THIS NEEDS TO BE UPDATED BASED ON PRIVACY SETTINGS OF WHO (if consumer)
     }
 
     if user?
@@ -2405,7 +2403,6 @@ class Streams extends API
       feeds: {
         global          : false
       }
-      private: false #THIS NEEDS TO BE UPDATED BASED ON PRIVACY SETTINGS OF WHO (if consumer)
     }
 
     if user?
@@ -2443,7 +2440,6 @@ class Streams extends API
       feeds: {
         global          : false
       }
-      private: false #THIS NEEDS TO BE UPDATED BASED ON PRIVACY SETTINGS OF WHO (if consumer)
     }
 
     stream.data = {
@@ -2469,7 +2465,6 @@ class Streams extends API
       feeds: {
         global          : true
       }
-      private: false #THIS NEEDS TO BE UPDATED BASED ON PRIVACY SETTINGS OF WHO (if consumer)
     }
 
     stream.data = {
@@ -2502,19 +2497,25 @@ class Streams extends API
       who               : who
       entitiesInvolved  : [who, tapInDoc.organizationEntity]
       what              : tapIn
-      when              : tapIn.date
+      when              : tapInDoc.date
+
+      where: {
+        org             : tapInDoc.organizationEntity
+        locationId      : tapInDoc.locationId
+      }
+
       events            : [choices.eventTypes.TAPIN_TAPPED]
       data              : {}
+
       feeds: {
         global          : true #unless a user's preferences are do that
       }
     }
 
-    stream.data = {
-      tapIn: {
-        amount: tapInDoc.amount
-        timestamp: tapInDoc.date
-      }
+    stream.feedSpecificData = {}
+    stream.feedSpecificData.involved = { #available only to entities involved
+      amount: tapInDoc.amount
+      donationAmount: tapInDoc.donationAmount
     }
 
     @add stream, callback
@@ -2572,6 +2573,18 @@ class Streams extends API
     query = @optionParser(options)
     query.where "feeds.global", true
     query.sort "dates.lastModified", -1
+    query.fields [
+      "who.type"
+      , "who.name"
+      , "who.id"
+      , "by"
+      , "what"
+      , "when"
+      , "where"
+      , "events"
+      , "dates"
+      , "data"
+    ]
     query.exec callback
 
   @business: (businessId, options, callback)->
@@ -2587,9 +2600,9 @@ class Streams extends API
       , "when"
       , "where"
       , "events"
-      , "feeds"
       , "dates"
       , "data"
+      , "feedSpecificData.involved"
     ]
     query.exec callback
 
@@ -2609,6 +2622,7 @@ class Streams extends API
       , "events"
       , "dates"
       , "data"
+      , "feedSpecificData.involved"
     ]
     query.exec callback
 
@@ -2617,6 +2631,19 @@ class Streams extends API
     query.sort "dates.lastModified", -1
     query.where "who.type", choices.entities.CONSUMER
     query.where "who.id", consumerId
+    query.fields [
+      "who.type"
+      , "who.name"
+      , "who.id"
+      , "by"
+      , "what"
+      , "when"
+      , "where"
+      , "events"
+      , "dates"
+      , "data"
+      , "feedSpecificData.involved"
+    ]
     query.exec callback
 
   @getLatest: (entity, limit, offset, callback)->

@@ -524,7 +524,7 @@ Stream = new Schema {
       name            : {type: String}
     }
     locationId        : {type: ObjectId}
-    locationName      : {type: String}
+    locationName      : {type: String} #generally we don't have this information #probably remove this
   }
   events              : [{type:String, required: true, enum: choices.eventTypes}]
   feeds: {
@@ -534,7 +534,15 @@ Stream = new Schema {
     created           : {type: Date, default: new Date()}
     lastModified      : {type: Date}
   }
-  data                : {}#eventTypes to info mapping:=> eventType: {id: XX, extraFF: GG}
+  data                : {}#available to all enabled feeds #eventTypes to info mapping:=> eventType: {id: XX, extraFF: GG} #essentially if this was in feedSpecificData it would be the feed: global
+
+  feedSpecificData: { #available only for the specified feeds #feed to eventType to info mapping: {involved: {eventType: {id: XX, extraFF: GG} } }
+    #data              : {} #this is the data object above
+    involved          : {} #data this is visible to all the entities involved only
+  }
+
+  entitySpecificData  : {} #avialable only to the entities specified. {#ENTITY_TYPE}_{}
+
   deleted             : {type: Boolean, default: false}
 
   transactions        : transactions
@@ -654,7 +662,7 @@ BusinessTransaction = new Schema {
   date                  : {type: Date, required: true}
   time                  : {type: Date, required: true}
   amount                : {type: Number, required: true}
-  donationAmount        : {type: Number}
+  donationAmount        : {type: Number, required: true, default: 0}
 
   transactions          : transactions
 }
