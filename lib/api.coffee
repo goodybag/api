@@ -1596,7 +1596,8 @@ class Discussions extends Campaigns
 
   @add = (data, amount, callback)->
     instance = new @model(data)
-
+    if data.tags?
+      Tags.addAll data.tags
     transactionData = {
       amount: amount
     }
@@ -1848,6 +1849,18 @@ class Tags extends API
 
   @add = (name, callback)->
     @_add {name: name}, callback
+
+  @addAll = (nameArr, callback)->
+    #callback is not required..
+    countUpdates = 0
+    for val,i in nameArr
+      @model.update {name:val}, {$inc:{count:1}}, {upsert:true,safe:true}, (error, success)->
+        if error?
+          callback error
+          return
+        if ++countUpdates == nameArr.length && Object.isFunction callback #check if done
+          callback null, countUpdates
+        return
 
   @search = (name, callback)->
     re = new RegExp("^"+name+".*", 'i')
