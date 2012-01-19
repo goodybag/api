@@ -752,19 +752,37 @@ class Clients extends API
         return
 
   @updateWithPassword: (id, password, options, callback)->
-    query = @_query()
-    query.where('_id', id).where('password', password)
-    query.where('password', password)
-    query.findOne (error, client)->
+    if Object.isString(id)?
+      id = new ObjectId(id)
+
+    @validatePassword id, password, (error, success)->
       if error?
-        callback error
-      else if client?
-        for own k,v of options
-          client[k] = v
-        client.save callback
-      else
-        callback new errors.ValidationError {'password':"Wrong Password"} #invalid login error
-      return
+        logger.error error
+        e = new errors.ValidationError({"password":"Unable to validate password"})
+        callback(e)
+        return
+      else if !success?
+        e = new errors.ValidationError({"password":"Invalid Password"})
+        callback(e)
+        return
+      #password was valid so do what we need to now
+      query = Clients._query()
+      query.where('_id', id)
+      query.findOne (error, client)->
+        logger.debug error
+        logger.debug client
+        if error?
+          callback error
+          return
+        else if client?
+          for own k,v of options
+            client[k] = v
+          client.save callback
+          return
+        else
+          callback new errors.ValidationError {'password':"Wrong Password"} #invalid login error
+          return
+    return
 
   @updatePassword: (id, password, callback)->
     if Object.isString(id)
