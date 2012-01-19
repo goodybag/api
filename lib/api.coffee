@@ -540,6 +540,36 @@ class Consumers extends API
 class Clients extends API
   @model = Client
 
+  ###
+  @callback error, valid
+  ###
+  @validatePassword: (id, password, callback)->
+    if(Object.isString(id))
+      id = new ObjectId(id)
+
+    query = @_query()
+    query.where('_id', id)
+    query.fields(['password'])
+    query.findOne (error, client)->
+      if error?
+        callback error, client
+        return
+      else if client?
+        bcrypt.compare password+defaults.passwordSalt, client.password, (error, valid)->
+          if error?
+            callback (error)
+            return
+          else
+            if valid
+              callback(null, true)
+              return
+            else
+              callback(null, false)
+              return
+      else
+        callback new error.ValidationError "Invalid id", {"id", "invalid"}
+        return
+
   @register: (data, callback)->
     self = this
     bcrypt.gen_salt 10, (error, salt)=>
@@ -631,75 +661,95 @@ class Clients extends API
       return
     return
 
-  @updateEmail: (clientId, password, newEmail, callback)->
-    if(Object.isString(clientId))
-      clientId = new ObjectId( clientId)
-    Clients.getByEmail newEmail, (error, client)->
+  @updateEmail: (id, password, newEmail, callback)->
+    if(Object.isString(id))
+      id = new ObjectId(id)
+
+    async.parallel {
+      validatePassword: (cb)->
+        Clients.validatePassword id, password, (error, success)->
+          if error?
+            e = new errors.ValidationError({"password":"Unable to validate password"})
+            callback(e)
+            cb(e)
+            return
+          else
+            if !success?
+              e = new errors.ValidationError({"password":"Invalid Password"})
+              callback(e)
+              cb(e)
+              return
+            else
+              cb(null)
+              return
+
+      checkExists: (cb)->
+        Clients.getByEmail newEmail, (error, client)->
+          if error? #db error
+            callback(error)
+            cb(error)
+            return
+          else if client? #email address already in use by a user
+            if client._id == id
+              e = new errors.ValidationError({"email": "That is your current email"})
+              callback(e)
+              cb(e)
+              return
+            else
+              e = new errors.ValidationError({"email": "Another user is already using this email"}) #email exists error
+              callback(e)
+              cb(e)
+              return
+          else #doesn't exist, so proceed
+            cb(null)
+            return
+
+    },
+    (error, results)->
       if error?
-        callback error
         return
-      if client?
-        if client._id == clientId
-          callback new errors.ValidationError({"email":"That is your current email"})
-        else
-          callback new errors.ValidationError({"email":"Another user is already using this email"}) #email exists error
-        return
+
+      #the new email address requires verification
       query = Clients._query()
-      query.where("_id",clientId)
-      query.where("password",password)
-      changeEmailKey = hashlib.md5(globals.secretWord + newEmail+(new Date().toString()))+'-'+generatePassword(12, false, /\d/)
+      query.where("_id", id)
+      key = hashlib.md5(globals.secretWord + newEmail+(new Date().toString()))+'-'+generatePassword(12, false, /\d/)
       set = {
         changeEmail: {
           newEmail: newEmail
-          key: changeEmailKey
+          key: key
           expirationDate: Date.create("next week")
         }
       }
       query.update {$set:set}, (error, success)->
         if error?
-          callback error
-          return
-        if !success
-          callback new errors.ValidationError({"password":"Incorrect Password."})
-          return
-        url = "https://goodybag.com/#!/change-email/" + changeEmailKey
-        message = '<p>We got your request! Now let\'s get that email updated. Click or go here:</p>'
-        message += "<p><a href=\"#{ url }\">#{ url }</a></p>"
-        utils.sendMail {
-            sender: 'info@goodybag.com',
-            to: newEmail,
-            reply_to: 'info@goodybag.com',
-            subject: "Change Email Request",
-            html: message,
-          }, (error, emailSent)->
-            if error?
-              callback new errors.EmailError("Confirmation email failed to send.","ChangeEmail")
-              return
-            callback null, success
+          if error.code is 11000
+            callback new errors.ValidationError "Email Already Exists", {"email": "Email Already Exists"} #email exists error
             return
-      return
-    return
+          else
+            callback error
+            return
+        else if !success
+          callback new errors.ValidationError "User Not Found", {"user": "User Not Found"} #email exists error
+          return
+        else
+          callback(null, key)
+          return
 
-  @updateEmailComplete: (key, callback)->
+  @updateEmailComplete: (key, email, callback)->
     query = @_query()
     query.where('changeEmail.key', key)
-    query.fields("changeEmail")
-    query.findOne (error, client)->
+    query.where('changeEmail.newEmail', email)
+    query.update {$set:{email:email}, $unset: {changeEmail: 1}}, (error, success)->
       if error?
-        callback error #dberror
-        return
-      if !client? || !client.changeEmail?
-        callback new errors.ValidationError({"key":"Invalid key or already used."})
-        return
-      #client found
-      if(new Date()>client.changeEmail.expirationDate)
-        callback new errors.ValidationError({"key":"Key expired."})
-        return
-      query.update {$set:{email:client.changeEmail.newEmail, changeEmail:null}}, (error, success)->
-        if error?
-          callback error #dberror
+        if error.code is 11000
+          callback new errors.ValidationError "Email Already Exists", {"email": "Email Already Exists"} #email exists error
+          return
         else
-          callback null, success
+          callback error
+          return
+      else
+        callback null, success
+        return
 
   @updateWithPassword: (id, password, options, callback)->
     query = @_query()
