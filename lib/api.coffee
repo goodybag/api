@@ -669,13 +669,13 @@ class Clients extends API
       validatePassword: (cb)->
         Clients.validatePassword id, password, (error, success)->
           if error?
-            e = new errors.ValidationError({"password":"Unable to validate password"})
+            e = new errors.ValidationError("Unable to validate password",{"password":"Unable to validate password"})
             callback(e)
             cb(e)
             return
           else
             if !success?
-              e = new errors.ValidationError({"password":"Invalid Password"})
+              e = new errors.ValidationError("Incorrect Password.",{"password":"Incorrect Password"})
               callback(e)
               cb(e)
               return
@@ -691,12 +691,12 @@ class Clients extends API
             return
           else if client? #email address already in use by a user
             if client._id == id
-              e = new errors.ValidationError({"email": "That is your current email"})
+              e = new errors.ValidationError("That is your current email",{"email": "That is your current email"})
               callback(e)
               cb(e)
               return
             else
-              e = new errors.ValidationError({"email": "Another user is already using this email"}) #email exists error
+              e = new errors.ValidationError("Another user is already using this email",{"email": "Another user is already using this email"}) #email exists error
               callback(e)
               cb(e)
               return
@@ -743,13 +743,15 @@ class Clients extends API
       if error?
         if error.code is 11000
           callback new errors.ValidationError "Email Already Exists", {"email": "Email Already Exists"} #email exists error
-          return
         else
           callback error
-          return
-      else
-        callback null, success
         return
+      if success==0
+        callback "Invalid key, expired or already used.", new errors.ValidationError({"key":"Invalid key, expired or already used."})
+        return
+      #success
+      callback null, success
+      return
 
   @updateWithPassword: (id, password, options, callback)->
     if Object.isString(id)?
