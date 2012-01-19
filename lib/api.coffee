@@ -570,16 +570,28 @@ class Clients extends API
         callback new error.ValidationError "Invalid id", {"id", "invalid"}
         return
 
-  @register: (data, callback)->
-    self = this
+  ###
+  @callback error, hash
+  ###
+  @encryptPassword:(password, callback)->
     bcrypt.gen_salt 10, (error, salt)=>
       if error?
         callback error
         return
-      bcrypt.encrypt data.password+defaults.passwordSalt, salt, (error, hash)=>
+      bcrypt.encrypt password+defaults.passwordSalt, salt, (error, hash)=>
         if error?
           callback error
           return
+        callback null, hash
+        return
+
+  @register: (data, callback)->
+    self = this
+    @encryptPassword data.password, (error, hash)->
+      if error?
+        callback new errors.ValidationError "Invalid Password", {"password":"Invalid Password"} #error encrypting password, so fail
+        return
+      else
         data.password = hash
         self.add data, (error, client)->
           if error?
@@ -753,7 +765,7 @@ class Clients extends API
       callback null, success
       return
 
-  @updateWithPassword: (id, password, options, callback)->
+  @updateWithPassword: (id, password, data, callback)->
     if Object.isString(id)?
       id = new ObjectId(id)
 
@@ -767,23 +779,47 @@ class Clients extends API
         e = new errors.ValidationError({"password":"Invalid Password"})
         callback(e)
         return
-      #password was valid so do what we need to now
-      query = Clients._query()
-      query.where('_id', id)
-      query.findOne (error, client)->
-        logger.debug error
-        logger.debug client
-        if error?
-          callback error
+
+      async.series {
+        encryptPassword: (cb)->#only if the user is trying to update their password field
+          if data.password?
+            Clients.encryptPassword data.password, (error, hash)->
+              if error?
+                callback new errors.ValidationError "Invalid Password", {"password":"Invalid Password"} #error encrypting password, so fail
+                cb(error)
+                return
+              else
+                data.password = hash
+                cb(null)
+                return
+          else
+            cb(null)
+            return
+
+        updateDb: (cb)->
+          #password was valid so do what we need to now
+          query = Clients._query()
+          query.where('_id', id)
+          query.findOne (error, client)->
+            if error?
+              callback error
+              cb(error)
+              return
+            else if client?
+              for own k,v of data
+                client[k] = v
+              client.save callback
+              cb(null)
+              return
+            else
+              e = new errors.ValidationError {'password':"Wrong Password"} #invalid login error
+              callback(e)
+              cb(e)
+              return
           return
-        else if client?
-          for own k,v of options
-            client[k] = v
-          client.save callback
-          return
-        else
-          callback new errors.ValidationError {'password':"Wrong Password"} #invalid login error
-          return
+      },
+      (error, results)->
+        return
     return
 
   @updatePassword: (id, password, callback)->
