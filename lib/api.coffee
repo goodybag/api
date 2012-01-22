@@ -301,8 +301,6 @@ class API
     Object.merge($update, modifierDoc)
     Object.merge($update.$set, $set)
 
-    console.log $update
-
     @model.collection.findAndModify $query, [], $update, {new: true, safe: true}, callback
 
   @__setTransactionError: (id, transactionId, locking, removeLock, errorObj, modifierDoc, callback)->
@@ -1074,7 +1072,7 @@ class Polls extends Campaigns
   #@updateMedia
 
   #options: name, businessid, type, businessname,showstats, answered, start, end, outoffunds
-  @optionParser = (options, q) ->
+  @optionParser = (options, q)->
     query = @_optionParser options, q
     query.where('entity.type', options.entityType) if options.entityType?
     query.where('entity.id', options.entityId) if options.entityId?
@@ -1190,7 +1188,6 @@ class Polls extends Campaigns
       $push: $push
     }
 
-    console.log $update
     where = {
       _id: pollId,
       "entity.type":entityType,
@@ -1714,7 +1711,6 @@ class Discussions extends Campaigns
     instance.transactions.ids = [transaction.id]
     instance.transactions.log = [transaction]
 
-    console.log instance.transactions.log
     instance.save (error, discussion)->
       callback error, discussion
       if error?
@@ -2106,33 +2102,33 @@ class BusinessTransactions extends API
             else
               cb(new errors.ValidationError {"DNE": "Business Does Not Exist"})
 
-      saveTapIn: (cb)=> #save it and write to the statistics table
+      save: (cb)=> #save it and write to the statistics table
         instance = new @model(doc)
 
         transactionData = {
           amount: doc.amount
         }
 
-        statTransaction = @createTransaction(choices.transactions.states.PENDING, choices.transactions.actions.STAT_TAPIN_TAPPED, transactionData, choices.transactions.directions.INBOUND, instance.organizationEntity)
+        statTransaction = @createTransaction(choices.transactions.states.PENDING, choices.transactions.actions.STAT_BT_TAPPED, transactionData, choices.transactions.directions.INBOUND, instance.organizationEntity)
 
         instance.transactions.locked = false
         instance.transactions.ids = [statTransaction.id]
         instance.transactions.log = [statTransaction]
 
-        instance.save (error, tapIn)->
-          cb error, tapIn
+        instance.save (error, bt)->
+          cb error, bt
           if error?
             return
           if doc.userEntity?
             who = doc.userEntity
-            tp.process(tapIn._doc, statTransaction) #write stat to collection
-            Streams.tapInTapped tapIn._doc #NOTICE THE _doc HERE, BECAUSE !!!! #we don't care about the callback
+            tp.process(bt._doc, statTransaction) #write stat to collection
+            Streams.btTapped bt._doc #NOTICE THE _doc HERE, BECAUSE !!!! #we don't care about the callback
         return
     }, (error, results)->
       if error?
         callback(error)
-      else if results.saveTapIn?
-        callback(null, results.saveTapIn)
+      else if results.save?
+        callback(null, results.save)
 
   @byUser = (userId, options, callback)->
     if Object.isFunction options
@@ -2147,6 +2143,19 @@ class BusinessTransactions extends API
       callback = options
       options = {}
     query = @optionParser options
+    query.fields [
+      "_id"
+      , "amount"
+      , "barcodeId"
+      , "date"
+      , "donationAmount"
+      , "locationId"
+      , "organizationEntity"
+      , "registerId"
+      , "time"
+      , "transactionId"
+      , "userEntity.screenName"
+    ]
     query.where 'organizationEntity.id', businessId
     if options.location?
       query.where 'locationId', options.location
@@ -2590,29 +2599,29 @@ class Streams extends API
 
     @add stream, callback
 
-  @tapInTapped: (tapInDoc, callback)->
-    if Object.isString(tapInDoc._id)
-      tapInDoc._id = new ObjectId(tapInDoc._id)
-    if Object.isString(tapInDoc.userEntity.id)
-      tapInDoc.userEntity.id = new ObjectId(tapInDoc.userEntity.id)
-    if Object.isString(tapInDoc.organizationEntity.id)
-      tapInDoc.organizationEntity.id = new ObjectId(tapInDoc.organizationEntity.id)
+  @btTapped: (btDoc, callback)->
+    if Object.isString(btDoc._id)
+      btDoc._id = new ObjectId(btDoc._id)
+    if Object.isString(btDoc.userEntity.id)
+      btDoc.userEntity.id = new ObjectId(btDoc.userEntity.id)
+    if Object.isString(btDoc.organizationEntity.id)
+      btDoc.organizationEntity.id = new ObjectId(btDoc.organizationEntity.id)
 
-    tapIn = {type: choices.objects.TAPIN, id: tapInDoc._id}
-    who = tapInDoc.userEntity
+    tapIn = {type: choices.objects.TAPIN, id: btDoc._id}
+    who = btDoc.userEntity
 
     stream = {
       who               : who
-      entitiesInvolved  : [who, tapInDoc.organizationEntity]
+      entitiesInvolved  : [who, btDoc.organizationEntity]
       what              : tapIn
-      when              : tapInDoc.date
+      when              : btDoc.date
 
       where: {
-        org             : tapInDoc.organizationEntity
-        locationId      : tapInDoc.locationId
+        org             : btDoc.organizationEntity
+        locationId      : btDoc.locationId
       }
 
-      events            : [choices.eventTypes.TAPIN_TAPPED]
+      events            : [choices.eventTypes.BT_TAPPED]
       data              : {}
 
       feeds: {
@@ -2622,8 +2631,8 @@ class Streams extends API
 
     stream.feedSpecificData = {}
     stream.feedSpecificData.involved = { #available only to entities involved
-      amount: tapInDoc.amount
-      donationAmount: tapInDoc.donationAmount
+      amount: btDoc.amount
+      donationAmount: btDoc.donationAmount
     }
 
     logger.debug(stream)
@@ -2702,18 +2711,20 @@ class Streams extends API
     query.sort "dates.lastModified", -1
     query.where "entitiesInvolved.type", choices.entities.BUSINESS
     query.where "entitiesInvolved.id", businessId
-    query.fields [
-      "who.type"
-      , "who.screenName"
-      , "by"
-      , "what"
-      , "when"
-      , "where"
-      , "events"
-      , "dates"
-      , "data"
-      , "feedSpecificData.involved"
-    ]
+    query.only {
+      "who.type": 1
+      , "who.screenName": 1
+      , "by": 1
+      , "what": 1
+      , "when": 1
+      , "where": 1
+      , "events": 1
+      , "dates": 1
+      , "data": 1
+      , "feedSpecificData.involved": 1
+      , "_id": 0
+      , "id": 0
+    }
     query.exec callback
 
   @businessWithConsumerByScreenName: (businessId, screenName, options, callback)->
@@ -2923,7 +2934,7 @@ class Statistics extends API
 
   @eventRsvped: (org, consumerId, transactionId, timestamp, callback)->
 
-  @tapInTapped: (org, consumerId, transactionId, spent, timestamp, callback)->
+  @btTapped: (org, consumerId, transactionId, spent, timestamp, callback)->
     if Object.isString(org.id)
       org.id = new ObjectId(org.id)
 

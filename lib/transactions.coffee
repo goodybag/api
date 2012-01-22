@@ -35,8 +35,8 @@ process = (document, transaction)-> #this is just a router
       statPollAnswered(document, transaction)
 
     #STAT - TAPINS
-    when choices.transactions.actions.STAT_TAPIN_TAPPED
-      statTapInTapped(document, transaction)
+    when choices.transactions.actions.STAT_BT_TAPPED
+      statBtTapped(document, transaction)
 
 _setTransactionProcessing = (clazz, document, transaction, locking, callback)->
   prepend = "ID: #{document._id} - TID: #{transaction.id}"
@@ -1048,7 +1048,7 @@ statPollAnswered = (document, transaction)->
           logger.error "#{prepend} unable to properly clean up - the poller will try later"
 
 #OUTBOUND
-statTapInTapped = (document, transaction)->
+statBtTapped = (document, transaction)->
   prepend = "ID: #{document._id} - TID: #{transaction.id}"
   logger.info "STAT - User tapped in at a business"
   logger.info "#{prepend} - #{transaction.direction}"
@@ -1071,7 +1071,7 @@ statTapInTapped = (document, transaction)->
       org = {type: document.organizationEntity.type, id: document.organizationEntity.id}
       consumerId = document.userEntity.id
       transactionId = transaction.id
-      api.Statistics.tapInTapped org, consumerId, transactionId, transaction.data.amount, document.date, (error, count)->
+      api.Statistics.btTapped org, consumerId, transactionId, transaction.data.amount, document.date, (error, count)->
         if error?
           logger.error error #mongo errored out
           callback(error)
