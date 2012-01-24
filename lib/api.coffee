@@ -46,22 +46,34 @@ class API
   constructor: ()->
     #nothing to say
 
-  @_flattenDoc = (doc)->
-    if Object.isObject doc
-      flat = {}
-      for key of doc
-        flat[key] = flatten doc[key]
-    else if Object.isArray doc
-      flat = []
-      i = 0
-      while i<doc.length
-        flat[i] = flatten doc[i]
-        i++
-    else
-      flat = doc
-    return flat
+  @_flattenDoc = (doc, startPath)->
+    flat = {}
+    #flatten function
+    flatten = (obj, path)->
+      if Object.isObject obj
+        path = if !path? then "" else path+"."
+        for key of obj
+          flatten obj[key], path+key
+      else if Object.isArray obj
+        path = if !path? then "" else path+"."
+        i = 0
+        while i<obj.length
+          flatten obj[i], path+i
+          i++
+      else
+        flat[path] = obj
+      console.log path
+      return flat
+    #end flatten
+    return flatten doc, startPath
 
   @_copyFields = (obj, fields) ->
+    if Object.isObject fields
+      fieldArr = []
+      for field,val of fields
+        if val == 1 || val == true
+          fieldArr.push field
+      fields = fieldArr
     ret = {}
     for field in fields
       keys = field.split(".")
@@ -567,10 +579,10 @@ class Consumers extends Users
       appResponse = data[0] #same order as url array..
       meResponse = data[1]
       if appResponse.code!=200
-        callback new errors.HttpError "Error connecting with Facebook, try again later.", "facebookBatch:"+url[0], appResponse.code
+        callback new errors.HttpError "Error connecting with Facebook, try again later.", "facebookBatch:"+urls[0], appResponse.code
         return
       if meResponse.code!=200
-        callback new errors.HttpError "Error connecting with Facebook, try again later.", "facebookBatch:"+url[0], appResponse.code
+        callback new errors.HttpError "Error connecting with Facebook, try again later.", "facebookBatch:"+urls[1], appResponse.code
         return
       facebookData =
         me : JSON.parse(meResponse.body)
@@ -588,14 +600,14 @@ class Consumers extends Users
       consumer["facebook.access_token"] = accessToken
       consumer["facebook.id"] = facebookData.me.id
       consumer["facebook.me"] = facebookData.me
-      birthday = new Date facebookDate.me.birthday
-      birthdayUTC = Date.UTC(birthday.getYear(),birthday.getMonth(),birthday.getDate(),0,0,0,0)
-      consumer["profile.birthday"] = new Date(birthdayUTC)
-      consumer["profile.gender"]   = facebookDate.me.gender
-      consumer["profile.work"]   = facebookDate.me.work
-      consumer["profile.education"] = facebookDate.me.education
-      consumer["profile.location"] = facebookDate.me.location
-      consumer["profile.hometown"] = facebookDate.me.hometown
+
+      consumer["profile.birthday"] = if facebookData.me.birthday? then utils.setDateToUTC(facebookData.me.birthday)
+      consumer["profile.gender"]   = facebookData.me.gender
+      consumer["profile.location"] = if facebookData.me.location? then facebookData.me.location.name
+      consumer["profile.hometown"] = if facebookData.me.hometown? then facebookData.me.hometown.name
+      #consumer["profile.work"]      = facebookData.me.work
+      #consumer["profile.education"] = facebookData.me.education
+
       #check if user is returning facebook authenticated user
       self.model.collection.findAndModify {"facebook.id": fbid}, [], {$set: consumer, $inc: {loginCount:1}}, {fields:fieldsToReturn,new:true,safe:true}, (error, returningFacebookUser)->
         if error? or returningFacebookUser? #if error or returning facebook user found, else null, null
@@ -608,6 +620,9 @@ class Consumers extends Users
             return
           #brand new user
           consumer.email = facebookData.me.email
+          consumer.facebook = {}
+          consumer.facebook.access_token = accessToken
+          consumer.facebook.id = facebookData.me.id
           newUserModel = new self.model(consumer)
           newUserModel.save (error, newUserAllFields)->
             if error?
@@ -619,10 +634,6 @@ class Consumers extends Users
           return
         return
       return #end createorupdateuser
-    return
-
-  @test: ()->
-    console.log "fdsa"
     return
 
   @register: (user, callback)->
@@ -639,19 +650,71 @@ class Consumers extends Users
       else
         return callback new errors.ValidationError {"login":"invalid username/password"}
 
-  @profile: (id, callback)->
-    profileFields = {
-        _id           : 1
-        firstName     : 1
-        lastName      : 1
-        email         : 1
-        media         : 1
-        funds         : 1
-        honorScore    : 1
-        screenName    : 1
-        setScreenName : 1
+  @getProfile: (id, callback)->
+    console.log "getProfile"
+    fieldsToReturn = {
+      _id           : 1
+      firstName     : 1
+      lastName      : 1
+      email         : 1
+      profile       : 1
+      permissions   : 1
     }
-    @one id, profileFields, callback
+    fieldsToReturn["facebook.id"] = 1 #if user has this then the user is a fbUser
+    facebookMeFields = {
+      work      : 1
+      education : 1
+    }
+    Object.merge fieldsToReturn, @_flattenDoc(facebookMeFields,"facebook.me")
+    console.log "-"
+    console.log fieldsToReturn
+    console.log "-"
+    @one id, fieldsToReturn, (error, consumer)->
+      if error?
+        callback error
+        return
+      callback null, consumer
+      return
+    return
+
+  @getPublicProfile: (id, callback)->
+    self = this
+    fieldsToReturn = {
+      _id           : 1
+      firstName     : 1
+      lastName      : 1
+      email         : 1
+      profile       : 1
+      permissions   : 1
+    }
+    fieldsToReturn["facebook.id"] = 1 #if user has this then the user is a fbUser
+    facebookMeFields = {
+      work      : 1
+      education : 1
+    }
+    Object.merge fieldsToReturn, @_flattenDoc(facebookMeFields,"facebook.me")
+    @one id, fieldsToReturn, (error, consumer)->
+      if error?
+        callback error
+        return
+      #user permissions to determine which fields to delete
+      if !consumer.permissions.email
+        delete consumer.email
+      consumer.profile  = self._copyFields(consumer.profile, consumer.permissions)
+      consumer.facebook = self._copyFields(consumer.facebook, consumer.permissions)
+      for field,idsToRemove of consumer.permissions.hiddenFacebookItems #object of remove id arrays
+        #if there are ids to remove, idsToRemove - array of ids to remove from facebook field
+        if(idsToRemove.length > 0)
+          facebookFieldItems = consumer.facebook[field] #array of all items for a facebook field
+          #check field items ids to see if they match any that need to be removed
+          for i,item in facebookFieldItems
+            if(item.id in idsToRemove)        #if id found in the array of ids to remove
+              facebookFieldItems.splice(i,1); #remove item from entry array
+              break;
+
+      callback null, consumer
+      return
+    return
 
   @updateHonorScore: (id, eventId, amount, callback)->
     if Object.isString(id)
@@ -696,6 +759,213 @@ class Consumers extends Users
       if user?
         callback error, user
       return
+
+  @updatePermissions: (id, data, callback)->
+    if Object.isString id
+      id = new ObjectId(id)
+    if !data? && Object.keys(data).length > 1
+      callback new errors.ValidationError {"permissions":"You can only update one permission at a time"}
+      return
+
+    where = {
+      _id: id
+    }
+    set = {}
+    push = {}
+    pull = {}
+    #pushAll = {}
+    consumerModel = new @model
+    permissionsKeys = Object.keys(consumerModel._doc.permissions)
+    permissionsKeys.remove("hiddenFacebookItems")
+    for k,v of data
+      console.log k
+      permission = "permissions."+k
+      if !(k in permissionsKeys)
+        callback new errors.ValidationError {"permissionKey":"Unknown value."}
+        return
+    set[permission] = v=="true" or v==true
+
+    doc = {}
+    if !Object.isEmpty(set)
+      doc["$set"] = set
+    else
+      callback new errors.ValidationError {"data":"No new updates."}
+      return
+
+    @model.update where, doc, {safe:true}, callback
+    return
+
+  @updateHiddenFacebookItems: (id,data,callback)->
+    if Object.isString id
+      id = new ObjectId(id)
+    if !data?
+      callback new errors.ValidationError {"data":"No update data."}
+      return
+    if Object.keys(data).length > 1
+      callback new errors.ValidationError {"entry":"You can only update one entry at a time"}
+      return
+
+    where = {
+      _id: id
+    }
+    push = {}
+    pull = {}
+
+    facebookItemKeys = ["work","education"]
+    for entry,fbid of data
+      if !(entry in facebookItemKeys)
+        callback new errors.ValidationError {"facebookItemKey":"Unknown value."}
+        return
+      if Object.isString fbid
+        if entry == "work"
+          where["facebook.me.work.employer.id"] = fbid
+        else if entry == "education"
+          where["facebook.me.education.school.id"] = fbid
+
+        if fbid.substr(0,1) == "-"
+          fbid = fbid.slice(1)
+          pull["permissions.hiddenFacebookItems."+entry] = fbid #id to unhide
+        else
+          push["permissions.hiddenFacebookItems."+entry] = fbid #id to hide
+      else
+        callback new errors.ValidationError {"fbid":"Invalid value."}
+        return
+
+    doc = {}
+    if !Object.isEmpty(push)
+      doc["$push"] = push
+    else if !Object.isEmpty(pull)
+      doc["$pull"] = pull
+    else
+      callback new errors.ValidationError {"data":"No new updates."}
+      return
+    @model.update where, doc, {safe:true}, callback
+    return
+
+  #Consumer profile functions
+  @addRemoveWork: (op,id,data,callback)->
+    if Object.isString id
+      id = new ObjectId id
+    if op == "add"
+      where = {
+        _id : id
+        "profile.work.name":{$ne:data.name}
+      }
+      doc = {
+        $push: {
+          "profile.work": data
+        }
+      }
+    else if op == "remove"
+      where = {
+        _id : id
+      }
+      doc = {
+        $pull: {
+          "profile.work": data
+        }
+      }
+    else
+      callback new errors.ValidationError {"op":"Invalid value."}
+      return
+    @model.update where, doc, (error, success)->
+      if success==0
+        callback new errors.ValidationError "Whoops, looks like you already added that company.", {"name":"Company with that name already added."}
+      else
+        callback error, success
+      return
+    return
+
+  @addRemoveEducation: (op,id,data,callback)->
+    if Object.isString id
+      id = new ObjectId id
+    if op == "add"
+      where = {
+        _id : id
+        "profile.education.name":{$ne:data.name}
+      }
+      doc = {
+        $push: {
+          "profile.education": data
+        }
+      }
+    else if op == "remove"
+      where = {
+        _id : id
+      }
+      doc = {
+        $pull: {
+          "profile.education": data
+        }
+      }
+    else
+      callback new errors.ValidationError {"op":"Invalid value."}
+      return
+    @model.update where, doc, (error, success)->
+      if success==0
+        callback new errors.ValidationError "Whoops, looks like you already added that school.", {"name":"School with that name already added."}
+      else
+        callback error, success
+      return
+    return
+
+  @addRemoveInterest: (op,id,data,callback)->
+    if Object.isString id
+      id = new ObjectId id
+    logger.error data
+    if op == "add"
+      where = {
+        _id : id
+        "profile.interests.name":{$ne:data.name}
+      }
+      doc = {
+        $push: {
+          "profile.interests": data
+        }
+      }
+    else if op == "remove"
+      where = {
+        _id : id
+      }
+      doc = {
+        $pull: {
+          "profile.interests": data
+        }
+      }
+    else
+      callback new errors.ValidationError {"op":"Invalid value."}
+      return
+    @model.update where, doc, (error, success)->
+      if success==0
+        callback new errors.ValidationError "Whoops, looks like you already added that interest.", {"name":"Interest already added."}
+      else
+        callback error, success
+      return
+    return
+
+  @updateProfile: (id,data,callback)->
+    if Object.isString id
+      id = new ObjectId id
+    where = {
+      _id : id
+    }
+
+    consumerModel = new @model
+    nonFacebookProfileKeys = Object.keys(consumerModel._doc.permissions)
+    nonFacebookProfileKeys.remove("aboutme") #allowed to be edit for both fb and nonfb users
+    for key of data
+      if key in nonFacebookProfileKeys
+        where["facebook.id"] = {$exists:false}
+
+    data = @_flattenDoc data, "profile"
+    @model.update where, {$set:data}, (error, count)->
+      if count==0
+        callback new errors.ValidationError {"user":"Facebook User: to update your information edit your profile on facebook."}
+        return
+      callback error, count
+      return
+    return
+
 
 
 class Clients extends API
@@ -1924,7 +2194,7 @@ class Medias extends API
         if error?
           callback error #callback
           return
-        else if media.length==0
+        else if data.length==0
           callback errors.ValidationError({"mediaId":"Invalid MediaId"})
           return
         if imageType=="square"
@@ -1941,7 +2211,7 @@ class Medias extends API
       else if !media.thumb?
         callback errors.ValidationError({"media.thumb":"Media thumb (temp. url) is required when supplying guid."})
         return
-    else if (data.media.url || data.media.thumb) #and !data.media.guid and !data.media.mediaId
+    else if (data.media.url? || data.media.thumb?) #and !data.media.guid and !data.media.mediaId
       callback errors.ValidationError({"media":"Guid or MediaId is required when supplying a media.url"})
       return
     else

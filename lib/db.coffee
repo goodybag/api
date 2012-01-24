@@ -12,6 +12,7 @@ mongoose = globals.mongoose
 
 Schema = mongoose.Schema
 ObjectId = mongoose.SchemaTypes.ObjectId
+DocumentArray = mongoose.SchemaTypes.DocumentArray
 
 #validation
 Url = /(ftp|http|https):\/\/(\w+:{0,1}\w*@)?(\S+)(:[0-9]+)?(\/|\/([\w#!:.?+=&%@!\-\/]))?/
@@ -133,6 +134,11 @@ media = {
   mediaId           : {type: ObjectId}
 }
 
+ProfileEntry = new Schema {
+  name              : {type: String}
+  type              : {type: String}
+}
+
 ###################################################################
 ###################################################################
 ###################################################################
@@ -155,7 +161,7 @@ DBTransaction = new Schema {
     screenName      : {type: String} #only applies to consumers
   }
 
-  timesdtamp        : {type: Date, default: new Date()}
+  timestamp        : {type: Date, default: new Date()}
   transaction       : TransactionSchema
 }
 
@@ -204,15 +210,32 @@ Consumer = new Schema {
 
   profile: {
     birthday      : {type: Date}
-    gender        : {} #fb
-    education     : {} #fb
-    work          : {} #fb
+    gender        : {}
+    education     : [ProfileEntry] #fb
+    work          : [ProfileEntry] #fb
     location      : {} #fb
     hometown      : {} #fb
-    interests     : {} #not fb
+    interests     : [ProfileEntry] #not fb
     aboutme       : {} #not fb
     timezone      : {}
     #interests movies music books?
+  }
+  permissions: {
+    email         : {type: Boolean, default: false}
+    birthday      : {type: Boolean, default: false}
+    gender        : {type: Boolean, default: false}
+    education     : {type: Boolean, default: false} #fb
+    work          : {type: Boolean, default: false} #fb
+    location      : {type: Boolean, default: false} #fb
+    hometown      : {type: Boolean, default: false} #fb
+    interests     : {type: Boolean, default: false} #not fb
+    fbinterests   : {type: Boolean, default: false} #not fb
+    aboutme       : {type: Boolean, default: false} #not fb
+    timezone      : {type: Boolean, default: false}
+    hiddenFacebookItems : {
+      work: [{type:String}]      #hidden work ids
+      education: [{type:String}] #hidden education ids
+    }
   }
 
   funds: {
