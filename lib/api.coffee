@@ -1855,6 +1855,69 @@ class Discussions extends Campaigns
     @model.findOne {_id: discussionId, 'entity.type': entityType ,'entity.id': entityId}, callback
     return
 
+  @respond: (discussionId, entity, content, callback)->
+    if Object.isString(discussionId)
+      discussionId = new ObjectId(discussionId)
+    if Object.isString(entity.id)
+      entity.id = new ObjectId(entity.id)
+
+    response = {
+      _id               : new ObjectId()
+      entity            : entity
+      content           : content
+
+      dates: {
+        created         : new Date()
+        lastModified    : new Date()
+      }
+    }
+
+    $push = {
+      responses: response
+    }
+
+    $inc = {
+      responseCount: 1
+    }
+
+    $update = {$push: $push, $inc: $inc}
+
+    @model.collection.update {_id: discussionId}, $update, callback
+
+  @voteUp: (discussionId, responseId, entity, callback)->
+    @_vote(discussionId, responseId, entity, choices.votes.DOWN, callback)
+
+  @voteDown: (discussionId, responseId, entity, callback)->
+    @_vote(discussionId, responseId, entity, choices.votes.DOWN, callback)
+
+  @_vote: (discussionId, responseId, entity, direction, callback)->
+    if Object.isString(discussionId)
+      discussionId = new ObjectId(discussionId)
+    if Object.isString(responseId)
+      responseId = new ObjectId(responseId)
+    if Object.isString(entity.id)
+      entity.id = new ObjectId(entity.id)
+
+    entity._id = new ObjectId() #we do this because mongoose does it to every document array
+
+    $inc = {"responses.$votes.count": 1}
+    $push = {}
+
+    if direction is choices.votes.DOWN
+      $inc["responses.$.votes.down.count"] = 1
+      $push["responses.$.votes.down.by"] = entity
+    else
+      $inc["responses.$.votes.up.count"] = 1
+      $push["responses.$.votes.up.by"] = entity
+
+    $query = {_id: discussionId, "responses._id": responseId}
+    $update = {$inc: $inc, $push: $push}
+
+    @model.collection.update $query, $update, callback
+
+  @_undoVote = (discussionId, responseId, entity, direction, callback)->
+
+
   @setTransactonPending: @__setTransactionPending
   @setTransactionProcessing: @__setTransactionProcessing
   @setTransactionProcessed: @__setTransactionProcessed
