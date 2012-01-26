@@ -1901,10 +1901,12 @@ class Discussions extends Campaigns
     entity._id = new ObjectId() #we do this because mongoose does it to every document array
 
     $inc = {"responses.$votes.count": 1}
+    $set = {}
     $push = {}
 
     if direction is choices.votes.DOWN
       $inc["responses.$.votes.down.count"] = 1
+      $push["responses.$.votes.down.by"] = entity
       $push["responses.$.votes.down.by"] = entity
     else
       $inc["responses.$.votes.up.count"] = 1
@@ -1916,7 +1918,15 @@ class Discussions extends Campaigns
     @model.collection.update $query, $update, callback
 
   @_undoVote = (discussionId, responseId, entity, direction, callback)->
+    if Object.isString(discussionId)
+      discussionId = new ObjectId(discussionId)
+    if Object.isString(responseId)
+      responseId = new ObjectId(responseId)
+    if Object.isString(entity.id)
+      entity.id = new ObjectId(entity.id)
 
+    $query = {_id: discussionId, "responses._id": responseId}
+    $update = {$dec: $dec, $pull: $pull}
 
   @setTransactonPending: @__setTransactionPending
   @setTransactionProcessing: @__setTransactionProcessing
