@@ -426,19 +426,20 @@ Response = new Schema {
   }
 
   comments          : [Comment]
+  commentCount      : {type: Number, required: true, default: 0}
 
   votes: {
     count           : {type: Number, default: 0}
 
     up: {
       by            : [Entity]
-      ids           : {} # {ObjectIdAsStr: 1} for each user that votes up
+      ids           : {} # {TYPE_ObjectIdAsStr: 1} for each user that votes up
       count         : {type: Number, default: 0}
     }
 
     down: {
       by            : [Entity]
-      ids           : {} # {ObjectIdAsStr: 1} for each user that votes down
+      ids           : {} # {TYPE_ObjectIdAsStr: 1} for each user that votes down
       count         : {type: Number, default: 0}
     }
   }
@@ -461,6 +462,10 @@ Response = new Schema {
   deleted           : {type: Boolean, default: false}
 }
 
+
+####################
+# COMMENT ##########
+####################
 Comment = new Schema {
   entity            : entity
   content           : {type: String}

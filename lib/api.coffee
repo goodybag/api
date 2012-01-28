@@ -1866,6 +1866,8 @@ class Discussions extends Campaigns
       entity            : entity
       content           : content
 
+      commentCount      : 0
+
       dates: {
         created         : new Date()
         lastModified    : new Date()
@@ -1882,10 +1884,35 @@ class Discussions extends Campaigns
 
     $update = {$push: $push, $inc: $inc}
 
-    @model.collection.update {_id: discussionId}, $update, callback
+    @model.collection.update {_id: discussionId}, $update, {safe: true}, callback
+
+  @comment: (discussionId, responseId, entity, content, callback)->
+    if Object.isString(discussionId)
+      discussionId = new ObjectId(discussionId)
+    if Object.isString(responseId)
+      responseId = new ObjectId(responseId)
+    if Object.isString(entity.id)
+      entity.id = new ObjectId(entity.id)
+
+      comment = {
+        _id               : new ObjectId()
+        entity            : entity
+        content           : content
+
+        dates: {
+          created         : new Date()
+          lastModified    : new Date()
+        }
+      }
+
+      $push = {"responses.$.comments": comment}
+      $inc = {"responses.$.commentCount": 1}
+
+      $update = {$push: $push, $inc: $inc}
+      @model.collection.update {_id: discussionId, "responses._id": responseId}, $update, {safe: true}, callback
 
   @voteUp: (discussionId, responseId, entity, callback)->
-    @_vote(discussionId, responseId, entity, choices.votes.DOWN, callback)
+    @_vote(discussionId, responseId, entity, choices.votes.UP, callback)
 
   @voteDown: (discussionId, responseId, entity, callback)->
     @_vote(discussionId, responseId, entity, choices.votes.DOWN, callback)
@@ -1898,24 +1925,40 @@ class Discussions extends Campaigns
     if Object.isString(entity.id)
       entity.id = new ObjectId(entity.id)
 
+    d = "up"
+    opposite = choices.votes.DOWN
+    if direction is choices.votes.DOWN
+      d = "down"
+      opposite = choices.votes.UP
+
+    #if the user has voted the opposite, undo that
+    @_undoVote discussionId, responseId, entity, opposite, (error, data)->
+      console.log error
+      console.log data
+      return
+
     entity._id = new ObjectId() #we do this because mongoose does it to every document array
 
-    $inc = {"responses.$votes.count": 1}
+    $query = {_id: discussionId, "responses._id": responseId}
+
+    $inc = {"responses.$.votes.count": 1}
     $set = {}
     $push = {}
 
-    if direction is choices.votes.DOWN
-      $inc["responses.$.votes.down.count"] = 1
-      $push["responses.$.votes.down.by"] = entity
-      $push["responses.$.votes.down.by"] = entity
-    else
-      $inc["responses.$.votes.up.count"] = 1
-      $push["responses.$.votes.up.by"] = entity
+    $query["responses.votes.#{d}.by.id"] = {$ne: entity.id} #not already set
+    $inc["responses.$.votes.#{d}.count"] = 1
+    $push["responses.$.votes.#{d}.by"] = entity
+    $set["responses.$.votes.#{d}.ids.#{entity.type}_#{entity.id.toString()}"] = 1
 
-    $query = {_id: discussionId, "responses._id": responseId}
-    $update = {$inc: $inc, $push: $push}
+    $update = {$inc: $inc, $push: $push, $set: $set}
 
-    @model.collection.update $query, $update, callback
+    @model.collection.update $query, $update, {safe: false}, callback
+
+  @undoVoteUp: (discussionId, responseId, entity, callback)->
+    @_undoVote(discussionId, responseId, entity, choices.votes.UP, callback)
+
+  @undoVoteDown: (discussionId, responseId, entity, callback)->
+    @_undoVote(discussionId, responseId, entity, choices.votes.DOWN, callback)
 
   @_undoVote = (discussionId, responseId, entity, direction, callback)->
     if Object.isString(discussionId)
@@ -1925,8 +1968,23 @@ class Discussions extends Campaigns
     if Object.isString(entity.id)
       entity.id = new ObjectId(entity.id)
 
+    d = "up"
+    if direction is choices.votes.DOWN
+      d = "down"
+
     $query = {_id: discussionId, "responses._id": responseId}
-    $update = {$dec: $dec, $pull: $pull}
+    $pull = {}
+    $inc = {"responses.$.votes.count": -1}
+    $unset = {}
+
+    $query["responses.votes.#{d}.by.id"] = entity.id
+    $pull["responses.$.votes.#{d}.by"] = {type: entity.type, id: entity.id}
+    $inc["responses.$.votes.#{d}.count"] = -1
+    $unset["responses.$.votes.#{d}.ids.#{entity.type}_#{entity.id.toString()}"] = 1
+
+    $update = {$inc: $inc, $pull: $pull, $unset: $unset}
+
+    @model.collection.update $query, $update, {safe: false}, callback
 
   @setTransactonPending: @__setTransactionPending
   @setTransactionProcessing: @__setTransactionProcessing
