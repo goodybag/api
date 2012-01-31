@@ -430,7 +430,7 @@ class Users extends API
       auth: {
         key: configs.transloadit.authKey
       }
-      notify_url: 'http://dev.goodybag.com/hooks/transloadit'
+      notify_url: 'http://b.goodybag.com/hooks/transloadit'
       template_id: configs.transloadit.consumerFromURLTemplateId
       steps: {
         ':original':
@@ -790,7 +790,7 @@ class Consumers extends Users
           callTransloadit = false
           if consumerAlreadyRegistered?
             #registered user found
-            if consumerAlreadyRegistered.permissions? && consumerAlreadyRegistered.permissions.media? && facebookData.pic?
+            if consumerAlreadyRegistered.permissions? && consumerAlreadyRegistered.permissions.media && facebookData.pic?
               #user is showing (permissions) media, and fb pic is set (not default fb pic)
               # update pic to new facbook pic
               mediaGuid = guidGen.v1()
@@ -1048,21 +1048,21 @@ class Consumers extends Users
     facebookItemKeys = ["work","education"]
     for entry,fbid of data
       if !(entry in facebookItemKeys)
-        callback new errors.ValidationError {"facebookItemKey":"Unknown value."}
+        callback new errors.ValidationError {"facebookItemKey":"Unknown value ("+entry+")."}
         return
       if Object.isString fbid
-        if entry == "work"
-          where["facebook.me.work.employer.id"] = fbid
-        else if entry == "education"
-          where["facebook.me.education.school.id"] = fbid
-
         if fbid.substr(0,1) == "-"
           fbid = fbid.slice(1)
+          where["permissions.hiddenFacebookItems."+entry] = fbid
           pull["permissions.hiddenFacebookItems."+entry] = fbid #id to unhide
         else
+          if entry == "work"
+            where["facebook.me.work.employer.id"] = fbid
+          else if entry == "education"
+            where["facebook.me.education.school.id"] = fbid
           push["permissions.hiddenFacebookItems."+entry] = fbid #id to hide
       else
-        callback new errors.ValidationError {"fbid":"Invalid value."}
+        callback new errors.ValidationError {"fbid":"Invalid value (must be a string)."}
         return
 
     doc = {}
@@ -1146,7 +1146,6 @@ class Consumers extends Users
   @addRemoveInterest: (op,id,data,callback)->
     if Object.isString id
       id = new ObjectId id
-    logger.error data
     if op == "add"
       where = {
         _id : id
