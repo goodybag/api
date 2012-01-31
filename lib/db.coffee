@@ -12,6 +12,7 @@ mongoose = globals.mongoose
 
 Schema = mongoose.Schema
 ObjectId = mongoose.SchemaTypes.ObjectId
+DocumentArray = mongoose.SchemaTypes.DocumentArray
 
 #validation
 Url = /(ftp|http|https):\/\/(\w+:{0,1}\w*@)?(\S+)(:[0-9]+)?(\/|\/([\w#!:.?+=&%@!\-\/]))?/
@@ -133,6 +134,11 @@ media = {
   mediaId           : {type: ObjectId}
 }
 
+ProfileEntry = new Schema {
+  name              : {type: String}
+  type              : {type: String}
+}
+
 ###################################################################
 ###################################################################
 ###################################################################
@@ -145,7 +151,7 @@ DBTransaction = new Schema {
     type            : {type: String, required: true}
     id              : {type: ObjectId, required: true}
   }
-  timesdtamp        : {type: Date, default: new Date()}
+  timestamp        : {type: Date, default: new Date()}
   transaction       : TransactionSchema
 }
 
@@ -177,23 +183,57 @@ PasswordResetRequest = new Schema {
 ####################
 Consumer = new Schema {
   email           : {type: String, set: utils.toLower, validate: Email, unique: true}
-  password        : {type: String, validate:/.{5,}/, required: true}
+  password        : {type: String, min:5, default: mongoose.Types.ObjectId.createPk(), required:true}
   firstName       : {type: String, required: true}
   lastName        : {type: String, required: true}
   screenName      : {type: String, default: mongoose.Types.ObjectId.createPk(), unique: true}
   setScreenName   : {type: Boolean, default: false}
-  facebook: {
-    access_token  : String
-    #id            : Number
-  }
   created         : {type: Date, default: new Date()}
   logins          : []
   honorScore      : {type: Number, default: 0}
   charities       : {}
+  media           : media
+  secureMedia     : media
+
+  facebook: {
+    access_token  : {type: String}
+    id            : {type: String}
+  }
+
+  profile: {
+    birthday      : {type: Date}
+    gender        : {}
+    education     : [ProfileEntry] #fb
+    work          : [ProfileEntry] #fb
+    location      : {} #fb
+    hometown      : {} #fb
+    interests     : [ProfileEntry] #not fb
+    aboutme       : {} #not fb
+    timezone      : {}
+    #interests movies music books?
+  }
+  permissions: {
+    email         : {type: Boolean, default: false}
+    media         : {type: Boolean, default: true}
+    birthday      : {type: Boolean, default: false}
+    gender        : {type: Boolean, default: false}
+    education     : {type: Boolean, default: false} #fb
+    work          : {type: Boolean, default: false} #fb
+    location      : {type: Boolean, default: false} #fb
+    hometown      : {type: Boolean, default: false} #fb
+    interests     : {type: Boolean, default: false} #not fb
+    fbinterests   : {type: Boolean, default: false} #not fb
+    aboutme       : {type: Boolean, default: false} #not fb
+    timezone      : {type: Boolean, default: false}
+    hiddenFacebookItems : {
+      work: [{type:String}]      #hidden work ids
+      education: [{type:String}] #hidden education ids
+    }
+  }
 
   funds: {
-    allocated     : {type: Number, default: 0.0}
-    remaining     : {type: Number, default: 0.0}
+    allocated     : {type: Number, default: 0.0, required: true}
+    remaining     : {type: Number, default: 0.0, required: true}
   }
 
   barcodeId       : {type:String}
@@ -345,7 +385,9 @@ Poll = new Schema {
 
   deleted              : {type: Boolean, default: false}
 
-  transactions         : transactions
+  transactions: transactions
+
+  deleted             : {type: Boolean, default: false}
 }
 
 
@@ -402,6 +444,7 @@ Discussion = new Schema {
   transactions        : transactions
 
 }
+
 
 ####################
 # Response #########
@@ -461,7 +504,7 @@ Media = new Schema {
   name          : {type: String, required: true}
   duration      : {type: Number}
   thumbs        : [] #only populated if video
-  sizes         : {} #only for images, not yet implemented in transloaded's template, or api
+  sizes         : {} #this should match transloadits sizes
   tags          : []
 
   dates: {
@@ -513,7 +556,6 @@ Stream = new Schema {
     id                : {type: ObjectId}
     name              : {type:String}
   }
-
   entitiesInvolved    : [Entity]
   what                : reference #the document this stream object is about
   when                : {type: Date, required: true, default: new Date()}

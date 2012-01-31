@@ -5,7 +5,6 @@ generatePassword = require "password-generator"
 hashlib = require "hashlib"
 util = require "util"
 async = require "async"
-wwwdude = require "wwwdude"
 
 globals = require "globals"
 loggers = require "./loggers"
@@ -15,10 +14,14 @@ tp = require "./transactions" #transaction processor
 
 logger = loggers.api
 
+configs = globals.configs
 utils = globals.utils
 choices = globals.choices
 defaults = globals.defaults
 errors = globals.errors
+transloadit = globals.transloadit
+guidGen = globals.guid
+fb = globals.facebook
 
 ObjectId = globals.mongoose.Types.ObjectId
 
@@ -42,11 +45,67 @@ Statistic = db.Statistic
 
 #TODO:
 #Make sure that all necessary fields exist for each function before sending the query to the db
-
 class API
   @model = null
   constructor: ()->
     #nothing to say
+
+  @_flattenDoc = (doc, startPath)->
+    flat = {}
+    #flatten function
+    flatten = (obj, path)->
+      if Object.isObject obj
+        path = if !path? then "" else path+"."
+        for key of obj
+          flatten obj[key], path+key
+      else if Object.isArray obj
+        path = if !path? then "" else path+"."
+        i = 0
+        while i<obj.length
+          flatten obj[i], path+i
+          i++
+      else
+        flat[path] = obj
+      console.log path
+      return flat
+    #end flatten
+    return flatten doc, startPath
+
+  @_copyFields = (obj, fields) ->
+    if Object.isObject fields
+      fieldArr = []
+      for field,val of fields
+        if val == 1 || val == true
+          fieldArr.push field
+      fields = fieldArr
+    ret = {}
+    for field in fields
+      keys = field.split(".")
+      o = obj
+      r = ret
+      i = 0
+      newobj = null
+      newkey = null
+      while i<keys.length
+        key = keys[i]
+        if !o[key]?
+          j=0
+          r = ret
+          if newobj? && newkey?
+            delete newobj[newkey]
+          break;
+        if i==keys.length-1
+          r[key] = o[key]
+          break;
+        if !r[key]?
+          r[key] = {}
+          if !newobj? && !newkey?
+            newobj = r
+            newkey = key
+        o = o[key]
+        r = r[key]
+        i++
+    ret
 
   @_query: ()->
     return @model.find() #instance of query object
@@ -357,12 +416,288 @@ class API
 
     @model.findOne $query, callback
 
-
 class DBTransactions extends API
   @model = DBTransaction
 
+class Users extends API
+  #start potential new API functions
+  #model.findById id, fields, options callback
+  #model.findOne
+  @_sendFacebookPicToTransloadit = (entityId, guid, picURL, callback)->
+    logger.debug ("callTransloadit")
+    client = new transloadit(configs.transloadit.authKey, configs.transloadit.authSecret)
+    params = {
+      auth: {
+        key: configs.transloadit.authKey
+      }
+      notify_url: 'http://dev.goodybag.com/hooks/transloadit'
+      template_id: configs.transloadit.consumerFromURLTemplateId
+      steps: {
+        ':original':
+          robot: '/http/import'
+          url  : picURL
+        export85:
+          path: "consumers/"+entityId+"-85.png"
+        export128:
+          path: "consumers/"+entityId+"-128.png"
+      }
+    }
+    fields = {
+      mediaFor: "consumer"
+      entityId: entityId.toString()
+      guid: guid
+    }
+    client.send params, fields
+      ,(success)->
+        console.log success
+        if callback?
+          callback null, true
+        return
+      ,(error)->
+        #callback new errors.TransloaditError('Uh oh, looks like there was a problem updating your profile picture.', error)
+        logger.error new errors.TransloaditError('Transloadit error on facebook login, updating profile picture', error)
+        if callback?
+          callback error
+        return
+    return
 
-class Consumers extends API
+  @getByEmail: (email, callback)->
+    query = @_query()
+    query.where('email', email)
+    query.findOne (error, user)->
+      if error?
+        callback error #db error
+      else
+        callback null, user #if no consumer with that email will return null
+      return
+    return
+
+  @one: (id, fieldsToReturn, dbOptions, callback)->
+    if Object.isString id
+      id = new ObjectId id
+    if Object.isFunction fieldsToReturn && !fieldsToReturn?
+      #Fields to return must always be specified for consumers...
+      callback new errors.ValidationError {"fieldsToReturn","Database error, fields must always be specified."}
+      return
+      # callback = fieldsToReturn
+      # fields = {}
+      # dbOptions = {}
+    if Object.isFunction dbOptions
+      callback = dbOptions
+      dbOptions = {}
+    @model.findById id, fieldsToReturn, dbOptions, callback
+    return
+
+  @update: (id, doc, dbOptions, callback)->
+    if Object.isString id
+      id = new ObjectId id
+    if Object.isFunction dbOptions
+      callback = dbOptions
+      dbOptions = {safe:true}
+    #id typecheck is done in .update
+    query = {_id:id}
+    @model.update query, doc, dbOptions, callback
+    return
+
+  #end potential new API functions
+
+  @updateWithPassword: (id, password, doc, dbOptions, callback)->
+    if Object.isString id
+      id = new ObjectId id
+    if Object.isFunction dbOptions
+      callback = dbOptions
+      dbOptions = {safe:true}
+    #id typecheck is done in .update
+    query = {_id:id, password: password}
+    @model.update query, doc, dbOptions, (error, count)->
+      if error
+        callback new error.ValidationError {"password":"Incorrect password."}
+        return
+      callback error, count
+    return
+
+  @updateMedia: (id, media, callback)->
+    self = this
+    #id typecheck is done in @update
+    #media.mediaId typecheck is done in validateMedia
+    Medias.validateMedia media, "square", (error, validatedMedia)->
+      if error?
+        callback error
+        return
+      set =
+        media: validatedMedia
+
+      self.update id, {$set:set}, (error, count)-> #error,count
+        if error?
+          callback error
+        if count==0
+          callback new errors.ValidationError {"id":"Consumer Id not found."}
+        else
+          callback null, set.media #send back the media object
+        return
+      return
+    return
+  @updateMediaWithFacebook: (id, fbid, callback)->
+    self = this
+    if Object.isString id
+      id = new ObjectId id
+
+    accessToken = ""
+    async.series
+      accessToken: (callback)->
+        self.model.findById id, {"facebook.access_token":1}, (error,user)->
+          if error?
+            callback error
+            return
+          #success
+          accessToken = user.facebook.access_token #sets access token to be used in the next step
+          callback null, accessToken
+          return
+      fbPicURL: (callback)->
+        fb.get ["me/picture"], accessToken, (error,fbData)-> #right now the batch call
+          if error?
+            callback error
+            return
+          picResponse = fbData[0]
+
+          if picResponse.headers[5].name == "Location" #hard-coded to get the Location header from the response headers
+            fbPicURL = picResponse.headers[5].value;
+          else
+            #since the above index is hard-coded, just in case the header index of Location changes
+            #search for the Location header
+            for i,v in picResponse.headers
+              if v.name == "Location"
+                fbPicURL = v.value
+          #facebook pic retrieved
+          if !fbPicURL? || fb.isDefaultProfilePic(fbPicURL,fbid)
+            callback new errors.ValidationError {"pic":"Since you have no facebook picture, we left your picture as the default goodybag picture."}
+            return
+          #user has fb pic
+          callback null, fbPicURL
+          return
+    ,(error, data)->
+      if error?
+        callback error
+        return
+      #success got accessToken and got fbPicURL
+      guid = guidGen.v1()
+      media ={
+        guid:  guid
+        thumb: data.fbPicURL
+        url: data.fbPicURL
+        mediaId: null
+      }
+      set = {
+        media: media
+      }
+      self.update {_id:id}, {$set:set}, (error,success)->
+        if error?
+          callback error
+          return
+        #media update success
+        self._sendFacebookPicToTransloadit id, guid, data.fbPicURL, (error, success)->
+          if error?
+            callback error
+          else
+            callback null, media
+          return
+        return
+    return
+  @updateMediaByGuid: (id, guid, media, mediaKey, callback)->
+    if(Object.isString(id))
+      id = new ObjectId(id)
+    if Object.isFunction mediaKey
+      callback = mediaKey
+      mediaKey = "media"
+
+    query = @_query()
+    query.where("_id", id)
+    set = {}
+    if Object.isArray mediaKey
+      #updating multiple media keys
+      query.where("media.guid", guid)
+      for val, i in mediaKey
+        if(Object.isString(media[i].mediaId))
+          media[i].mediaId = new ObjectId(media[i].mediaId)
+        set["#{mediaKey[i]}.thumb"] = media[i].thumb
+        set["#{mediaKey[i]}.url"] = media[i].url
+        set["#{mediaKey[i]}.mediaId"] = media[i].mediaId
+        set["#{mediaKey[i]}.guid"] = media[i].guid #reset
+    else
+      query.where("#{mediaKey}.guid", guid)
+      if(Object.isString(media.mediaId))
+        media.mediaId = new ObjectId(media.mediaId)
+      set["#{mediaKey}.thumb"] = media.thumb
+      set["#{mediaKey}.url"] = media.url
+      set["#{mediaKey}.mediaId"] = media.mediaId
+      set["#{mediaKey}.guid"] = media.guid #reset
+    query.update {$set:set}, (error, success)->
+      if error?
+        callback error #dberror
+      else
+        callback null, success
+      return
+    return
+
+  @delMedia: (id,callback)->
+    if Object.isString id
+      id = new ObjectId id
+    @model.update {_id:id}, {$set:{"permissions.media":false},$unset:{media:1}}, callback
+    return
+
+  #@updateEmail
+  @updateEmailRequest: (id, password, newEmail, callback)->
+    #id typecheck is done in @update
+    @getByEmail newEmail, (error, user)->
+      if error?
+        callback error
+        return
+      if user?
+        if id == user._id
+          callback new errors.ValidationError({"email":"That is your current email"})
+        else
+          callback new errors.ValidationError({"email":"Another user is already using this email"}) #email exists error
+        return
+    data = {}
+    data.changeEmail =
+      newEmail: newEmail
+      key: hashlib.md5(globals.secretWord + newEmail+(new Date().toString()))+'-'+generatePassword(12, false, /\d/)
+      expirationDate: Date.create("next week")
+    @updateWithPassword id, password, data, (error, count)-> #error,count
+      if count==0
+        callback new errors.ValidationError({"password":"Incorrect password."}) #assuming id is correct..
+        return
+      callback error, count>0
+      return
+    return
+
+  @updateEmailConfirm: (key, callback)->
+    query = @_query()
+    query.where('changeEmail.key', key)
+    query.fields("changeEmail")
+    query.findOne (error, user)->
+      if error?
+        callback error #dberror
+        return
+      if !user?
+        callback new errors.ValidationError({"key":"Invalid key, expired or already used."})
+        return
+      #user found
+      if(new Date()>user.changeEmail.expirationDate)
+        callback new errors.ValidationError({"key":"Key expired."})
+        query.update {$set:{changeEmail:null}}, (error, success)->
+          return #clear expired email request.
+        return
+      query.update {$set:{email:user.changeEmail.newEmail, changeEmail:null}}, (error, count)->
+        if error?
+          callback error #dberror
+          return
+        callback null, count>0
+        return
+      return
+    return
+
+class Consumers extends Users
   @model = Consumer
 
   # List all consumers (limit to 25 at a time for now - not taking in a limit arg on purpose)
@@ -378,94 +713,154 @@ class Consumers extends API
     query.only("_id", "screenName")
     query.in("_id", ids)
     query.exec callback
-
   @getByBarcodeId: (barcodeId, callback)->
     query = @queryOne()
     query.where("barcodeId", barcodeId)
     query.exec callback
 
-  @facebookLogin: (accessToken, callback)->
+  @facebookLogin: (accessToken, fieldsToReturn, callback)->
+    if Object.isFunction fieldsToReturn
+      callback = fieldsToReturn
+      fieldsToReturn = {}
     self = this
-    accessToken = accessToken.split("&")
-    wwwClient = wwwdude.createClient({
-        contentParser: wwwdude.parsers.json
-    })
-    wwwClient.get("https://graph.facebook.com/me?access_token="+accessToken)
-    .on('success', (facebookData, res)->
-      if(facebookData.error?)
-        callback new errors.ValidationError {"facebook":facebookData.error.type+": "+facebookData.error.message}
-      else
-        fbid = facebookData.id
-        consumer = {
-          firstName: facebookData.first_name,
-          lastName:  facebookData.last_name,
-          email:     facebookData.email,
-          facebook: {
-              me           : facebookData,
-              access_token : accessToken,
-              id           : fbid
-          }
-        }
-        #self.model.update {"facebook.id": fbid}, {$set: consumer, $inc: {loginCount:1}}, {}, (error, success)->
-        self.model.collection.findAndModify {"facebook.id": fbid}, [], {$set: consumer, $inc: {loginCount:1}}, {new:true, safe:true}, (error, consumerUpdated)->
-          if error?
-            callback error
-          else if consumerUpdated? #if success>0
-            callback null, consumerUpdated #streamlined process for returning logins..
-          else
-            query = self._query()
-            query.where("email", facebookData.email) #email account with
-            query.where("facebook").exists(false)    #no facebook
-            query.findOne (error, consumerWithEmail)->
-              if error?
-                callback error
-              else if consumerWithEmail?
-                callback new errors.ValidationError {"email":"Account with email already exists, please enter password."}
-              else
-                #self.model.update {'facebook.id': fbid}, {$set: consumer, $inc: {loginCount:1}}, {}, (error, success)->
-                consumerModel = new self.model(consumer)
-                consumerModel.save consumer, (error, success)->
-                  if error?
-                    callback error
-                  else #success is true
-                    callback null, consumer #slow process...for new fb regs..
-                  return
-          return
-      return
-    ).on('error', (error, res)->
-      callback error
-      return
-    ).on('http-error', (data, res)->
-      if(data.error?)
-        callback new errors.ValidationError {"facebook":data.error.type+": "+data.error.message}
-      else
-        callback new errors.ValidationError {"http":"HTTP Error"}
-      return
-    )
-    return
-
-  @register: (data, callback)->
-    self = this
-    bcrypt.gen_salt 10, (error, salt)=>
+    accessToken = accessToken.split("&")[0]
+    #verify accessToken and get User Profile
+    urls = ["app","me","me/picture"]
+    fb.get urls, accessToken, (error,data)->
       if error?
         callback error
         return
-      bcrypt.encrypt data.password+defaults.passwordSalt, salt, (error, hash)=>
+      appResponse = data[0] #same order as url array..
+      meResponse = data[1]
+      picResponse = data[2]
+      if appResponse.code!=200
+        callback new errors.HttpError 'Error connecting with Facebook, try again later.', 'facebookBatch:'+urls[0], appResponse.code
+        return
+      if JSON.parse(appResponse.body).id != configs.facebook.appId
+        callback new errors.ValidationError {'accessToken':"Incorrect access token. Not for Goodybag's app."}
+      if meResponse.code!=200
+        callback new errors.HttpError 'Error connecting with Facebook, try again later.', 'facebookBatch:'+urls[1], appResponse.code
+        return
+      if picResponse.code!=302&&picResponse.code!=200&&picResponse.code!=301 #this should be a 302..
+        callback new errors.HttpError 'Error connecting with Facebook, try again later.', 'facebookBatch:'+urls[1], appResponse.code
+        return
+
+      meResponse.body = JSON.parse(meResponse.body)
+      fbid = meResponse.body.id
+      if picResponse.headers[5].name == "Location" #hard-coded to get the Location header from the response headers
+        fbPicURL = picResponse.headers[5].value;
+      else
+        #since the above index is hard-coded, just in case the header index of Location changes
+        #search for the Location header
+        for i,v in picResponse.headers
+          if v.name == "Location"
+            fbPicURL = v.value
+
+      facebookData =
+        me  : meResponse.body
+        pic : if !fbPicURL? || fb.isDefaultProfilePic(fbPicURL, fbid) then null else fbPicURL #check if pic is default fb pic, if it is ignore it. picResponse.body should just be a string of the url..
+      createOrUpdateUser(facebookData)
+      return
+
+    #create user if new, or update user where fbid
+    createOrUpdateUser = (facebookData)->
+      fbid = facebookData.me.id
+      consumer = {
+        firstName: facebookData.me.first_name,
+        lastName:  facebookData.me.last_name,
+        #email:     facebookData.me.email #this is set only for new users, bc users can edit their email
+      }
+      consumer['facebook.access_token'] = accessToken
+      consumer['facebook.id'] = facebookData.me.id
+      consumer['facebook.me'] = facebookData.me
+
+      consumer['profile.birthday'] = if facebookData.me.birthday? then utils.setDateToUTC(facebookData.me.birthday)
+      consumer['profile.gender']   = facebookData.me.gender
+      consumer['profile.location'] = if facebookData.me.location? then facebookData.me.location.name
+      consumer['profile.hometown'] = if facebookData.me.hometown? then facebookData.me.hometown.name
+      #consumer['profile.work']      = facebookData.me.work
+      #consumer['profile.education'] = facebookData.me.education
+
+      #find user with fbid or same email
+      self.model.findOne {$or:[{"facebook.id":facebookData.me.id}, {email:facebookData.me.email}]}, {_id:1,"permissions.media":1,"facebook.fbid":1}, null, (error,consumerAlreadyRegistered)->
         if error?
           callback error
           return
-        data.password = hash
-        self.add data, (error, consumer)->
-          if error?
-            if error.code is 11000
-              callback new errors.ValidationError "Email Already Exists", {"email":"Email Already Exists"} #email exists error
-              return
+        else
+          callTransloadit = false
+          if consumerAlreadyRegistered?
+            #registered user found
+            if consumerAlreadyRegistered.permissions? && consumerAlreadyRegistered.permissions.media? && facebookData.pic?
+              #user is showing (permissions) media, and fb pic is set (not default fb pic)
+              # update pic to new facbook pic
+              mediaGuid = guidGen.v1()
+              consumer.media = {
+                guid    : mediaGuid
+                url     : facebookData.pic
+                thumb   : facebookData.pic
+                mediaId : null
+              }
+              callTransloadit = true
+            if consumerAlreadyRegistered.facebook?
+              #if user found was registered via facebook
+              # save updated facebook data to user document
+              fieldsToReturnWithMediaPermission = fieldsToReturn
+              fieldsToReturnWithMediaPermission["permissions.media"] = 1
+              self.model.collection.findAndModify {'facebook.id': fbid}, [], {$set: consumer, $inc: {loginCount:1}}, {fields:fieldsToReturnWithMediaPermission,new:true,safe:true}, (error, returningFacebookUser)->
+                if returningFacebookUser?
+                  if !fieldsToReturn["permissions.media"]?
+                    delete consumers.permissions.media
+                    if Object.isEmpty consumers.permissions
+                      delete consumers.permissions
+                callback error, returningFacebookUser
+                #update profile pic with latest pic
+                if callTransloadit && !error?
+                  self._sendFacebookPicToTransloadit returningFacebookUser._id, mediaGuid, facebookData.pic
+                return
             else
-              callback error
-              return
-          else
-            callback error, consumer
+              #user found was registered via email
+              # update user object with facebook fields
+              self.model.collection.findAndModify {'email': facebookData.me.email}, [], {$set: consumer, $inc: {loginCount:1}}, {fields:fieldsToReturn,new:true,safe:true}, (error, emailToFacebookUser)->
+                callback error, emailToFacebookUser
+                if callTransloadit && !error?
+                  self._sendFacebookPicToTransloadit emailToFacebookUser._id, mediaGuid, facebookData.pic
+                return
             return
+          else
+            #previously registered user not found
+            #brand new user!
+            consumer.email = facebookData.me.email
+            consumer.facebook = {}
+            consumer.facebook.access_token = accessToken
+            consumer.facebook.id = facebookData.me.id
+            if facebookData.pic?
+              mediaGuid = guidGen.v1()
+              consumer.media = {
+                guid    : mediaGuid
+                url     : facebookData.pic
+                thumb   : facebookData.pic
+                mediaId : null
+              }
+              callTransloadit = true
+
+            #save new user
+            newUserModel = new self.model(consumer)
+            newUserModel.save (error, newUserAllFields)->
+              if error?
+                callback error #dberror
+              else
+                newUserSelectFields = self._copyFields(newUserAllFields, fieldsToReturn)
+                callback null, newUserSelectFields
+                if callTransloadit
+                  self._sendFacebookPicToTransloadit newUserAllFields._id, mediaGuid, facebookData.pic
+              return
+          return
+
+    return #end @facebookLogin
+
+
+  @register: (user, callback)->
+    @.add(user, callback)
 
   @login: (email, password, callback)->
     query = @_query()
@@ -489,6 +884,72 @@ class Consumers extends API
         callback new errors.ValidationError "Invalid Email Address", {"login":"invalid email address"}
         return
 
+  @getProfile: (id, callback)->
+    console.log "getProfile"
+    fieldsToReturn = {
+      _id           : 1
+      firstName     : 1
+      lastName      : 1
+      email         : 1
+      profile       : 1
+      permissions   : 1
+    }
+    fieldsToReturn["facebook.id"] = 1 #if user has this then the user is a fbUser
+    facebookMeFields = {
+      work      : 1
+      education : 1
+    }
+    Object.merge fieldsToReturn, @_flattenDoc(facebookMeFields,"facebook.me")
+    console.log "-"
+    console.log fieldsToReturn
+    console.log "-"
+    @one id, fieldsToReturn, (error, consumer)->
+      if error?
+        callback error
+        return
+      callback null, consumer
+      return
+    return
+
+  @getPublicProfile: (id, callback)->
+    self = this
+    fieldsToReturn = {
+      _id           : 1
+      firstName     : 1
+      lastName      : 1
+      email         : 1
+      profile       : 1
+      permissions   : 1
+    }
+    fieldsToReturn["facebook.id"] = 1 #if user has this then the user is a fbUser
+    facebookMeFields = {
+      work      : 1
+      education : 1
+    }
+    Object.merge fieldsToReturn, @_flattenDoc(facebookMeFields,"facebook.me")
+    @one id, fieldsToReturn, (error, consumer)->
+      if error?
+        callback error
+        return
+      #user permissions to determine which fields to delete
+      if !consumer.permissions.email
+        delete consumer.email
+      consumer.profile  = self._copyFields(consumer.profile, consumer.permissions)
+      consumer.facebook = self._copyFields(consumer.facebook, consumer.permissions)
+      for field,idsToRemove of consumer.permissions.hiddenFacebookItems #object of remove id arrays
+        #if there are ids to remove, idsToRemove - array of ids to remove from facebook field
+        if(idsToRemove.length > 0)
+          facebookFieldItems = consumer.facebook[field] #array of all items for a facebook field
+          #check field items ids to see if they match any that need to be removed
+          for i,item in facebookFieldItems
+            if(item.id in idsToRemove)        #if id found in the array of ids to remove
+              facebookFieldItems.splice(i,1); #remove item from entry array
+              break;
+
+      callback null, consumer
+      return
+    return
+
   @updateHonorScore: (id, eventId, amount, callback)->
     if Object.isString(id)
       id = new ObjectId(id)
@@ -501,7 +962,6 @@ class Consumers extends API
   @deductFunds: (id, transactionId, amount, callback)->
     if Object.isString(id)
       id = new ObjectId(id)
-
     if Object.isString(transactionId)
       transactionId = new ObjectId(transactionId)
 
@@ -533,6 +993,213 @@ class Consumers extends API
       if user?
         callback error, user
       return
+
+  @updatePermissions: (id, data, callback)->
+    if Object.isString id
+      id = new ObjectId(id)
+    if !data? && Object.keys(data).length > 1
+      callback new errors.ValidationError {"permissions":"You can only update one permission at a time"}
+      return
+
+    where = {
+      _id: id
+    }
+    set = {}
+    push = {}
+    pull = {}
+    #pushAll = {}
+    consumerModel = new @model
+    permissionsKeys = Object.keys(consumerModel._doc.permissions)
+    permissionsKeys.remove("hiddenFacebookItems")
+    for k,v of data
+      console.log k
+      permission = "permissions."+k
+      if !(k in permissionsKeys)
+        callback new errors.ValidationError {"permissionKey":"Unknown value."}
+        return
+    set[permission] = v=="true" or v==true
+
+    doc = {}
+    if !Object.isEmpty(set)
+      doc["$set"] = set
+    else
+      callback new errors.ValidationError {"data":"No new updates."}
+      return
+
+    @model.update where, doc, {safe:true}, callback
+    return
+
+  @updateHiddenFacebookItems: (id,data,callback)->
+    if Object.isString id
+      id = new ObjectId(id)
+    if !data?
+      callback new errors.ValidationError {"data":"No update data."}
+      return
+    if Object.keys(data).length > 1
+      callback new errors.ValidationError {"entry":"You can only update one entry at a time"}
+      return
+
+    where = {
+      _id: id
+    }
+    push = {}
+    pull = {}
+
+    facebookItemKeys = ["work","education"]
+    for entry,fbid of data
+      if !(entry in facebookItemKeys)
+        callback new errors.ValidationError {"facebookItemKey":"Unknown value."}
+        return
+      if Object.isString fbid
+        if entry == "work"
+          where["facebook.me.work.employer.id"] = fbid
+        else if entry == "education"
+          where["facebook.me.education.school.id"] = fbid
+
+        if fbid.substr(0,1) == "-"
+          fbid = fbid.slice(1)
+          pull["permissions.hiddenFacebookItems."+entry] = fbid #id to unhide
+        else
+          push["permissions.hiddenFacebookItems."+entry] = fbid #id to hide
+      else
+        callback new errors.ValidationError {"fbid":"Invalid value."}
+        return
+
+    doc = {}
+    if !Object.isEmpty(push)
+      doc["$push"] = push
+    else if !Object.isEmpty(pull)
+      doc["$pull"] = pull
+    else
+      callback new errors.ValidationError {"data":"No new updates."}
+      return
+    @model.update where, doc, {safe:true}, callback
+    return
+
+  #Consumer profile functions
+  @addRemoveWork: (op,id,data,callback)->
+    if Object.isString id
+      id = new ObjectId id
+    if op == "add"
+      where = {
+        _id : id
+        "profile.work.name":{$ne:data.name}
+      }
+      doc = {
+        $push: {
+          "profile.work": data
+        }
+      }
+    else if op == "remove"
+      where = {
+        _id : id
+      }
+      doc = {
+        $pull: {
+          "profile.work": data
+        }
+      }
+    else
+      callback new errors.ValidationError {"op":"Invalid value."}
+      return
+    @model.update where, doc, (error, success)->
+      if success==0
+        callback new errors.ValidationError "Whoops, looks like you already added that company.", {"name":"Company with that name already added."}
+      else
+        callback error, success
+      return
+    return
+
+  @addRemoveEducation: (op,id,data,callback)->
+    if Object.isString id
+      id = new ObjectId id
+    if op == "add"
+      where = {
+        _id : id
+        "profile.education.name":{$ne:data.name}
+      }
+      doc = {
+        $push: {
+          "profile.education": data
+        }
+      }
+    else if op == "remove"
+      where = {
+        _id : id
+      }
+      doc = {
+        $pull: {
+          "profile.education": data
+        }
+      }
+    else
+      callback new errors.ValidationError {"op":"Invalid value."}
+      return
+    @model.update where, doc, (error, success)->
+      if success==0
+        callback new errors.ValidationError "Whoops, looks like you already added that school.", {"name":"School with that name already added."}
+      else
+        callback error, success
+      return
+    return
+
+  @addRemoveInterest: (op,id,data,callback)->
+    if Object.isString id
+      id = new ObjectId id
+    logger.error data
+    if op == "add"
+      where = {
+        _id : id
+        "profile.interests.name":{$ne:data.name}
+      }
+      doc = {
+        $push: {
+          "profile.interests": data
+        }
+      }
+    else if op == "remove"
+      where = {
+        _id : id
+      }
+      doc = {
+        $pull: {
+          "profile.interests": data
+        }
+      }
+    else
+      callback new errors.ValidationError {"op":"Invalid value."}
+      return
+    @model.update where, doc, (error, success)->
+      if success==0
+        callback new errors.ValidationError "Whoops, looks like you already added that interest.", {"name":"Interest already added."}
+      else
+        callback error, success
+      return
+    return
+
+  @updateProfile: (id,data,callback)->
+    if Object.isString id
+      id = new ObjectId id
+    where = {
+      _id : id
+    }
+
+    consumerModel = new @model
+    nonFacebookProfileKeys = Object.keys(consumerModel._doc.permissions)
+    nonFacebookProfileKeys.remove("aboutme") #allowed to be edit for both fb and nonfb users
+    for key of data
+      if key in nonFacebookProfileKeys
+        where["facebook.id"] = {$exists:false}
+
+    data = @_flattenDoc data, "profile"
+    @model.update where, {$set:data}, (error, count)->
+      if count==0
+        callback new errors.ValidationError {"user":"Facebook User: to update your information edit your profile on facebook."}
+        return
+      callback error, count
+      return
+    return
+
 
 
 class Clients extends API
@@ -1872,6 +2539,54 @@ class Responses extends API
 class Medias extends API
   @model = Media
 
+  #validate Media Objects for other collections
+  @validateMedia: (media, imageType, callback)->
+    console.log "media"
+    console.log media
+    console.log media.mediaId?
+    console.log "media"
+    if !media?
+      callback new errors.ValidationError {"media":"Media is null."}
+      return
+    if media.mediaId? and (!media.url? or !media.thumb?) #new mediaId and no urls -> look up urls
+      console.log "mediaID!!!!!"
+      #mediaId typecheck is done in one
+      Medias.one media.mediaId, (error, data)->
+        if error?
+          callback error #callback
+          return
+        else if data.length==0
+          callback new errors.ValidationError({"mediaId":"Invalid MediaId"})
+          return
+        if imageType=="square"
+          media.mediaId = data.mediaId #type objectId
+          media.thumb = data.sizes.s85
+          media.url   = data.sizes.s128
+          delete media.guid
+        else if imageType=="landscape"
+          media.mediaId = data.mediaId #type objectId
+          media.thumb = data.sizes.s100x75
+          media.url   = data.sizes.s320x240
+          delete media.guid
+        callback null, media #media found and urls set
+        return
+    else if media.guid?
+      console.log "guid1!!!!!"
+      if !media.url?
+        callback new errors.ValidationError({"media.url":"Media url (temp. url) is required when supplying guid."})
+      else if !media.thumb?
+        callback new errors.ValidationError({"media.thumb":"Media thumb (temp. url) is required when supplying guid."})
+      else
+        callback null, media
+      return
+    else if (media.url? || media.thumb?) #and !data.media.guid and !data.media.mediaId
+      console.log "guid@222!!!!!"
+      callback new errors.ValidationError({"media":"Guid or MediaId is required when supplying a media.url"})
+      return
+    else
+      callback null, media #guid and urls supplied
+      return
+
   @addOrUpdate: (media, callback)->
     if Object.isString(media.entity.id)
       media.entity.id = new ObjectId media.entity.id
@@ -2006,7 +2721,6 @@ class Events extends API
       eventId = new ObjectId eventId
     if Object.isString userId
       userId = new ObjectId userId
-
     query = {_id: eventId}
     update = {$pop: {rsvp: userId}}
     options = {remove: false, new: true, upsert: false}
