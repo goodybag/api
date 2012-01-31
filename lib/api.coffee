@@ -13,10 +13,13 @@ tp = require "./transactions" #transaction processor
 
 logger = loggers.api
 
+configs = globals.configs
 utils = globals.utils
 choices = globals.choices
 defaults = globals.defaults
 errors = globals.errors
+transloadit = globals.transloadit
+guidGen = globals.guid
 fb = globals.facebook
 
 ObjectId = globals.mongoose.Types.ObjectId
@@ -423,6 +426,43 @@ class Users extends API
   #start potential new API functions
   #model.findById id, fields, options callback
   #model.findOne
+  @_sendFacebookPicToTransloadit = (entityId, guid, picURL, callback)->
+    logger.debug ("callTransloadit")
+    client = new transloadit(configs.transloadit.authKey, configs.transloadit.authSecret)
+    params = {
+      auth: {
+        key: configs.transloadit.authKey
+      }
+      notify_url: 'http://dev.goodybag.com/hooks/transloadit'
+      template_id: configs.transloadit.consumerFromURLTemplateId
+      steps: {
+        ':original':
+          robot: '/http/import'
+          url  : picURL
+        export85:
+          path: "consumers/"+entityId+"-85.png"
+        export128:
+          path: "consumers/"+entityId+"-128.png"
+      }
+    }
+    fields = {
+      mediaFor: "consumer"
+      entityId: entityId.toString()
+      guid: guid
+    }
+    client.send params, fields
+      ,(success)->
+        console.log success
+        if callback?
+          callback null, true
+        return
+      ,(error)->
+        #callback new errors.TransloaditError('Uh oh, looks like there was a problem updating your profile picture.', error)
+        logger.error new errors.TransloaditError('Transloadit error on facebook login, updating profile picture', error)
+        if callback?
+          callback error
+        return
+    return
 
   @getByEmail: (email, callback)->
     query = @_query()
@@ -479,17 +519,134 @@ class Users extends API
       callback error, count
     return
 
-  @updateImage: (id, media, callback)->
+  @updateMedia: (id, media, callback)->
+    self = this
     #id typecheck is done in @update
     #media.mediaId typecheck is done in validateMedia
     Medias.validateMedia media, "square", (error, validatedMedia)->
       if error?
         callback error
         return
-      data =
+      set =
         media: validatedMedia
-      @update id, data, callback #error,count
+
+      self.update id, {$set:set}, (error, count)-> #error,count
+        if error?
+          callback error
+        if count==0
+          callback new errors.ValidationError {"id":"Consumer Id not found."}
+        else
+          callback null, set.media #send back the media object
+        return
       return
+    return
+  @updateMediaWithFacebook: (id, fbid, callback)->
+    self = this
+    if Object.isString id
+      id = new ObjectId id
+
+    accessToken = ""
+    async.series
+      accessToken: (callback)->
+        self.model.findById id, {"facebook.access_token":1}, (error,user)->
+          if error?
+            callback error
+            return
+          #success
+          accessToken = user.facebook.access_token #sets access token to be used in the next step
+          callback null, accessToken
+          return
+      fbPicURL: (callback)->
+        fb.get ["me/picture"], accessToken, (error,fbData)-> #right now the batch call
+          if error?
+            callback error
+            return
+          picResponse = fbData[0]
+
+          if picResponse.headers[5].name == "Location" #hard-coded to get the Location header from the response headers
+            fbPicURL = picResponse.headers[5].value;
+          else
+            #since the above index is hard-coded, just in case the header index of Location changes
+            #search for the Location header
+            for i,v in picResponse.headers
+              if v.name == "Location"
+                fbPicURL = v.value
+          #facebook pic retrieved
+          if !fbPicURL? || fb.isDefaultProfilePic(fbPicURL,fbid)
+            callback new errors.ValidationError {"pic":"Since you have no facebook picture, we left your picture as the default goodybag picture."}
+            return
+          #user has fb pic
+          callback null, fbPicURL
+          return
+    ,(error, data)->
+      if error?
+        callback error
+        return
+      #success got accessToken and got fbPicURL
+      guid = guidGen.v1()
+      media ={
+        guid:  guid
+        thumb: data.fbPicURL
+        url: data.fbPicURL
+        mediaId: null
+      }
+      set = {
+        media: media
+      }
+      self.update {_id:id}, {$set:set}, (error,success)->
+        if error?
+          callback error
+          return
+        #media update success
+        self._sendFacebookPicToTransloadit id, guid, data.fbPicURL, (error, success)->
+          if error?
+            callback error
+          else
+            callback null, media
+          return
+        return
+    return
+  @updateMediaByGuid: (id, guid, media, mediaKey, callback)->
+    if(Object.isString(id))
+      id = new ObjectId(id)
+    if Object.isFunction mediaKey
+      callback = mediaKey
+      mediaKey = "media"
+
+    query = @_query()
+    query.where("_id", id)
+    set = {}
+    if Object.isArray mediaKey
+      #updating multiple media keys
+      query.where("media.guid", guid)
+      for val, i in mediaKey
+        if(Object.isString(media[i].mediaId))
+          media[i].mediaId = new ObjectId(media[i].mediaId)
+        set["#{mediaKey[i]}.thumb"] = media[i].thumb
+        set["#{mediaKey[i]}.url"] = media[i].url
+        set["#{mediaKey[i]}.mediaId"] = media[i].mediaId
+        set["#{mediaKey[i]}.guid"] = media[i].guid #reset
+    else
+      query.where("#{mediaKey}.guid", guid)
+      if(Object.isString(media.mediaId))
+        media.mediaId = new ObjectId(media.mediaId)
+      set["#{mediaKey}.thumb"] = media.thumb
+      set["#{mediaKey}.url"] = media.url
+      set["#{mediaKey}.mediaId"] = media.mediaId
+      set["#{mediaKey}.guid"] = media.guid #reset
+    query.update {$set:set}, (error, success)->
+      if error?
+        callback error #dberror
+      else
+        callback null, success
+      return
+    return
+
+  @delMedia: (id,callback)->
+    if Object.isString id
+      id = new ObjectId id
+    @model.update {_id:id}, {$set:{"permissions.media":false},$unset:{media:1}}, callback
+    return
 
   #@updateEmail
   @updateEmailRequest: (id, password, newEmail, callback)->
@@ -571,21 +728,40 @@ class Consumers extends Users
     self = this
     accessToken = accessToken.split("&")[0]
     #verify accessToken and get User Profile
-    urls = ["app","me"]
+    urls = ["app","me","me/picture"]
     fb.get urls, accessToken, (error,data)->
       if error?
         callback error
         return
       appResponse = data[0] #same order as url array..
       meResponse = data[1]
+      picResponse = data[2]
       if appResponse.code!=200
-        callback new errors.HttpError "Error connecting with Facebook, try again later.", "facebookBatch:"+urls[0], appResponse.code
+        callback new errors.HttpError 'Error connecting with Facebook, try again later.', 'facebookBatch:'+urls[0], appResponse.code
         return
+      if JSON.parse(appResponse.body).id != configs.facebook.appId
+        callback new errors.ValidationError {'accessToken':"Incorrect access token. Not for Goodybag's app."}
       if meResponse.code!=200
-        callback new errors.HttpError "Error connecting with Facebook, try again later.", "facebookBatch:"+urls[1], appResponse.code
+        callback new errors.HttpError 'Error connecting with Facebook, try again later.', 'facebookBatch:'+urls[1], appResponse.code
         return
+      if picResponse.code!=302&&picResponse.code!=200&&picResponse.code!=301 #this should be a 302..
+        callback new errors.HttpError 'Error connecting with Facebook, try again later.', 'facebookBatch:'+urls[1], appResponse.code
+        return
+
+      meResponse.body = JSON.parse(meResponse.body)
+      fbid = meResponse.body.id
+      if picResponse.headers[5].name == "Location" #hard-coded to get the Location header from the response headers
+        fbPicURL = picResponse.headers[5].value;
+      else
+        #since the above index is hard-coded, just in case the header index of Location changes
+        #search for the Location header
+        for i,v in picResponse.headers
+          if v.name == "Location"
+            fbPicURL = v.value
+
       facebookData =
-        me : JSON.parse(meResponse.body)
+        me  : meResponse.body
+        pic : if !fbPicURL? || fb.isDefaultProfilePic(fbPicURL, fbid) then null else fbPicURL #check if pic is default fb pic, if it is ignore it. picResponse.body should just be a string of the url..
       createOrUpdateUser(facebookData)
       return
 
@@ -597,44 +773,94 @@ class Consumers extends Users
         lastName:  facebookData.me.last_name,
         #email:     facebookData.me.email #this is set only for new users, bc users can edit their email
       }
-      consumer["facebook.access_token"] = accessToken
-      consumer["facebook.id"] = facebookData.me.id
-      consumer["facebook.me"] = facebookData.me
+      consumer['facebook.access_token'] = accessToken
+      consumer['facebook.id'] = facebookData.me.id
+      consumer['facebook.me'] = facebookData.me
 
-      consumer["profile.birthday"] = if facebookData.me.birthday? then utils.setDateToUTC(facebookData.me.birthday)
-      consumer["profile.gender"]   = facebookData.me.gender
-      consumer["profile.location"] = if facebookData.me.location? then facebookData.me.location.name
-      consumer["profile.hometown"] = if facebookData.me.hometown? then facebookData.me.hometown.name
-      #consumer["profile.work"]      = facebookData.me.work
-      #consumer["profile.education"] = facebookData.me.education
+      consumer['profile.birthday'] = if facebookData.me.birthday? then utils.setDateToUTC(facebookData.me.birthday)
+      consumer['profile.gender']   = facebookData.me.gender
+      consumer['profile.location'] = if facebookData.me.location? then facebookData.me.location.name
+      consumer['profile.hometown'] = if facebookData.me.hometown? then facebookData.me.hometown.name
+      #consumer['profile.work']      = facebookData.me.work
+      #consumer['profile.education'] = facebookData.me.education
 
-      #check if user is returning facebook authenticated user
-      self.model.collection.findAndModify {"facebook.id": fbid}, [], {$set: consumer, $inc: {loginCount:1}}, {fields:fieldsToReturn,new:true,safe:true}, (error, returningFacebookUser)->
-        if error? or returningFacebookUser? #if error or returning facebook user found, else null, null
-          callback error, returningFacebookUser
+      #find user with fbid or same email
+      self.model.findOne {$or:[{"facebook.id":facebookData.me.id}, {email:facebookData.me.email}]}, {_id:1,"permissions.media":1,"facebook.fbid":1}, null, (error,consumerAlreadyRegistered)->
+        if error?
+          callback error
           return
-        #check if user is returning email authenticated user, if yes merge in facebook info
-        self.model.collection.findAndModify {'email': facebookData.me.email}, [], {$set: consumer, $inc: {loginCount:1}}, {fields:fieldsToReturn,new:true,safe:true}, (error, emailToFacebookUser)->
-          if error? or emailToFacebookUser? #if error or email user found, else null, null
-            callback error, emailToFacebookUser
+        else
+          callTransloadit = false
+          if consumerAlreadyRegistered?
+            #registered user found
+            if consumerAlreadyRegistered.permissions? && consumerAlreadyRegistered.permissions.media? && facebookData.pic?
+              #user is showing (permissions) media, and fb pic is set (not default fb pic)
+              # update pic to new facbook pic
+              mediaGuid = guidGen.v1()
+              consumer.media = {
+                guid    : mediaGuid
+                url     : facebookData.pic
+                thumb   : facebookData.pic
+                mediaId : null
+              }
+              callTransloadit = true
+            if consumerAlreadyRegistered.facebook?
+              #if user found was registered via facebook
+              # save updated facebook data to user document
+              fieldsToReturnWithMediaPermission = fieldsToReturn
+              fieldsToReturnWithMediaPermission["permissions.media"] = 1
+              self.model.collection.findAndModify {'facebook.id': fbid}, [], {$set: consumer, $inc: {loginCount:1}}, {fields:fieldsToReturnWithMediaPermission,new:true,safe:true}, (error, returningFacebookUser)->
+                if returningFacebookUser?
+                  if !fieldsToReturn["permissions.media"]?
+                    delete consumers.permissions.media
+                    if Object.isEmpty consumers.permissions
+                      delete consumers.permissions
+                callback error, returningFacebookUser
+                #update profile pic with latest pic
+                if callTransloadit && !error?
+                  self._sendFacebookPicToTransloadit returningFacebookUser._id, mediaGuid, facebookData.pic
+                return
+            else
+              #user found was registered via email
+              # update user object with facebook fields
+              self.model.collection.findAndModify {'email': facebookData.me.email}, [], {$set: consumer, $inc: {loginCount:1}}, {fields:fieldsToReturn,new:true,safe:true}, (error, emailToFacebookUser)->
+                callback error, emailToFacebookUser
+                if callTransloadit && !error?
+                  self._sendFacebookPicToTransloadit emailToFacebookUser._id, mediaGuid, facebookData.pic
+                return
             return
-          #brand new user
-          consumer.email = facebookData.me.email
-          consumer.facebook = {}
-          consumer.facebook.access_token = accessToken
-          consumer.facebook.id = facebookData.me.id
-          newUserModel = new self.model(consumer)
-          newUserModel.save (error, newUserAllFields)->
-            if error?
-              callback error
+          else
+            #previously registered user not found
+            #brand new user!
+            consumer.email = facebookData.me.email
+            consumer.facebook = {}
+            consumer.facebook.access_token = accessToken
+            consumer.facebook.id = facebookData.me.id
+            if facebookData.pic?
+              mediaGuid = guidGen.v1()
+              consumer.media = {
+                guid    : mediaGuid
+                url     : facebookData.pic
+                thumb   : facebookData.pic
+                mediaId : null
+              }
+              callTransloadit = true
+
+            #save new user
+            newUserModel = new self.model(consumer)
+            newUserModel.save (error, newUserAllFields)->
+              if error?
+                callback error #dberror
+              else
+                newUserSelectFields = self._copyFields(newUserAllFields, fieldsToReturn)
+                callback null, newUserSelectFields
+                if callTransloadit
+                  self._sendFacebookPicToTransloadit newUserAllFields._id, mediaGuid, facebookData.pic
               return
-            newUserSelectFields = self._copyFields(newUserAllFields, fieldsToReturn)
-            callback null, newUserSelectFields
-            return
           return
-        return
-      return #end createorupdateuser
-    return
+
+    return #end @facebookLogin
+
 
   @register: (user, callback)->
     @.add(user, callback)
@@ -2188,34 +2414,51 @@ class Medias extends API
 
   #validate Media Objects for other collections
   @validateMedia: (media, imageType, callback)->
+    console.log "media"
+    console.log media
+    console.log media.mediaId?
+    console.log "media"
+    if !media?
+      callback new errors.ValidationError {"media":"Media is null."}
+      return
     if media.mediaId? and (!media.url? or !media.thumb?) #new mediaId and no urls -> look up urls
+      console.log "mediaID!!!!!"
       #mediaId typecheck is done in one
-      Medias.one mediaId (error, data)->
+      Medias.one media.mediaId, (error, data)->
         if error?
           callback error #callback
           return
         else if data.length==0
-          callback errors.ValidationError({"mediaId":"Invalid MediaId"})
+          callback new errors.ValidationError({"mediaId":"Invalid MediaId"})
           return
         if imageType=="square"
+          media.mediaId = data.mediaId #type objectId
           media.thumb = data.sizes.s85
           media.url   = data.sizes.s128
+          delete media.guid
         else if imageType=="landscape"
+          media.mediaId = data.mediaId #type objectId
           media.thumb = data.sizes.s100x75
           media.url   = data.sizes.s320x240
-        return media
+          delete media.guid
+        callback null, media #media found and urls set
+        return
     else if media.guid?
+      console.log "guid1!!!!!"
       if !media.url?
-        callback errors.ValidationError({"media.url":"Media url (temp. url) is required when supplying guid."})
-        return
+        callback new errors.ValidationError({"media.url":"Media url (temp. url) is required when supplying guid."})
       else if !media.thumb?
-        callback errors.ValidationError({"media.thumb":"Media thumb (temp. url) is required when supplying guid."})
-        return
-    else if (data.media.url? || data.media.thumb?) #and !data.media.guid and !data.media.mediaId
-      callback errors.ValidationError({"media":"Guid or MediaId is required when supplying a media.url"})
+        callback new errors.ValidationError({"media.thumb":"Media thumb (temp. url) is required when supplying guid."})
+      else
+        callback null, media
+      return
+    else if (media.url? || media.thumb?) #and !data.media.guid and !data.media.mediaId
+      console.log "guid@222!!!!!"
+      callback new errors.ValidationError({"media":"Guid or MediaId is required when supplying a media.url"})
       return
     else
-      return media #guid and urls supplied
+      callback null, media #guid and urls supplied
+      return
 
   @addOrUpdate: (media, callback)->
     if Object.isString(media.entity.id)

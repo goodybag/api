@@ -202,6 +202,8 @@ Consumer = new Schema {
   logins          : []
   honorScore      : {type: Number, default: 0}
   charities       : {}
+  media           : media
+  secureMedia     : media
 
   facebook: {
     access_token  : {type: String}
@@ -222,6 +224,7 @@ Consumer = new Schema {
   }
   permissions: {
     email         : {type: Boolean, default: false}
+    media         : {type: Boolean, default: true}
     birthday      : {type: Boolean, default: false}
     gender        : {type: Boolean, default: false}
     education     : {type: Boolean, default: false} #fb
