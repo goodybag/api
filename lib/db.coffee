@@ -183,7 +183,7 @@ PasswordResetRequest = new Schema {
 ####################
 Consumer = new Schema {
   email           : {type: String, set: utils.toLower, validate: Email, unique: true}
-  password        : {type: String, min:5, default: mongoose.Types.ObjectId.createPk(), required:true}
+  password        : {type: String, min:5}
   firstName       : {type: String, required: true}
   lastName        : {type: String, required: true}
   screenName      : {type: String, default: mongoose.Types.ObjectId.createPk(), unique: true}
