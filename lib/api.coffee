@@ -139,10 +139,7 @@ class API
       }
       data: data
       direction: direction
-      entity: {
-        type: entity.type
-        id: entity.id
-      }
+      entity: entity
     }
 
     return transaction
@@ -1404,7 +1401,6 @@ class Polls extends Campaigns
             cb()
 
       save: (cb)->
-
         inc = new Object()
         set = new Object()
         push = new Object()
@@ -1855,6 +1851,110 @@ class Discussions extends Campaigns
     @model.findOne {_id: discussionId, 'entity.type': entityType ,'entity.id': entityId}, callback
     return
 
+  @thank: (discussionId, responseId, thankerEntity, amount, callback)-> #take money out of my own funds and give to another user, update discussion
+    if Object.isString(discussionId)
+      discussionId = new ObjectId(discussionId)
+    if Object.isString(responseId)
+      responseId = new ObjectId(responseId)
+    if Object.isString(thankerEntity.id)
+      thankerEntity.id = new ObjectId(thankerEntity.id)
+
+    thankerModel = null
+    if thankerEntity.type is choices.entities.CONSUMER
+      thankerModel = Consumers
+    else if thankerEntity.type is choices.entities.BUSINESS
+      thankerModel = Businesses
+    else
+      callback new errors.ValidationError({"discussion":"Entity type: #{thankerEntity.type} is invalid or unsupported"})
+      return
+
+    fieldsToReturn = {}
+    fieldsToReturn["responseEntities.#{responseId.toString()}"] = 1
+
+    entityThanked = null
+    async.series {
+      getResponseEntity: (cb)->
+        @model.collection.findOne {_id: discussionId}, fieldsToReturn, (error, discussion)->
+          if error?
+            cb error
+            return
+          else if !discussion?
+            cb new errors.ValidationError("discussion": "response doesn't exist")
+            return
+          else
+            entityThanked = discusison.responseEntities["#{responseId.toString()}"]
+            cb()
+            return
+      save: (cb)->
+        transactionData = {
+          amount: amount
+          thankerEntity: thankerEntity
+          responseId: responseId
+          timestamp: new Date()
+        }
+
+        transaction = @createTransaction(choices.transactions.states.PENDING, choices.transactions.actions.DISCUSSION_THANKED, transactionData, choices.transactions.directions.OUTBOUND, entityThanked)
+
+        $set = {}
+        $push = {
+          "transactions.ids": transaction.id
+          "transactions.log": transaction
+        }
+
+        $inc = {
+          "funds.remaining": -1*amount
+        }
+
+        $update = {$push: $push, $set: $set, $inc: $inc}
+
+        fieldsToReturn = {_id: 1}
+
+        thankerModel.collection.findAndModify {_id: entity.id, "funds.remaining": {$gte: amount}}, [], $update, {safe: true, fields: fieldsToReturn}, (error, doc)->
+          if error?
+            cb error
+          else if !doc?
+            cb new errors.ValidationError({"funds.remaining":"insufficient funds remaining"})
+          else
+            callback(null, 1) #1 for number of documents updated (no need to return document)
+            tp.process(doc, transaction)
+            cb()
+    },
+    (error, results)->
+      if error?
+        callback(error)
+
+
+  @donate: (discussionId, entity, amount, callback)->
+    if Object.isString(discussionId)
+      discussionId = new ObjectId(discussionId)
+    if Object.isString(entity.id)
+      entity.id = new ObjectId(entity.id)
+
+    amount = parseFloat(amount)
+
+    transactionData = {
+      amount: amount
+      timestamp: new Date()
+    }
+    transaction = @createTransaction(choices.transactions.states.PENDING, choices.transactions.actions.DISCUSSION_DONATED, transactionData, choices.transactions.directions.INBOUND, entity)
+
+    $set = {}
+    $push = {
+      "transactions.ids": transaction.id
+      "transactions.log": transaction
+    }
+    $update = {$push: $push, $set: $set}
+
+    fieldsToReturn = {_id: 1 }
+    @model.collection.findAndModify {_id: discussionId}, [], $update, {safe: true, fields: fieldsToReturn}, (error, discussion)->
+      if error?
+        callback(error)
+      else if !discussion?
+        callback new errors.ValidationError({"discussion":"Discussion does not exist or is not editable."})
+      else
+        callback(null, 1) #1 for number of documents updated (no need to return document)
+        tp.process(discussion, transaction)
+
   @respond: (discussionId, entity, content, callback)->
     if Object.isString(discussionId)
       discussionId = new ObjectId(discussionId)
@@ -1877,6 +1977,8 @@ class Discussions extends Campaigns
     $push = {
       responses: response
     }
+
+    $push["responseEntities.#{_id.toString()}"] = entity
 
     $inc = {
       responseCount: 1
@@ -1960,7 +2062,7 @@ class Discussions extends Campaigns
   @undoVoteDown: (discussionId, responseId, entity, callback)->
     @_undoVote(discussionId, responseId, entity, choices.votes.DOWN, callback)
 
-  @_undoVote = (discussionId, responseId, entity, direction, callback)->
+  @_undoVote: (discussionId, responseId, entity, direction, callback)->
     if Object.isString(discussionId)
       discussionId = new ObjectId(discussionId)
     if Object.isString(responseId)
@@ -1990,14 +2092,6 @@ class Discussions extends Campaigns
   @setTransactionProcessing: @__setTransactionProcessing
   @setTransactionProcessed: @__setTransactionProcessed
   @setTransactionError: @__setTransactionError
-
-
-class Responses extends API
-  @model = Response
-
-  @count = (entityType, businessId, discussionId, callback)->
-    @model.count {'entity.id':businessId, 'entity.type':entityType, discussionId: discussionId}, (error, count)->
-      callback error, count
 
 
 class Medias extends API
@@ -3124,7 +3218,6 @@ exports.Businesses = Businesses
 exports.Medias = Medias
 exports.Polls = Polls
 exports.Discussions = Discussions
-exports.Responses = Responses
 exports.ClientInvitations = ClientInvitations
 exports.Tags = Tags
 exports.EventRequests = EventRequests

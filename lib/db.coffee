@@ -38,6 +38,11 @@ entity = {
   id                : {type: ObjectId, required: true}
   name              : {type: String} #TODO: consider making this required with a default of  ""
   screenName        : {type: String} #only applies to consumers
+  by: { #only if on behalf of another entity (if the entity is a business - this is the client in that business)
+    type: {type: String, enum: choices.entities._enum}
+    id: {type: ObjectId}
+    name: {type: String}
+  }
 }
 
 ##############
@@ -386,7 +391,11 @@ Discussion = new Schema {
   displayMedia        : {type: Boolean, required: true}
 
   media               : media
-  donors              : [Donor] #entities who have put money into this discussion
+  donors              : [Entity] #entities who have put money into this discussion (including creator)
+  # remove name, screenName, by from the donors list - because we want to use addToSet here
+  # donorNames          : {} #{entityTYPE_ObjectIdAsStr: NAME}
+  # donorBy             : {} #{entityTYPE_ObjectIdAsStr: [Name]} #if done on behalf of a business
+  donationAmounts     : {} #{entityTYPE_ObjectIdAsStr: {allocated: AMOUNT, remaining: AMOUNT}} #amount donated by that entity
 
   dates: {
     created           : {type: Date, required: true, default: new Date()}
@@ -407,6 +416,7 @@ Discussion = new Schema {
   responseCount       : {type: Number, required: true, default: 0}
 
   responses           : [Response]
+  responseEntities    : {} #{responseId: entity} #this is used for determining who to donate money to later, so we don't iterate responses array
 
   deleted             : {type: Boolean, default: false}
   transactions        : transactions
@@ -458,13 +468,11 @@ Response = new Schema {
       amount        : {type: Number}
     }]
   }
-
-  deleted           : {type: Boolean, default: false}
 }
 
 
 ####################
-# COMMENT ##########
+# Comment ##########
 ####################
 Comment = new Schema {
   entity            : entity
@@ -479,8 +487,6 @@ Comment = new Schema {
     by              : [Entity]
     count           : {type: Number, default: 0}
   }
-
-  deleted           : {type: Boolean, default: false}
 }
 
 
