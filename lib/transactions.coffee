@@ -29,6 +29,8 @@ process = (document, transaction)-> #this is just a router
       discussionDeleted(document, transaction)
     when choices.transactions.actions.DISCUSSION_DONATED
       discussionDonated(document, transaction)
+    when choices.transactions.actions.DISCUSSION_THANKED
+      discussionThanked(document, transaction)
 
     #STAT - POLLS
     when choices.transactions.actions.STAT_POLL_ANSWERED
@@ -1038,7 +1040,7 @@ discussionThanked = (document, transaction)->
   else if transaction.data.thankerEntity.type is choices.entities.BUSINESS
     thankerEntityApiClass = api.Businesses
   else #If this ever gets called then you are doing something wrong, shoot yourself for pushing to production
-    logger.error "#{prepend} - THANKER ENTITY TYPE #{transaction.data.thankerEntity.type} NOT SUPPORTED FOR TRANSACTION"
+    logger.error "#{prepend} - THANKER ENTITY TYPE #{transaction.data.thankerEntity.type} NOT SUPPORTED FOR THIS TRANSACTION"
     #Nothing can happen with this transaction, it needs to be removed and money refunded - but can't till it's supported!!
     return
 
@@ -1047,7 +1049,8 @@ discussionThanked = (document, transaction)->
   else if transaction.entity.type is choices.entities.BUSINESS
     thankedEntityApiClass = api.Businesses
   else #If this ever gets called then you are doing something wrong, shoot yourself for pushing to production
-    logger.error "#{prepend} - THANKED ENTITY TYPE #{transaction.entity.type} NOT SUPPORTED FOR TRANSACTION"
+    logger.error "#{prepend} - THANKED ENTITY TYPE #{transaction.entity.type} NOT SUPPORTED FOR THIS TRANSACTION"
+    error = {message: "the entity type: #{transaction.entity.type} is not supported"}
     _setTransactionError thankerEntityApiClass, document, transaction, false, false, error, {}, (error, doc)->
       return
     #Nothing can happen with this transaction, it needs to be removed and money refunded - but can't till it's supported!!
@@ -1055,12 +1058,12 @@ discussionThanked = (document, transaction)->
 
   cleanup = (callback)->
     logger.info "#{prepend} cleaning up"
-    _cleanupTransaction document, transaction, thankerEntityApiClass, [thankerEntityApiClass, thankedEntityApiClass, api.Discussions], callback
+    _cleanupTransaction document, transaction, thankerEntityApiClass, [thankerEntityApiClass, thankedEntityApiClass], callback
 
   setProcessed = true #setProcessed, unless something sets this to false
   async.series {
     setProcessing: (callback)->
-      _setTransactionProcessing api.Polls, document, transaction, false, (error, doc)->
+      _setTransactionProcessing thankerEntityApiClass, document, transaction, false, (error, doc)->
         document = doc #we do this because the entities object is missing when the poll is answered
         callback error, doc
       return
@@ -1072,9 +1075,10 @@ discussionThanked = (document, transaction)->
           logger.error error #mongo errored out
           callback(error)
         else if doc?  #transaction was successful, so continue to set processed
+          logger.info "#{prepend} successfully deposited funds"
           callback(null, doc)
         else #null, null passed in which meas the entity to deposit funds to doesn't exist
-          error = {message: "there were insufficient funds"}
+          error = {message: "the entity to transfer funds to doesn't exist"}
           _setTransactionError thankerEntityApiClass, document, transaction, false, false, error, {}, (error, doc)->
             #we don't care if it set or if it didn't set because:
             # 1. if there was a mongo error then the poller will pick it up and work on it later
@@ -1090,30 +1094,57 @@ discussionThanked = (document, transaction)->
         callback() #we are not suppose to set to processed so exit cleanly
         return
 
+      _setTransactionProcessed thankerEntityApiClass, document, transaction, false, false, {}, (error, doc)->
+          if error?
+            callback(error)
+          else if !doc?
+            callback(error, doc)
+            return
+          else
+            callback(error, doc)
+            $push = {
+              "responses.$.thanks.by": {
+                entity: transaction.data.thankerEntity
+                , amount: transaction.data.amount
+              }
+            }
+
+            $inc = {
+              "responses.$.thanks.count": 1
+              "responses.$.thanks.amount": transaction.data.amount
+            }
+
+            $update = {
+              $push: $push
+              $inc: $inc
+            }
+
+            api.Discussions.model.collection.update({_id: transaction.data.discussionId, "responses._id": transaction.data.responseId}, $update)
+
       #Create Poll Created Statistic Transaction
-      statTransaction = thankerEntityApiClass.createTransaction(
-        choices.transactions.states.PENDING
-        , choices.transactions.actions.STAT_POLL_ANSWERED
-        , {timestamp: transaction.data.timestamp}
-        , choices.transactions.directions.OUTBOUND
-        , transaction.entity
-      )
+      # statTransaction = thankerEntityApiClass.createTransaction(
+      #   choices.transactions.states.PENDING
+      #   , choices.transactions.actions.STAT_POLL_ANSWERED
+      #   , {timestamp: transaction.data.timestamp}
+      #   , choices.transactions.directions.OUTBOUND
+      #   , transaction.entity
+      # )
 
-      $pushAll = {
-        "transactions.ids": [statTransaction.id]
-        "transactions.temp": [statTransaction]
-      }
+      # $pushAll = {
+      #   "transactions.ids": [statTransaction.id]
+      #   "transactions.temp": [statTransaction]
+      # }
 
-      $update = {
-        $pushAll: $pushAll
-      }
+      # $update = {
+      #   $pushAll: $pushAll
+      # }
 
-      _setTransactionProcessedAndCreateNew api.Polls, document, transaction, [statTransaction], false, false, $update, callback
+      # _setTransactionProcessedAndCreateNew api.Polls, document, transaction, [statTransaction], false, false, $update, callback
       #if it went through great, if it didn't go through then the poller will take care of it
       #, no other state changes need to occur
 
       #Write to the event stream
-      api.Streams.pollAnswered(transaction.entity, transaction.data.timestamp, document) #we don't care about the callback
+      # api.Streams.pollAnswered(transaction.entity, transaction.data.timestamp, document) #we don't care about the callback
   },
   (error, results)->
     clean = false

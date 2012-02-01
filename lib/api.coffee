@@ -531,6 +531,10 @@ class Consumers extends API
         callback error, user
       return
 
+  @setTransactonPending: @__setTransactionPending
+  @setTransactionProcessing: @__setTransactionProcessing
+  @setTransactionProcessed: @__setTransactionProcessed
+  @setTransactionError: @__setTransactionError
 
 class Clients extends API
   @model = Client
@@ -835,6 +839,10 @@ class Clients extends API
         callback error, user
       return
 
+  @setTransactonPending: @__setTransactionPending
+  @setTransactionProcessing: @__setTransactionProcessing
+  @setTransactionProcessed: @__setTransactionProcessed
+  @setTransactionError: @__setTransactionError
 
 class Businesses extends API
   @model = Business
@@ -1031,6 +1039,10 @@ class Businesses extends API
     query.where('locations.tapins', true)
     query.exec callback
 
+  @setTransactonPending: @__setTransactionPending
+  @setTransactionProcessing: @__setTransactionProcessing
+  @setTransactionProcessed: @__setTransactionProcessed
+  @setTransactionError: @__setTransactionError
 
 class Campaigns extends API
   @updateMedia: (entityType, entityId, guid, data, mediaKey, callback)->
@@ -1859,11 +1871,11 @@ class Discussions extends Campaigns
     if Object.isString(thankerEntity.id)
       thankerEntity.id = new ObjectId(thankerEntity.id)
 
-    thankerModel = null
+    thankerApiClass = null
     if thankerEntity.type is choices.entities.CONSUMER
-      thankerModel = Consumers
+      thankerApiClass = Consumers
     else if thankerEntity.type is choices.entities.BUSINESS
-      thankerModel = Businesses
+      thankerApiClass = Businesses
     else
       callback new errors.ValidationError({"discussion":"Entity type: #{thankerEntity.type} is invalid or unsupported"})
       return
@@ -1873,8 +1885,10 @@ class Discussions extends Campaigns
 
     entityThanked = null
     async.series {
-      getResponseEntity: (cb)->
+      getResponseEntity: (cb)=>
         @model.collection.findOne {_id: discussionId}, fieldsToReturn, (error, discussion)->
+          logger.error error
+          logger.debug discussion
           if error?
             cb error
             return
@@ -1882,13 +1896,14 @@ class Discussions extends Campaigns
             cb new errors.ValidationError("discussion": "response doesn't exist")
             return
           else
-            entityThanked = discusison.responseEntities["#{responseId.toString()}"]
+            entityThanked = discussion.responseEntities["#{responseId.toString()}"]
             cb()
             return
-      save: (cb)->
+      save: (cb)=>
         transactionData = {
           amount: amount
           thankerEntity: thankerEntity
+          discussionId: discussionId
           responseId: responseId
           timestamp: new Date()
         }
@@ -1909,7 +1924,7 @@ class Discussions extends Campaigns
 
         fieldsToReturn = {_id: 1}
 
-        thankerModel.collection.findAndModify {_id: entity.id, "funds.remaining": {$gte: amount}}, [], $update, {safe: true, fields: fieldsToReturn}, (error, doc)->
+        thankerApiClass.model.collection.findAndModify {_id: thankerEntity.id, "funds.remaining": {$gte: amount}}, [], $update, {safe: true, fields: fieldsToReturn}, (error, doc)->
           if error?
             cb error
           else if !doc?
@@ -1919,7 +1934,7 @@ class Discussions extends Campaigns
             tp.process(doc, transaction)
             cb()
     },
-    (error, results)->
+    (error, results)=>
       if error?
         callback(error)
 
@@ -1978,13 +1993,14 @@ class Discussions extends Campaigns
       responses: response
     }
 
-    $push["responseEntities.#{_id.toString()}"] = entity
+    $set = {}
+    $set["responseEntities.#{response._id.toString()}"] = entity
 
     $inc = {
       responseCount: 1
     }
 
-    $update = {$push: $push, $inc: $inc}
+    $update = {$push: $push, $inc: $inc, $set: $set}
 
     @model.collection.update {_id: discussionId}, $update, {safe: true}, callback
 
@@ -3027,64 +3043,6 @@ class Streams extends API
         callback error, {activities: activities, consumers: consumers}
 
 
-class PasswordResetRequests extends API
-  @model: PasswordResetRequest
-
-  @consume: (id, callback)->
-    if Object.isString(id)
-      id = new ObjectId(id)
-
-    query = {_id: id}
-    update = {$set: {consumed: true}}
-    options = {remove: false, new: true, upsert: false}
-    @model.collection.findAndModify query, [], update, options, (error, request)->
-      if error?
-        callback error
-        return
-      if !request?
-        callback new errors.ValidationError {"_id": "_id does not exist"}
-        return
-      if request?
-        callback error, request
-      return
-
-  @pending: (key, callback)->
-    minutes = new Date().getMinutes()
-    minutes -= globals.defaults.passwordResets.keyLife
-    date = new Date()
-    date.setMinutes minutes
-    options =
-      key: key
-      date: {$gt: date}
-      consumed: false
-    @model.findOne options, callback
-
-  @add: (type, email, callback)->
-    # determine user type
-    if type == choices.entities.CONSUMER
-      userModel = Consumers.model
-    else if type == choices.entities.CLIENT
-      userModel = Clients.model
-    else
-      callback new errors.ValidationError {
-        "type": "Not a valid entity type."
-      }
-      return
-      # find the user
-    userModel.findOne {email: email}, (error, user)=>
-      if error?
-        callback error
-        return
-      #found the user now submit the request
-      request =
-        entity:
-          type: type
-          id: user._id
-        key: hashlib.md5(globals.secretWord+email+(new Date().toString()))
-      instance = new @model request
-      instance.save callback
-
-
 class Statistics extends API
   @model: Statistic
 
@@ -3211,19 +3169,76 @@ class Statistics extends API
   @setTransactionError: @__setTransactionError
 
 
+class PasswordResetRequests extends API
+  @model: PasswordResetRequest
+
+  @consume: (id, callback)->
+    if Object.isString(id)
+      id = new ObjectId(id)
+
+    query = {_id: id}
+    update = {$set: {consumed: true}}
+    options = {remove: false, new: true, upsert: false}
+    @model.collection.findAndModify query, [], update, options, (error, request)->
+      if error?
+        callback error
+        return
+      if !request?
+        callback new errors.ValidationError {"_id": "_id does not exist"}
+        return
+      if request?
+        callback error, request
+      return
+
+  @pending: (key, callback)->
+    minutes = new Date().getMinutes()
+    minutes -= globals.defaults.passwordResets.keyLife
+    date = new Date()
+    date.setMinutes minutes
+    options =
+      key: key
+      date: {$gt: date}
+      consumed: false
+    @model.findOne options, callback
+
+  @add: (type, email, callback)->
+    # determine user type
+    if type == choices.entities.CONSUMER
+      userModel = Consumers.model
+    else if type == choices.entities.CLIENT
+      userModel = Clients.model
+    else
+      callback new errors.ValidationError {
+        "type": "Not a valid entity type."
+      }
+      return
+      # find the user
+    userModel.findOne {email: email}, (error, user)=>
+      if error?
+        callback error
+        return
+      #found the user now submit the request
+      request =
+        entity:
+          type: type
+          id: user._id
+        key: hashlib.md5(globals.secretWord+email+(new Date().toString()))
+      instance = new @model request
+      instance.save callback
+
 exports.DBTransactions = DBTransactions
-exports.Clients = Clients
 exports.Consumers = Consumers
+exports.Clients = Clients
 exports.Businesses = Businesses
-exports.Medias = Medias
 exports.Polls = Polls
 exports.Discussions = Discussions
+exports.Medias = Medias
 exports.ClientInvitations = ClientInvitations
 exports.Tags = Tags
 exports.EventRequests = EventRequests
 exports.Events = Events
-exports.Streams = Streams
 exports.BusinessTransactions = BusinessTransactions
 exports.BusinessRequests = BusinessRequests
-exports.PasswordResetRequests = PasswordResetRequests
+exports.Streams = Streams
 exports.Statistics = Statistics
+exports.PasswordResetRequests = PasswordResetRequests
