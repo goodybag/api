@@ -43,6 +43,8 @@ Statistic = db.Statistic
 #TODO:
 #Make sure that all necessary fields exist for each function before sending the query to the db
 
+
+ ## API ##
 class API
   @model = null
   constructor: ()->
@@ -359,10 +361,12 @@ class API
     @model.findOne $query, callback
 
 
+## DBTransactions ##
 class DBTransactions extends API
   @model = DBTransaction
 
 
+## Consumers ##
 class Consumers extends API
   @model = Consumer
 
@@ -541,12 +545,10 @@ class Consumers extends API
   @setTransactionError: @__setTransactionError
 
 
+## Clients ##
 class Clients extends API
   @model = Client
 
-  ###
-  @callback error, valid
-  ###
   @validatePassword: (id, password, callback)->
     if(Object.isString(id))
       id = new ObjectId(id)
@@ -574,9 +576,6 @@ class Clients extends API
         callback new error.ValidationError "Invalid id", {"id", "invalid"}
         return
 
-  ###
-  @callback error, hash
-  ###
   @encryptPassword:(password, callback)->
     bcrypt.gen_salt 10, (error, salt)=>
       if error?
@@ -850,6 +849,7 @@ class Clients extends API
   @setTransactionError: @__setTransactionError
 
 
+## Businesses ##
 class Businesses extends API
   @model = Business
 
@@ -1051,6 +1051,7 @@ class Businesses extends API
   @setTransactionError: @__setTransactionError
 
 
+## Campaigns ##
 class Campaigns extends API
   @updateMedia: (entityType, entityId, guid, data, mediaKey, callback)->
     if(Object.isString(entityId))
@@ -1081,6 +1082,7 @@ class Campaigns extends API
     return
 
 
+## Polls ##
 class Polls extends Campaigns
   @model = Poll
 
@@ -1609,6 +1611,7 @@ class Polls extends Campaigns
   @setTransactionError: @__setTransactionError
 
 
+## Discussions ##
 class Discussions extends Campaigns
   @model = Discussion
 
@@ -1810,10 +1813,13 @@ class Discussions extends Campaigns
       query.count callback
     return
 
-  # *options*:
+  ### _list_ ###
+  # **options**
   #
-  # - limit
-  # - skip
+  # - **limit** _Number, default: 25_ limit number of discussions returned
+  # - **skip** _Number, default: 0_ an offset for number of discussions returned
+  #
+  # **callback** error, discussions
   @list: (options, callback)->
     if Object.isFunction(options)
       callback = options
@@ -1848,11 +1854,16 @@ class Discussions extends Campaigns
       cursor.toArray (error, discussions)->
         callback(error, discussions)
 
-  # *discussionId*: Id of discussion (String/ObjectId)
-  # *responseOptions*:
+  ### _get_ ###
   #
-  # - *start*: starting index of slice for responses
-  # - *stop*: stopping index of slice for responses
+  # **discussionId** _String/ObjectId_ id of discussion
+  #
+  # **responseOptions**
+  #
+  # - **start** _Number, default: 0_ starting index of slice for responses
+  # - **stop** _Number, default: 10_ stopping index of slice for responses
+  #
+  # **callback** error, discussion
   @get: (discussionId, responseOptions, callback)->
     if Object.isString(discussionId)
       discussionId = new ObjectId(discussionId)
@@ -1885,13 +1896,18 @@ class Discussions extends Campaigns
       , responses       : {$slice:[responseOptions.start, responseOptions.stop]}
     }
 
-    @model.collection.find $query, $fields, (error, cursor)->
-      if error?
-        callback(error)
-        return
-      cursor.toArray (error, discussions)->
-        callback(error, discussions)
+    @model.collection.findOne $query, $fields, (error, discussion)->
+      callback(error, discussion)
 
+  ### _getResponsesOnly_ ###
+  # **discussionId** _String/ObjectId_ Id of discussion
+  #
+  # **responseOptions**
+  #
+  # - **start** _Number, default: 0_ starting index of slice for responses
+  # - **stop** _Number, default: 10_ stopping index of slice for responses
+  #
+  # **callback** error, discussion
   @getResponsesOnly: (discussionId, responseOptions, callback)->
     if Object.isString(discussionId)
       discussionId = new ObjectId(discussionId)
@@ -1978,6 +1994,12 @@ class Discussions extends Campaigns
     @model.findOne {_id: discussionId, 'entity.type': entityType ,'entity.id': entityId}, callback
     return
 
+  ### _thank_ ###
+  # **discussionId** _String/ObjectId_ Id of discussion <br />
+  # **responseId** _String/ObjectId_ Id of response in discussion <br />
+  # **thankerEntity** _Object_ an entity object containing at least `type` and `id` <br />
+  # **amount** _Float_ the amount that the user wishes to thank the respondant <br />
+  # **callback** error, numDocsModified
   @thank: (discussionId, responseId, thankerEntity, amount, callback)-> #take money out of my own funds and give to another user, update discussion
     if Object.isString(discussionId)
       discussionId = new ObjectId(discussionId)
@@ -2055,6 +2077,11 @@ class Discussions extends Campaigns
       if error?
         callback(error)
 
+  ### _donate_ ###
+  # **discussionId** _String/ObjectId_ Id of discussion <br />
+  # **entity** _Object_ an entity object containing at least `type` and `id` <br />
+  # **amount** _Float_ the amount that the user wishes to thank the respondant <br />
+  # **callback** error, numDocsModified
   @donate: (discussionId, entity, amount, callback)->
     if Object.isString(discussionId)
       discussionId = new ObjectId(discussionId)
@@ -2088,6 +2115,12 @@ class Discussions extends Campaigns
         callback(null, 1) #1 for number of documents updated (no need to return document)
         tp.process(discussion, transaction)
 
+  ### distributeDonation ###
+  # **discussionId** _String/ObjectId_ Id of discussion <br />
+  # **responseId** _String/ObjectId_ Id of response in discussion <br />
+  # **donorEntity** _Object_ an entity object containing at least `type` and `id` <br />
+  # **amount** _Float_ the amount that the user wishes to donate into the discussions <br />
+  # **callback** error, numDocsModified
   @distributeDonation: (discussionId, responseId, donorEntity, amount, callback)-> #distribute the amount that the donorEntity has donated to a particular response
     if Object.isString(discussionId)
       discussionId = new ObjectId(discussionId)
@@ -2161,6 +2194,11 @@ class Discussions extends Campaigns
       if error?
         callback(error)
 
+  ### _respond_ ###
+  # **discussionId** _String/ObjectId_ Id of discussion <br />
+  # **entity** _Object_ an entity object containing at least `type` and `id` <br />
+  # **content** _String_ the content of the response <br />
+  # **callback** error, numDocsModified
   @respond: (discussionId, entity, content, callback)->
     if Object.isString(discussionId)
       discussionId = new ObjectId(discussionId)
@@ -2195,6 +2233,12 @@ class Discussions extends Campaigns
 
     @model.collection.update {_id: discussionId}, $update, {safe: true}, callback
 
+  ### _comment_ ###
+  # **discussionId** _String/ObjectId_ Id of discussion <br />
+  # **responseId** _String/ObjectId_ Id of response in discussion <br />
+  # **entity** _Object_ an entity object containing at least `type` and `id` <br />
+  # **content** _String_ the content of the comment <br />
+  # **callback** error, numDocsModified
   @comment: (discussionId, responseId, entity, content, callback)->
     if Object.isString(discussionId)
       discussionId = new ObjectId(discussionId)
@@ -2220,12 +2264,28 @@ class Discussions extends Campaigns
       $update = {$push: $push, $inc: $inc}
       @model.collection.update {_id: discussionId, "responses._id": responseId}, $update, {safe: true}, callback
 
+  ### _voteUp_ ###
+  # **discussionId** _String/ObjectId_ Id of discussion <br />
+  # **responseId** _String/ObjectId_ Id of response in discussion <br />
+  # **entity** _Object_ an entity object containing at least `type` and `id` <br />
+  # **callback** error
   @voteUp: (discussionId, responseId, entity, callback)->
     @_vote(discussionId, responseId, entity, choices.votes.UP, callback)
 
+  ### _voteDown_ ###
+  # **discussionId** _String/ObjectId_ Id of discussion <br />
+  # **responseId** _String/ObjectId_ Id of response in discussion <br />
+  # **entity** _Object_ an entity object containing at least `type` and `id` <br />
+  # **callback** error
   @voteDown: (discussionId, responseId, entity, callback)->
     @_vote(discussionId, responseId, entity, choices.votes.DOWN, callback)
 
+  ### _\_vote_ ###
+  # **discussionId** _String/ObjectId_ Id of discussion <br />
+  # **responseId** _String/ObjectId_ Id of response in discussion <br />
+  # **entity** _Object_ an entity object containing at least `type` and `id` <br />
+  # **direction** _String, enum: choices.votes_ <br />
+  # **callback** error
   @_vote: (discussionId, responseId, entity, direction, callback)->
     if Object.isString(discussionId)
       discussionId = new ObjectId(discussionId)
@@ -2261,12 +2321,29 @@ class Discussions extends Campaigns
 
     @model.collection.update $query, $update, {safe: false}, callback
 
+
+  ### _undoVoteUp_ ###
+  # **discussionId** _String/ObjectId_ Id of discussion <br />
+  # **responseId** _String/ObjectId_ Id of response in discussion <br />
+  # **entity** _Object_ an entity object containing at least `type` and `id` <br />
+  # **callback** error
   @undoVoteUp: (discussionId, responseId, entity, callback)->
     @_undoVote(discussionId, responseId, entity, choices.votes.UP, callback)
 
+  ### _undoVoteDown_ ###
+  # **discussionId** _String/ObjectId_ Id of discussion <br />
+  # **responseId** _String/ObjectId_ Id of response in discussion <br />
+  # **entity** _Object_ an entity object containing at least `type` and `id` <br />
+  # **callback** error
   @undoVoteDown: (discussionId, responseId, entity, callback)->
     @_undoVote(discussionId, responseId, entity, choices.votes.DOWN, callback)
 
+  ### _\_undoVote_ ###
+  # **discussionId** _String/ObjectId_ Id of discussion <br />
+  # **responseId** _String/ObjectId_ Id of response in discussion <br />
+  # **entity** _Object_ an entity object containing at least `type` and `id` <br />
+  # **direction** _String, enum: choices.votes_ <br />
+  # **callback** error
   @_undoVote: (discussionId, responseId, entity, direction, callback)->
     if Object.isString(discussionId)
       discussionId = new ObjectId(discussionId)
@@ -2299,6 +2376,7 @@ class Discussions extends Campaigns
   @setTransactionError: @__setTransactionError
 
 
+## Medias ##
 class Medias extends API
   @model = Media
 
@@ -2342,6 +2420,7 @@ class Medias extends API
     #@get {'entity.type': entityType, 'entity.id': entityId, 'media.guid': guid}, callback
 
 
+## ClientInvitations ##
 class ClientInvitations extends API
   @model = ClientInvitation
 
@@ -2376,6 +2455,7 @@ class ClientInvitations extends API
     query.remove(callback)
 
 
+## Tags ##
 class Tags extends API
   @model = Tag
 
@@ -2402,6 +2482,7 @@ class Tags extends API
     query.exec callback
 
 
+## EventRequests ##
 class EventRequests extends API
   @model = EventRequest
 
@@ -2420,6 +2501,7 @@ class EventRequests extends API
     @model.collection.findAndModify $query, [], $update, $options, callback
 
 
+## Events ##
 class Events extends API
   @model = Event
 
@@ -2468,6 +2550,7 @@ class Events extends API
   @setTransactionError: @__setTransactionError
 
 
+## BusinessTransactions ##
 class BusinessTransactions extends API
   @model = db.BusinessTransaction
 
@@ -2631,6 +2714,7 @@ class BusinessTransactions extends API
   @setTransactionError: @__setTransactionError
 
 
+## BusinessRequests ##
 class BusinessRequests extends API
   @model = BusinessRequest
 
@@ -2644,6 +2728,7 @@ class BusinessRequests extends API
     instance.save callback
 
 
+## Streams ##
 class Streams extends API
   @model: Stream
 
@@ -3232,6 +3317,7 @@ class Streams extends API
         callback error, {activities: activities, consumers: consumers}
 
 
+## Statistics ##
 class Statistics extends API
   @model: Statistic
 
@@ -3358,6 +3444,7 @@ class Statistics extends API
   @setTransactionError: @__setTransactionError
 
 
+## PasswordResetRequests ##
 class PasswordResetRequests extends API
   @model: PasswordResetRequest
 
