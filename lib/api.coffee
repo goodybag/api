@@ -362,6 +362,7 @@ class API
 class DBTransactions extends API
   @model = DBTransaction
 
+
 class Consumers extends API
   @model = Consumer
 
@@ -1903,8 +1904,6 @@ class Discussions extends Campaigns
     async.series {
       getResponseEntity: (cb)=>
         @model.collection.findOne {_id: discussionId}, fieldsToReturn, (error, discussion)->
-          logger.error error
-          logger.debug discussion
           if error?
             cb error
             return
@@ -2006,8 +2005,6 @@ class Discussions extends Campaigns
     async.series {
       getResponseEntity: (cb)=>
         @model.collection.findOne {_id: discussionId}, fieldsToReturn, (error, discussion)->
-          logger.error error
-          logger.debug discussion
           if error?
             cb error
             return
@@ -2043,9 +2040,12 @@ class Discussions extends Campaigns
 
         fieldsToReturn = {_id: 1}
 
-        query = {_id: discussionId}
-        query["donationAmounts.#{donorEntity.id}"] = {$gte: amount}
-        @model.collection.findAndModify query, [], $update, {safe: true, fields: fieldsToReturn}, (error, doc)->
+        $query = {_id: discussionId}
+        $query["donationAmounts.#{donorEntity.type}_#{donorEntity.id}.remaining"] = {$gte: amount}
+
+        logger.debug $query
+        logger.debug $update
+        @model.collection.findAndModify $query, [], $update, {safe: true, fields: fieldsToReturn}, (error, doc)->
           if error?
             cb error
           else if !doc?
@@ -2140,8 +2140,6 @@ class Discussions extends Campaigns
 
     #if the user has voted the opposite, undo that
     @_undoVote discussionId, responseId, entity, opposite, (error, data)->
-      console.log error
-      console.log data
       return
 
     entity._id = new ObjectId() #we do this because mongoose does it to every document array

@@ -31,6 +31,8 @@ process = (document, transaction)-> #this is just a router
       discussionDonated(document, transaction)
     when choices.transactions.actions.DISCUSSION_THANKED
       discussionThanked(document, transaction)
+    when choices.transactions.actions.DISCUSSION_DONATION_DISTRIBUTED
+      discussionDonationDistributed(document, transaction)
 
     #STAT - POLLS
     when choices.transactions.actions.STAT_POLL_ANSWERED
@@ -1168,7 +1170,7 @@ discussionThanked = (document, transaction)->
 #OUTBOUND
 discussionDonationDistributed = (document, transaction)->
   prepend = "ID: #{document._id} - TID: #{transaction.id}"
-  logger.info "Creating transaction for donation distributed to entity of type #{transaction.entity.type} discussion by entity of type #{transaction.data.thankerEntity.type}"
+  logger.info "Creating transaction for donation distributed to entity of type #{transaction.entity.type} discussion by entity of type #{transaction.data.donorEntity.type}"
   logger.info "#{prepend} - #{transaction.direction}"
 
   if transaction.entity.type is choices.entities.CONSUMER
@@ -1241,6 +1243,8 @@ discussionDonationDistributed = (document, transaction)->
               "responses.$.donations.count": 1
               "responses.$.donations.amount": transaction.data.amount
             }
+
+            $inc["donationAmounts.#{transaction.data.donorEntity.type}_#{transaction.data.donorEntity.id}.remaining"] = -1*transaction.data.amount
 
             $update = {
               $push: $push

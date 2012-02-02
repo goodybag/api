@@ -396,7 +396,7 @@ Discussion = new Schema {
   # remove name, screenName, by from the donors list - because we want to use addToSet here
   # donorNames          : {} #{entityTYPE_ObjectIdAsStr: NAME}
   # donorBy             : {} #{entityTYPE_ObjectIdAsStr: [Name]} #if done on behalf of a business
-  donationAmounts     : {} #{entityTYPE_ObjectIdAsStr: {allocated: AMOUNT, remaining: AMOUNT}} #amount donated by that entity
+  donationAmounts     : {} #{entityTYPE_ObjectIdAsStr: {allocated: AMOUNT, remaining: AMOUNT}} #amount donated by that entity #we are storing it here instead of in donors, incase the same entity donates multiple times
 
   dates: {
     created           : {type: Date, required: true, default: new Date()}
