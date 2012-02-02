@@ -127,6 +127,9 @@ class API
 
   #TRANSACTIONS
   @createTransaction: (state, action, data, direction, entity)->
+    if Object.isString(entity.id)
+      entity.id = new ObjectId(entity.id)
+
     transaction = {
       _id: new ObjectId() #We are putting this in here only because mongoose does for us. #CONSIDER REMOVING THE REGULAR ID FIELD AND ONLY USE THIS
       id: new ObjectId()
@@ -298,7 +301,8 @@ class API
     Object.merge($update, modifierDoc)
     Object.merge($update.$set, $set)
 
-    @model.collection.findAndModify $query, [], $update, {new: true, safe: true}, callback
+    @model.collection.findAndModify $query, [], $update, {new: true, safe: true}, (error, doc)->
+      callback(error, doc)
 
   @__setTransactionError: (id, transactionId, locking, removeLock, errorObj, modifierDoc, callback)->
     if Object.isString(id)
@@ -357,7 +361,6 @@ class API
 
 class DBTransactions extends API
   @model = DBTransaction
-
 
 class Consumers extends API
   @model = Consumer
@@ -535,6 +538,7 @@ class Consumers extends API
   @setTransactionProcessing: @__setTransactionProcessing
   @setTransactionProcessed: @__setTransactionProcessed
   @setTransactionError: @__setTransactionError
+
 
 class Clients extends API
   @model = Client
@@ -844,6 +848,7 @@ class Clients extends API
   @setTransactionProcessed: @__setTransactionProcessed
   @setTransactionError: @__setTransactionError
 
+
 class Businesses extends API
   @model = Business
 
@@ -1044,6 +1049,7 @@ class Businesses extends API
   @setTransactionProcessed: @__setTransactionProcessed
   @setTransactionError: @__setTransactionError
 
+
 class Campaigns extends API
   @updateMedia: (entityType, entityId, guid, data, mediaKey, callback)->
     if(Object.isString(entityId))
@@ -1105,7 +1111,7 @@ class Polls extends Campaigns
       amount: amount
     }
 
-    transaction = @createTransaction(choices.transactions.states.PENDING, choices.transactions.actions.POLL_CREATED, transactionData, choices.transactions.directions.INBOUND, instance.entity)
+    transaction = @createTransaction(choices.transactions.states.PENDING, choices.transactions.actions.POLL_CREATED, transactionData, choices.transactions.directions.INBOUND, instance._doc.entity)
 
     instance.transactions.state = choices.transactions.states.PENDING #soley for reading purposes
     instance.transactions.locked = true
@@ -1713,7 +1719,7 @@ class Discussions extends Campaigns
       amount: amount
     }
 
-    transaction = @createTransaction(choices.transactions.states.PENDING, choices.transactions.actions.DISCUSSION_CREATED, transactionData, choices.transactions.directions.INBOUND, instance.entity)
+    transaction = @createTransaction(choices.transactions.states.PENDING, choices.transactions.actions.DISCUSSION_CREATED, transactionData, choices.transactions.directions.INBOUND, instance._doc.entity)
 
     instance.transactions.locked = true
     instance.transactions.ids = [transaction.id]
@@ -1803,6 +1809,12 @@ class Discussions extends Campaigns
       query.count callback
     return
 
+  @get: (discussionId, numResponses, callback)->
+
+  @getTitleBasic: ()->
+
+  @getTitleAdvanced: ()->
+
   @del: (entityType, entityId, discussionId, lastModifiedBy, callback)->
     self = this
     if Object.isString(entityId)
@@ -1871,6 +1883,10 @@ class Discussions extends Campaigns
     if Object.isString(thankerEntity.id)
       thankerEntity.id = new ObjectId(thankerEntity.id)
 
+    amount = parseFloat(amount)
+    if amount<0
+      callback(new errors.ValidationError("discussion": "can not thank a negative amount"))
+
     thankerApiClass = null
     if thankerEntity.type is choices.entities.CONSUMER
       thankerApiClass = Consumers
@@ -1938,7 +1954,6 @@ class Discussions extends Campaigns
       if error?
         callback(error)
 
-
   @donate: (discussionId, entity, amount, callback)->
     if Object.isString(discussionId)
       discussionId = new ObjectId(discussionId)
@@ -1946,6 +1961,8 @@ class Discussions extends Campaigns
       entity.id = new ObjectId(entity.id)
 
     amount = parseFloat(amount)
+    if amount<0
+      callback(new errors.ValidationError("discussion": "can not donate negative funds"))
 
     transactionData = {
       amount: amount
@@ -1969,6 +1986,78 @@ class Discussions extends Campaigns
       else
         callback(null, 1) #1 for number of documents updated (no need to return document)
         tp.process(discussion, transaction)
+
+  @distributeDonation: (discussionId, responseId, donorEntity, amount, callback)-> #distribute the amount that the donorEntity has donated to a particular response
+    if Object.isString(discussionId)
+      discussionId = new ObjectId(discussionId)
+    if Object.isString(responseId)
+      responseId = new ObjectId(responseId)
+    if Object.isString(donorEntity.id)
+      donorEntity.id = new ObjectId(donorEntity.id)
+
+    amount = parseFloat(amount)
+    if amount<0
+      callback(new errors.ValidationError("discussion": "can not distribute negative funds"))
+
+    fieldsToReturn = {}
+    fieldsToReturn["responseEntities.#{responseId.toString()}"] = 1
+
+    doneeEntity = null
+    async.series {
+      getResponseEntity: (cb)=>
+        @model.collection.findOne {_id: discussionId}, fieldsToReturn, (error, discussion)->
+          logger.error error
+          logger.debug discussion
+          if error?
+            cb error
+            return
+          else if !discussion?
+            cb new errors.ValidationError("discussion": "response doesn't exist")
+            return
+          else
+            doneeEntity = discussion.responseEntities["#{responseId.toString()}"]
+            cb()
+            return
+      save: (cb)=>
+        transactionData = {
+          amount: amount
+          donorEntity: donorEntity
+          discussionId: discussionId
+          responseId: responseId
+          timestamp: new Date()
+        }
+
+        transaction = @createTransaction(choices.transactions.states.PENDING, choices.transactions.actions.DISCUSSION_DONATION_DISTRIBUTED, transactionData, choices.transactions.directions.OUTBOUND, doneeEntity)
+
+        $set = {}
+        $push = {
+          "transactions.ids": transaction.id
+          "transactions.log": transaction
+        }
+
+        $inc = {
+          "funds.remaining": -1*amount
+        }
+
+        $update = {$push: $push, $set: $set, $inc: $inc}
+
+        fieldsToReturn = {_id: 1}
+
+        query = {_id: discussionId}
+        query["donationAmounts.#{donorEntity.id}"] = {$gte: amount}
+        @model.collection.findAndModify query, [], $update, {safe: true, fields: fieldsToReturn}, (error, doc)->
+          if error?
+            cb error
+          else if !doc?
+            cb new errors.ValidationError({"funds.remaining":"insufficient funds remaining"})
+          else
+            callback(null, 1) #1 for number of documents updated (no need to return document)
+            tp.process(doc, transaction)
+            cb()
+    },
+    (error, results)=>
+      if error?
+        callback(error)
 
   @respond: (discussionId, entity, content, callback)->
     if Object.isString(discussionId)
@@ -2350,7 +2439,7 @@ class BusinessTransactions extends API
           amount: doc.amount
         }
 
-        statTransaction = @createTransaction(choices.transactions.states.PENDING, choices.transactions.actions.STAT_BT_TAPPED, transactionData, choices.transactions.directions.INBOUND, instance.organizationEntity)
+        statTransaction = @createTransaction(choices.transactions.states.PENDING, choices.transactions.actions.STAT_BT_TAPPED, transactionData, choices.transactions.directions.INBOUND, instance._doc.organizationEntity)
 
         instance.transactions.locked = false
         instance.transactions.ids = [statTransaction.id]
@@ -3225,6 +3314,7 @@ class PasswordResetRequests extends API
         key: hashlib.md5(globals.secretWord+email+(new Date().toString()))
       instance = new @model request
       instance.save callback
+
 
 exports.DBTransactions = DBTransactions
 exports.Consumers = Consumers

@@ -141,7 +141,6 @@ _cleanupTransaction = (document, transaction, transactionContainerApiClass, tran
   logger.debug document
 
   #Add it to the DBTransactions Collections and then remove it from the current apiClass
-  logger.debug doc
   api.DBTransactions.add doc, (error, dbTransaction)->
     if error?
       logger.error error
@@ -678,7 +677,8 @@ discussionCreated = (document, transaction)->
         "funds.remaining": transaction.data.amount
         "donors": [transaction.entity]
       }
-      $set["donationAmounts.#{transaction.entity.type}_#{transaction.entity.id}"] = {allocated: transaction.data.amount, remaining: transaction.data.amount}
+      da = "donationAmounts."+transaction.entity.type+"_"+transaction.entity.id.toString()
+      $set[da] = {allocated: transaction.data.amount, remaining: transaction.data.amount}
 
       $update = {
         $set: $set
@@ -1110,6 +1110,7 @@ discussionThanked = (document, transaction)->
             }
 
             $inc = {
+              "responses.$.earned": transaction.data.amount
               "responses.$.thanks.count": 1
               "responses.$.thanks.amount": transaction.data.amount
             }
@@ -1165,43 +1166,54 @@ discussionThanked = (document, transaction)->
           logger.error "#{prepend} unable to properly clean up - the poller will try later"
 
 #OUTBOUND
-discussionAnswered = (document, transaction)->
+discussionDonationDistributed = (document, transaction)->
   prepend = "ID: #{document._id} - TID: #{transaction.id}"
-  logger.info "Creating transaction for answered discussion question"
+  logger.info "Creating transaction for donation distributed to entity of type #{transaction.entity.type} discussion by entity of type #{transaction.data.thankerEntity.type}"
   logger.info "#{prepend} - #{transaction.direction}"
+
+  if transaction.entity.type is choices.entities.CONSUMER
+    doneeEntityApiClass = api.Consumers
+  else if transaction.entity.type is choices.entities.BUSINESS
+    doneeEntityApiClass = api.Businesses
+  else #If this ever gets called then you are doing something wrong, shoot yourself for pushing to production
+    logger.error "#{prepend} - DONEE ENTITY TYPE #{transaction.entity.type} NOT SUPPORTED FOR THIS TRANSACTION"
+    error = {message: "the entity type: #{transaction.entity.type} is not supported"}
+    _setTransactionError api.Discussions, document, transaction, false, false, error, {}, (error, doc)->
+      return
+    #Nothing can happen with this transaction, it needs to be removed and money refunded - but can't till it's supported!!
+    return
 
   cleanup = (callback)->
     logger.info "#{prepend} cleaning up"
-    _cleanupTransaction document, transaction, api.Discussions, [api.Discussions, api.Consumers], callback
+    _cleanupTransaction document, transaction, api.Discussions, [api.Discussions, doneeEntityApiClass], callback
 
   setProcessed = true #setProcessed, unless something sets this to false
   async.series {
     setProcessing: (callback)->
       _setTransactionProcessing api.Discussions, document, transaction, false, (error, doc)->
-        document = doc #we do this because the entities object is missing when the discussion is answered
+        document = doc #we do this because the entities object is missing when the poll is answered
         callback error, doc
       return
+
     depositFunds: (callback)->
-      if transaction.entity.type is choices.entities.CONSUMER
-        logger.debug "#{prepend} attempting to deposit funds to consumer: #{transaction.entity.id}"
-        _depositFunds api.Consumers, api.Discussions, document, transaction, false, false, (error, doc)->
-          if error?
-            logger.error error #mongo errored out
-            callback(error)
-          else if doc?  #transaction was successful, so continue to set processed
-            callback(null, doc)
-          else #null, null passed in which meas insufficient funds, so set error, and exit
-            error = {message: "there were insufficient funds"}
-            _setTransactionError api.Discussions, document, transaction, false, false, error, {}, (error, doc)->
-              #we don't care if it set or if it didn't set because:
-              # 1. if there was a mongo error then the poller will pick it up and work on it later
-              # 2. if it did set then fantastic, we will exit because we don't want to set to processed
-              # 3. if it did not set (no error, and no document updated) then we want to exit because
-              #    it is already in an error or processed state. In that case we want to do nothing
-              setProcessed = false
-              callback(null, null)
-      else
-        callback({name:"NullError", message: "Unsupported Entity Type: #{transaction.entity.type}"})
+      logger.debug "#{prepend} attempting to deposit funds to entity type: #{transaction.entity.type} with id: #{transaction.entity.id}"
+      _depositFunds doneeEntityApiClass, api.Discussions, document, transaction, false, false, (error, doc)->
+        if error?
+          logger.error error #mongo errored out
+          callback(error)
+        else if doc?  #transaction was successful, so continue to set processed
+          logger.info "#{prepend} successfully deposited funds"
+          callback(null, doc)
+        else #null, null passed in which meas the entity to deposit funds to doesn't exist
+          error = {message: "the entity to transfer funds to doesn't exist"}
+          _setTransactionError api.Discussions, document, transaction, false, false, error, {}, (error, doc)->
+            #we don't care if it set or if it didn't set because:
+            # 1. if there was a mongo error then the poller will pick it up and work on it later
+            # 2. if it did set then fantastic, we will exit because we don't want to set to processed
+            # 3. if it did not set (no error, and no document updated) then we want to exit because
+            #    it is already in an error or processed state. In that case we want to do nothing
+            setProcessed = false
+            callback(null, null)
       return
 
     setProcessed: (callback)->
@@ -1209,36 +1221,64 @@ discussionAnswered = (document, transaction)->
         callback() #we are not suppose to set to processed so exit cleanly
         return
 
-      #Create Discussion Created Statistic Transaction
-      statTransaction = api.Discussions.createTransaction(
-        choices.transactions.states.PENDING
-        , choices.transactions.actions.STAT_DISCUSSION_ANSWERED
-        , {timestamp: transaction.data.timestamp}
-        , choices.transactions.directions.OUTBOUND
-        , transaction.entity
-      )
+      _setTransactionProcessed api.Discussions, document, transaction, false, false, {}, (error, doc)->
+          if error?
+            callback(error)
+          else if !doc?
+            callback(error, doc)
+            return
+          else
+            callback(error, doc)
+            $push = {
+              "responses.$.donations.by": {
+                entity: transaction.data.donorEntity
+                , amount: transaction.data.amount
+              }
+            }
 
-      $pushAll = {
-        "transactions.ids": [statTransaction.id]
-        "transactions.temp": [statTransaction]
-      }
+            $inc = {
+              "responses.$.earned": transaction.data.amount
+              "responses.$.donations.count": 1
+              "responses.$.donations.amount": transaction.data.amount
+            }
 
-      $update = {
-        $pushAll: $pushAll
-      }
+            $update = {
+              $push: $push
+              $inc: $inc
+            }
 
-      _setTransactionProcessedAndCreateNew api.Discussions, document, transaction, [statTransaction], false, false, $update, callback
+            api.Discussions.model.collection.update({_id: transaction.data.discussionId, "responses._id": transaction.data.responseId}, $update)
+
+      #Create Poll Created Statistic Transaction
+      # statTransaction = api.Discussions.createTransaction(
+      #   choices.transactions.states.PENDING
+      #   , choices.transactions.actions.STAT_POLL_ANSWERED
+      #   , {timestamp: transaction.data.timestamp}
+      #   , choices.transactions.directions.OUTBOUND
+      #   , transaction.entity
+      # )
+
+      # $pushAll = {
+      #   "transactions.ids": [statTransaction.id]
+      #   "transactions.temp": [statTransaction]
+      # }
+
+      # $update = {
+      #   $pushAll: $pushAll
+      # }
+
+      # _setTransactionProcessedAndCreateNew api.Polls, document, transaction, [statTransaction], false, false, $update, callback
       #if it went through great, if it didn't go through then the poller will take care of it
       #, no other state changes need to occur
 
       #Write to the event stream
-      api.Streams.discussionAnswered(transaction.entity, transaction.data.timestamp, document) #we don't care about the callback
+      # api.Streams.pollAnswered(transaction.entity, transaction.data.timestamp, document) #we don't care about the callback
   },
   (error, results)->
     clean = false
     if error?
       logger.error error
-      if error.name is "TransactionAlreadyCompleted" #we recevied a null document while trying to set the state - the state is already set to processed or error, just needs to cleaned up
+      if error.name is "TransactionAlreadyCompleted" #we recevied a null document while trying to set the state - the state is already set to processed or error, just needs to be cleaned up
         clean = true
       else
         logger.error "#{prepend} the poller will try later" #we received some other type of error, so we will try again later

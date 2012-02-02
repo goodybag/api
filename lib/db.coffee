@@ -159,7 +159,7 @@ DBTransaction = new Schema {
     type            : {type: String, required: true}
     id              : {type: ObjectId, required: true}
   }
-  timesdtamp        : {type: Date, default: new Date()}
+  timestamp         : {type: Date, default: new Date()}
   transaction       : transaction
 }
 
@@ -391,6 +391,7 @@ Discussion = new Schema {
   displayMedia        : {type: Boolean, required: true}
 
   media               : media
+  thanker             : [Entity] #entities who have thanked a response (not using donated funds)
   donors              : [Entity] #entities who have put money into this discussion (including creator)
   # remove name, screenName, by from the donors list - because we want to use addToSet here
   # donorNames          : {} #{entityTYPE_ObjectIdAsStr: NAME}
@@ -406,7 +407,14 @@ Discussion = new Schema {
   funds: {
     allocated         : {type: Number, required: true, default: 0.0}
     remaining         : {type: Number, required: true, default: 0.0}
+
+    #these are just total sums
+    donations         : {type: Number, required: true, default: 0.0}
+    thanks            : {type: Number, required: true, default: 0.0}
   }
+
+  donationCount       : {type: Number, required: true, default: 0}
+  thankCount          : {type: Number, required: true, default: 0}
 
   flagged: {
     by                : [Entity]
@@ -459,7 +467,19 @@ Response = new Schema {
     count           : {type: Number, default: 0}
   }
 
+  earned            : {type: Number, default: 0.0}
+
   thanks: {
+    count           : {type: Number, default: 0}
+    amount          : {type: Number, default: 0.0} #total
+
+    by: [{
+      entity        : entity
+      amount        : {type: Number}
+    }]
+  }
+
+  donations: {
     count           : {type: Number, default: 0}
     amount          : {type: Number, default: 0.0} #total
 
