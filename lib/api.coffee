@@ -1629,6 +1629,28 @@ class Discussions extends Campaigns
 
     return query
 
+  @add = (data, amount, callback)->
+    instance = new @model(data)
+    if data.tags?
+      Tags.addAll data.tags
+    transactionData = {
+      amount: amount
+    }
+
+    transaction = @createTransaction(choices.transactions.states.PENDING, choices.transactions.actions.DISCUSSION_CREATED, transactionData, choices.transactions.directions.INBOUND, instance._doc.entity)
+
+    instance.transactions.locked = true
+    instance.transactions.ids = [transaction.id]
+    instance.transactions.log = [transaction]
+
+    instance.save (error, discussion)->
+      callback error, discussion
+      if error?
+        return
+      else
+        tp.process(discussion._doc, transaction)
+    return
+
   @update: (entityType, entityId, discussionId, newAllocated, data, callback)->
     self = this
 
@@ -1715,26 +1737,60 @@ class Discussions extends Campaigns
         tp.process(discussion, transaction)
     return
 
-  @add = (data, amount, callback)->
-    instance = new @model(data)
-    if data.tags?
-      Tags.addAll data.tags
-    transactionData = {
-      amount: amount
+  @del: (entityType, entityId, discussionId, lastModifiedBy, callback)->
+    self = this
+    if Object.isString(entityId)
+      entityId = new ObjectId(entityId)
+    if Object.isString(discussionId)
+      discussionId = new ObjectId(discussionId)
+    if Object.isString(lastModifiedBy.id)
+      lastModifiedBy.id = new ObjectId(lastModifiedBy.id)
+
+    entity = {}
+    transactionData = {}
+    transaction = self.createTransaction choices.transactions.states.PENDING, choices.transactions.actions.DISCUSSION_DELETED, transactionData, choices.transactions.directions.OUTBOUND, entity
+
+    $set = {
+      "deleted": true
+      "transactions.locked": true #THIS IS A LOCKING TRANSACTION, SO IF ANYONE ELSE TRIES TO DO A LOKCING TRANSACTION IT WILL NOT HAPPEN (AS LONG AS YOU CHECK FOR THAT)
+      "transactions.state": choices.transactions.states.PENDING
+
+      "lastModifiedBy.type": lastModifiedBy.type
+      "lastModifiedBy.id": lastModifiedBy.id
+    }
+    $push = {
+      "transactions.ids": transaction.id
+      "transactions.log": transaction
     }
 
-    transaction = @createTransaction(choices.transactions.states.PENDING, choices.transactions.actions.DISCUSSION_CREATED, transactionData, choices.transactions.directions.INBOUND, instance._doc.entity)
+    $update = {
+      $set: $set
+      $push: $push
+    }
 
-    instance.transactions.locked = true
-    instance.transactions.ids = [transaction.id]
-    instance.transactions.log = [transaction]
-
-    instance.save (error, discussion)->
-      callback error, discussion
+    where = {
+      _id: discussionId,
+      "entity.type":entityType,
+      "entity.id":entityId,
+      "transactions.locked": false,
+      "deleted": false
+      $or : [
+        {"dates.start": {$gt:new Date()}, "transactions.state": choices.transactions.states.PROCESSED},
+        {"transactions.state": choices.transactions.states.ERROR}
+      ]
+    }
+    @model.collection.findAndModify where, [], $update, {safe: true, new: true}, (error, discussion)->
       if error?
-        return
+        logger.error "DISCUSSIONS - DELETE: unable to findAndModify"
+        logger.error error
+        callback error, null
+      else if !discussion?
+        logger.warn "DISCUSSIONS - DELETE: no document found to modify"
+        callback new errors.ValidationError({"discussion":"Discussion does not exist or Access Denied."})
       else
-        tp.process(discussion._doc, transaction)
+        logger.info "DISCUSSIONS - DELETE: findAndModify succeeded, transaction starting"
+        callback null, discussion
+        tp.process(discussion, transaction)
     return
 
   @listCampaign: (entityType, entityId, stage, options, callback)->
@@ -1933,62 +1989,6 @@ class Discussions extends Campaigns
 
     @model.collection.findOne $query, $fields, (error, discussion)->
       callback(error, discussion.responses)
-
-  @del: (entityType, entityId, discussionId, lastModifiedBy, callback)->
-    self = this
-    if Object.isString(entityId)
-      entityId = new ObjectId(entityId)
-    if Object.isString(discussionId)
-      discussionId = new ObjectId(discussionId)
-    if Object.isString(lastModifiedBy.id)
-      lastModifiedBy.id = new ObjectId(lastModifiedBy.id)
-
-    entity = {}
-    transactionData = {}
-    transaction = self.createTransaction choices.transactions.states.PENDING, choices.transactions.actions.DISCUSSION_DELETED, transactionData, choices.transactions.directions.OUTBOUND, entity
-
-    $set = {
-      "deleted": true
-      "transactions.locked": true #THIS IS A LOCKING TRANSACTION, SO IF ANYONE ELSE TRIES TO DO A LOKCING TRANSACTION IT WILL NOT HAPPEN (AS LONG AS YOU CHECK FOR THAT)
-      "transactions.state": choices.transactions.states.PENDING
-
-      "lastModifiedBy.type": lastModifiedBy.type
-      "lastModifiedBy.id": lastModifiedBy.id
-    }
-    $push = {
-      "transactions.ids": transaction.id
-      "transactions.log": transaction
-    }
-
-    $update = {
-      $set: $set
-      $push: $push
-    }
-
-    where = {
-      _id: discussionId,
-      "entity.type":entityType,
-      "entity.id":entityId,
-      "transactions.locked": false,
-      "deleted": false
-      $or : [
-        {"dates.start": {$gt:new Date()}, "transactions.state": choices.transactions.states.PROCESSED},
-        {"transactions.state": choices.transactions.states.ERROR}
-      ]
-    }
-    @model.collection.findAndModify where, [], $update, {safe: true, new: true}, (error, discussion)->
-      if error?
-        logger.error "DISCUSSIONS - DELETE: unable to findAndModify"
-        logger.error error
-        callback error, null
-      else if !discussion?
-        logger.warn "DISCUSSIONS - DELETE: no document found to modify"
-        callback new errors.ValidationError({"discussion":"Discussion does not exist or Access Denied."})
-      else
-        logger.info "DISCUSSIONS - DELETE: findAndModify succeeded, transaction starting"
-        callback null, discussion
-        tp.process(discussion, transaction)
-    return
 
   @getByEntity: (entityType, entityId, discussionId, callback)->
     @model.findOne {_id: discussionId, 'entity.type': entityType ,'entity.id': entityId}, callback
