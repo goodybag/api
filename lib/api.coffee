@@ -1734,7 +1734,7 @@ class Discussions extends Campaigns
         tp.process(discussion._doc, transaction)
     return
 
-  @list: (entityType, entityId, stage, options, callback)->
+  @listCampaign: (entityType, entityId, stage, options, callback)->
     #options: count(boolean)-to return just the count, skip(int), limit(int)
     query = @_query()
     query.where("entity.type", entityType)
@@ -1810,11 +1810,113 @@ class Discussions extends Campaigns
       query.count callback
     return
 
-  @get: (discussionId, numResponses, callback)->
+  # *options*:
+  #
+  # - limit
+  # - skip
+  @list: (options, callback)->
+    if Object.isFunction(options)
+      callback = options
+    else
+      limit = options.limit || 25
+      skip = options.skip || 0
 
-  @getTitleBasic: ()->
+    $query = {
+      "dates.start"           : {$lte: new Date()}
+      , deleted               : {$ne: true}
+      , "transactions.state"  : choices.transactions.states.PROCESSED
+      , "transactions.locked" : {$ne: true}
+    }
 
-  @getTitleAdvanced: ()->
+    $fields = {
+      question          : 1
+      , tags            : 1
+      , media           : 1
+      , thanker         : 1
+      , donors          : 1
+      , donationAmounts : 1
+      , dates           : 1
+      , funds           : 1
+      , donationCount   : 1
+      , thankCount      : 1
+    }
+
+    @model.collection.find $query, $fields, (error, cursor)->
+      if error?
+        callback(error)
+        return
+      cursor.toArray (error, discussions)->
+        callback(error, discussions)
+
+  # *discussionId*: Id of discussion (String/ObjectId)
+  # *responseOptions*:
+  #
+  # - *start*: starting index of slice for responses
+  # - *stop*: stopping index of slice for responses
+  @get: (discussionId, responseOptions, callback)->
+    if Object.isString(discussionId)
+      discussionId = new ObjectId(discussionId)
+
+    if Object.isFunction(responseOptions)
+      callback = responseOptions
+      responseOptions = {}
+
+    responseOptions.start = responseOptions.start || 0
+    responseOptions.stop = responseOptions.stop || 10
+
+    $query = {
+      "dates.start"           : {$lte: new Date()}
+      , deleted               : {$ne: true}
+      , "transactions.state"  : choices.transactions.states.PROCESSED
+      , "transactions.locked" : {$ne: true}
+    }
+
+    $fields = {
+      question          : 1
+      , tags            : 1
+      , media           : 1
+      , thanker         : 1
+      , donors          : 1
+      , donationAmounts : 1
+      , dates           : 1
+      , funds           : 1
+      , donationCount   : 1
+      , thankCount      : 1
+      , responses       : {$slice:[responseOptions.start, responseOptions.stop]}
+    }
+
+    @model.collection.find $query, $fields, (error, cursor)->
+      if error?
+        callback(error)
+        return
+      cursor.toArray (error, discussions)->
+        callback(error, discussions)
+
+  @getResponsesOnly: (discussionId, responseOptions, callback)->
+    if Object.isString(discussionId)
+      discussionId = new ObjectId(discussionId)
+
+    if Object.isFunction(responseOptions)
+      callback = responseOptions
+      responseOptions = {}
+
+    responseOptions.start = responseOptions.start || 0
+    responseOptions.stop = responseOptions.stop || 10
+
+    $query = {
+      "dates.start"           : {$lte: new Date()}
+      , deleted               : {$ne: true}
+      , "transactions.state"  : choices.transactions.states.PROCESSED
+      , "transactions.locked" : {$ne: true}
+    }
+
+    $fields = {
+      _id: 1
+      , responses   : {$slice:[responseOptions.start, responseOptions.stop]}
+    }
+
+    @model.collection.findOne $query, $fields, (error, discussion)->
+      callback(error, discussion.responses)
 
   @del: (entityType, entityId, discussionId, lastModifiedBy, callback)->
     self = this
