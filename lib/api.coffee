@@ -526,6 +526,36 @@ class Users extends API
       return
     return
 
+  @validatePassword: (id, password, callback)->
+    if(Object.isString(id))
+      id = new ObjectId(id)
+
+    query = @_query()
+    query.where('_id', id)
+    query.fields(['password'])
+    query.findOne (error, user)->
+      if error?
+        callback error, user
+        return
+      else if user?
+        console.log "COMPARETE!!!!"
+        console.log password
+        console.log user.password
+        bcrypt.compare password+defaults.passwordSalt, user.password, (error, valid)->
+          if error?
+            callback (error)
+            return
+          else
+            if valid
+              callback(null, true)
+              return
+            else
+              callback(null, false)
+              return
+      else
+        callback new error.ValidationError "Invalid id", {"id", "invalid"}
+        return
+
   @login: (email, password, fieldsToReturn, callback)->
     if Object.isFunction fieldsToReturn
       callback = fieldsToReturn
@@ -595,19 +625,63 @@ class Users extends API
       return
     return
 
-  @updateWithPassword: (id, password, doc, dbOptions, callback)->
-    if Object.isString id
-      id = new ObjectId id
-    if Object.isFunction dbOptions
-      callback = dbOptions
-      dbOptions = {safe:true}
-    #id typecheck is done in .update
-    query = {_id:id, password: password}
-    @model.update query, doc, dbOptions, (error, count)->
-      if error
-        callback new error.ValidationError {"password":"Incorrect password."}
+  @updateWithPassword: (id, password, data, callback)->
+    self = this
+    if Object.isString(id)?
+      id = new ObjectId(id)
+    console.log password
+    @validatePassword id, password, (error, success)->
+      if error?
+        logger.error error
+        e = new errors.ValidationError({"Invalid password, unable to save.","password":"Unable to validate password"})
+        callback(e)
         return
-      callback error, count
+      else if !success #true/false
+        e = new errors.ValidationError("Incorrect password.", {"password":"Incorrect Password"})
+        callback(e)
+        return
+      console.log "success"+success
+
+      async.series {
+        encryptPassword: (cb)->#only if the user is trying to update their password field
+          if data.password?
+            self.encryptPassword data.password, (error, hash)->
+              if error?
+                callback new errors.ValidationError "Invalid password, unable to save.", {"password":"Unable to encrypt password"} #error encrypting password, so fail
+                cb(error)
+                return
+              else
+                data.password = hash
+                cb(null)
+                return
+          else
+            cb(null)
+            return
+
+        updateDb: (cb)->
+          #password was valid so do what we need to now
+          query = self._query()
+          query.where('_id', id)
+          query.findOne (error, client)->
+            if error?
+              callback error
+              cb(error)
+              return
+            else if client?
+              for own k,v of data
+                client[k] = v
+              client.save callback
+              cb(null)
+              return
+            else #!client?
+              e = new errors.ValidationError "Incorrect password.",{'password':"Incorrect Password"} #invalid login error
+              callback(e)
+              cb(e)
+              return
+          return
+      },
+      (error, results)->
+        return
     return
 
   @updateMedia: (id, media, callback)->
@@ -1451,7 +1525,7 @@ class Clients extends API
             cb(e)
             return
           else
-            if !success?
+            if !success #true/false
               e = new errors.ValidationError("Incorrect Password.",{"password":"Incorrect Password"})
               callback(e)
               cb(e)
