@@ -5,3 +5,4 @@ docs/
 *.swo
 node_modules
 .monitor
+.DS_store
