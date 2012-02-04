@@ -1915,8 +1915,8 @@ class Discussions extends Campaigns
   #
   # **responseOptions**
   #
-  # - **start** _Number, default: 0_ starting index of slice for responses
-  # - **stop** _Number, default: 10_ stopping index of slice for responses
+  # - **limit** _Number, default: 10_ limit of responses
+  # - **skip** _Number, default: 0_  responses to skip
   #
   # **callback** error, discussion
   @get: (discussionId, responseOptions, callback)->
@@ -1959,8 +1959,8 @@ class Discussions extends Campaigns
   #
   # **responseOptions**
   #
-  # - **start** _Number, default: 0_ starting index of slice for responses
-  # - **stop** _Number, default: 10_ stopping index of slice for responses
+  # - **limit** _Number, default: 10_ limit of responses
+  # - **skip** _Number, default: 0_  responses to skip
   #
   # **callback** error, discussion
   @getResponses: (discussionId, responseOptions, callback)->
