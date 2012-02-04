@@ -1793,7 +1793,7 @@ class Discussions extends Campaigns
         tp.process(discussion, transaction)
     return
 
-  @listCampaign: (entityType, entityId, stage, options, callback)->
+  @listCampaigns: (entityType, entityId, stage, options, callback)->
     #options: count(boolean)-to return just the count, skip(int), limit(int)
     query = @_query()
     query.where("entity.type", entityType)
@@ -1870,7 +1870,6 @@ class Discussions extends Campaigns
     return
 
   ### _list_ ###
-  # **options**
   #
   # - **limit** _Number, default: 25_ limit number of discussions returned
   # - **skip** _Number, default: 0_ an offset for number of discussions returned
@@ -1928,8 +1927,8 @@ class Discussions extends Campaigns
       callback = responseOptions
       responseOptions = {}
 
-    responseOptions.start = responseOptions.start || 0
-    responseOptions.stop = responseOptions.stop || 10
+    responseOptions.limit = responseOptions.limit || 10
+    responseOptions.skip = responseOptions.skip || 0
 
     $query = {
       "dates.start"           : {$lte: new Date()}
@@ -1949,13 +1948,13 @@ class Discussions extends Campaigns
       , funds           : 1
       , donationCount   : 1
       , thankCount      : 1
-      , responses       : {$slice:[responseOptions.start, responseOptions.stop]}
+      , responses       : {$slice:[responseOptions.skip, responseOptions.skip + responseOptions.limit]}
     }
 
     @model.collection.findOne $query, $fields, (error, discussion)->
       callback(error, discussion)
 
-  ### _getResponsesOnly_ ###
+  ### _getResponses_ ###
   # **discussionId** _String/ObjectId_ Id of discussion
   #
   # **responseOptions**
@@ -1964,7 +1963,7 @@ class Discussions extends Campaigns
   # - **stop** _Number, default: 10_ stopping index of slice for responses
   #
   # **callback** error, discussion
-  @getResponsesOnly: (discussionId, responseOptions, callback)->
+  @getResponses: (discussionId, responseOptions, callback)->
     if Object.isString(discussionId)
       discussionId = new ObjectId(discussionId)
 
@@ -1972,8 +1971,8 @@ class Discussions extends Campaigns
       callback = responseOptions
       responseOptions = {}
 
-    responseOptions.start = responseOptions.start || 0
-    responseOptions.stop = responseOptions.stop || 10
+    responseOptions.limit = responseOptions.limit || 10
+    responseOptions.skip = responseOptions.skip || 0
 
     $query = {
       "dates.start"           : {$lte: new Date()}
@@ -1984,7 +1983,7 @@ class Discussions extends Campaigns
 
     $fields = {
       _id: 1
-      , responses   : {$slice:[responseOptions.start, responseOptions.stop]}
+      , responses       : {$slice:[responseOptions.skip, responseOptions.skip + responseOptions.limit]}
     }
 
     @model.collection.findOne $query, $fields, (error, discussion)->
