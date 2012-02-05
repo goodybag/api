@@ -1381,6 +1381,21 @@ class Consumers extends Users
 class Clients extends API
   @model = Client
 
+  @_updatePasswordHelper = (id, password, callback)->
+    #this function is a helper to update a users password
+    #ussually a user has to enter their previous password or
+    #have a secure reset-password link to update their password.
+    #do not call this function directly.. w/out security.
+    self = this
+    @encryptPassword password, (error, hash)->
+      if error?
+        callback new errors.ValidationError "Invalid Password", {"password":"Invalid Password"} #error encrypting password, so fail
+        return
+      #password encrypted successfully
+      password = hash
+      self.update id, {password: hash}, callback
+      return
+
   @validatePassword: (id, password, callback)->
     if(Object.isString(id))
       id = new ObjectId(id)
@@ -3693,32 +3708,15 @@ class Streams extends API
 class PasswordResetRequests extends API
   @model: PasswordResetRequest
 
-  @consume: (id, callback)->
-    if Object.isString(id)
-      id = new ObjectId(id)
-
-    query = {_id: id}
-    update = {$set: {consumed: true}}
-    options = {remove: false, new: true, upsert: false}
-    @model.collection.findAndModify query, [], update, options, (error, request)->
-      if error?
-        callback error
-        return
-      if !request?
-        callback new errors.ValidationError {"_id": "_id does not exist"}
-        return
-      if request?
-        callback error, request
-      return
-
-  @pending: (key, callback)->
-    date = (globals.defaults.passwordResets.keyLife).minutesBefore(new Date());
-    where =
-      key: key
-      date: {$gt: date}
-      consumed: false
-    console.log where
-    @model.findOne where, callback
+  @update: (id, doc, dbOptions, callback)->
+    if Object.isString id
+      id = new ObjectId id
+    if Object.isFunction dbOptions
+      callback = dbOptions
+      dbOptions = {safe:true}
+    #id typecheck is done in .update
+    where = {_id:id}
+    @model.update where, doc, dbOptions, callback
     return
 
   @add: (type, email, callback)->
@@ -3745,6 +3743,54 @@ class PasswordResetRequests extends API
         key: hashlib.md5(globals.secretWord+email+(new Date().toString()))
       instance = new @model request
       instance.save callback
+      return
+    return
+
+  @pending: (key, callback)->
+    date = (globals.defaults.passwordResets.keyLife).minutesBefore(new Date());
+    where =
+      key: key
+      date: {$gt: date}
+      consumed: false
+    console.log date
+    @model.findOne where, callback
+    return
+
+  @consume: (key, newPassword, callback)->
+    self = this
+    if Object.isString(id)
+      id = new ObjectId(id)
+    self.pending key, (error, resetRequest)->
+      if error?
+        callback error
+        return
+      if !resetRequest?
+        callback new errors.ValidationError "The password-reset key is invalid, expired or already used.", {"key":"invalid, expired,or used"}
+        return
+      #key found and active.
+      switch resetRequest.entity.type
+        when choices.entities.CONSUMER
+          userClass = Consumers
+        when choices.entities.CLIENT
+          userClass = Clients
+        else
+          callback new errors.ValidationError {"type": "Not a valid entity type."}
+
+      userClass._updatePasswordHelper resetRequest.entity.id, newPassword, (error, count)->
+        if error?
+          callback error
+          return
+        #password update success
+        success = count>0 #true
+        callback null, success #respond to the user, well clear the request after.
+        # Change the status of the request
+        self.update resetRequest._id, {$set:{consumed:true}}, (error)->
+          if error?
+            logger.error error
+            return
+          #consumer request success
+          return
+        return
       return
     return
 
