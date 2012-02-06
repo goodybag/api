@@ -1890,6 +1890,9 @@ class Businesses extends API
     query.where('locations.tapins', true)
     query.exec callback
 
+class Organizations extends API
+  @model = Organizations
+
 
 class Campaigns extends API
   @updateMedia: (entityType, entityId, guid, data, mediaKey, callback)->
@@ -2479,6 +2482,8 @@ class Discussions extends Campaigns
     if data.media? and Object.isString(data.media.mediaId) and data.media.mediaId.length>0
       data.media.mediaId = new ObjectId(data.media.mediaId)
 
+    if data.tags?
+      Tags.addAll data.tags, choices.tags.types.DISCUSSIONS
     #Set the fields you want updated now, not afte the update
     #for the ones that you want set after the update put those
     #in the transactionData and make thsoe changes in the
@@ -2556,7 +2561,7 @@ class Discussions extends Campaigns
   @add = (data, amount, callback)->
     instance = new @model(data)
     if data.tags?
-      Tags.addAll data.tags
+      Tags.addAll data.tags, choices.tags.types.DISCUSSIONS
     transactionData = {
       amount: amount
     }
@@ -2853,14 +2858,14 @@ class ClientInvitations extends API
 class Tags extends API
   @model = Tag
 
-  @add = (name, callback)->
-    @_add {name: name}, callback
+  @add = (name, type, callback)->
+    @_add {name: name, type: type}, callback
 
-  @addAll = (nameArr, callback)->
+  @addAll = (nameArr, type, callback)->
     #callback is not required..
     countUpdates = 0
     for val,i in nameArr
-      @model.update {name:val}, {$inc:{count:1}}, {upsert:true,safe:true}, (error, success)->
+      @model.update {name:val, type: type}, {$inc:{count:1}}, {upsert:true,safe:true}, (error, success)->
         if error?
           callback error
           return
@@ -2868,10 +2873,16 @@ class Tags extends API
           callback null, countUpdates
         return
 
-  @search = (name, callback)->
+  @search = (name, type, callback)->
     re = new RegExp("^"+name+".*", 'i')
     query = @_query()
     query.where('name', re)
+    console.log "outragesous shenanigans"
+    console.log ""
+    console.log type in choices.tags.types._enum
+    console.log type
+    if type in choices.tags.types._enum
+      query.where('type', type)
     query.limit(10)
     query.exec callback
 
