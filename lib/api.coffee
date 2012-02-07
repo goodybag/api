@@ -72,6 +72,13 @@ class API
     return flatten doc, startPath
 
   @_copyFields = (obj, fields) ->
+    if obj._doc?
+      #somebody passed a mongoose object, this could be dangerously large (too many loops).
+      #_doc instantiates all objects as {} even when they do not have data (for new models check out model.add ****)
+      #So use .toJSON instead of just using the _doc.. to convert the mongoose class to an object.
+      @obj = obj.toJSON()
+    else
+      @obj = obj
     if Object.isObject fields
       fieldArr = []
       for field,val of fields
@@ -81,7 +88,7 @@ class API
     ret = {}
     for field in fields
       keys = field.split(".")
-      o = obj
+      o = @obj
       r = ret
       i = 0
       newobj = null
@@ -461,16 +468,20 @@ class Users extends API
         return
     return
 
-  @getByEmail: (email, callback)->
-    query = @_query()
-    query.where('email', email)
-    query.findOne (error, user)->
+  @_updatePasswordHelper = (id, password, callback)->
+    #this function is a helper to update a users password
+    #ussually a user has to enter their previous password or
+    #have a secure reset-password link to update their password.
+    #do not call this function directly.. w/out security.
+    self = this
+    @encryptPassword password, (error, hash)->
       if error?
-        callback error #db error
-      else
-        callback null, user #if no consumer with that email will return null
+        callback new errors.ValidationError "Invalid Password", {"password":"Invalid Password"} #error encrypting password, so fail
+        return
+      #password encrypted successfully
+      password = hash
+      self.update id, {password: hash}, callback
       return
-    return
 
   @one: (id, fieldsToReturn, dbOptions, callback)->
     if Object.isString id
@@ -495,25 +506,182 @@ class Users extends API
       callback = dbOptions
       dbOptions = {safe:true}
     #id typecheck is done in .update
-    query = {_id:id}
-    @model.update query, doc, dbOptions, callback
+    where = {_id:id}
+    @model.update where, doc, dbOptions, callback
     return
 
   #end potential new API functions
 
-  @updateWithPassword: (id, password, doc, dbOptions, callback)->
-    if Object.isString id
-      id = new ObjectId id
-    if Object.isFunction dbOptions
-      callback = dbOptions
-      dbOptions = {safe:true}
-    #id typecheck is done in .update
-    query = {_id:id, password: password}
-    @model.update query, doc, dbOptions, (error, count)->
-      if error
-        callback new error.ValidationError {"password":"Incorrect password."}
+  @encryptPassword:(password, callback)->
+    bcrypt.gen_salt 10, (error, salt)=>
+      if error?
+        callback error
         return
-      callback error, count
+      bcrypt.encrypt password+defaults.passwordSalt, salt, (error, hash)=>
+        if error?
+          callback error
+          return
+        callback null, hash
+        return
+      return
+    return
+
+  @validatePassword: (id, password, callback)->
+    if(Object.isString(id))
+      id = new ObjectId(id)
+
+    query = @_query()
+    query.where('_id', id)
+    query.fields(['password'])
+    query.findOne (error, user)->
+      if error?
+        callback error, user
+        return
+      else if user?
+        console.log "COMPARETE!!!!"
+        console.log password
+        console.log user.password
+        bcrypt.compare password+defaults.passwordSalt, user.password, (error, valid)->
+          if error?
+            callback (error)
+            return
+          else
+            if valid
+              callback(null, true)
+              return
+            else
+              callback(null, false)
+              return
+      else
+        callback new error.ValidationError "Invalid id", {"id", "invalid"}
+        return
+
+  @login: (email, password, fieldsToReturn, callback)->
+    if Object.isFunction fieldsToReturn
+      callback = fieldsToReturn
+      fieldsToReturn = {}
+    if !Object.isEmpty fieldsToReturn || fieldsToReturn.password!=1
+      #if the fieldsToReturn is not 'empty' - which would return all fields
+      #add the password field, bc is it is necessary to verify the password.
+      fieldsToReturn.password = 1
+      addedPasswordToFields = true #to determine whether to remove before executing the callback
+    query = @_query()
+    query.where('email', email)#.where('password', password)
+    query.fields(fieldsToReturn)
+    query.findOne (error, consumer)->
+      if error?
+        callback error, consumer
+        return
+      else if consumer?
+        console.log consumer
+        if consumer.facebook? && consumer.facebook.id? #if facebook user
+          callback new errors.ValidationError "Please authenticate via Facebook", {"login":"invalid authentication mechanism - use facebook"}
+          return
+        bcrypt.compare password+defaults.passwordSalt, consumer.password, (error, success)->
+          if error? or !success
+            callback new errors.ValidationError "Invalid Password", {"login":"invalid password"}
+          else
+            if addedPasswordToFields? and addedPasswordToFields
+              delete consumer.password
+            callback null, consumer
+          return
+      else
+        callback new errors.ValidationError "Invalid Email Address", {"login":"invalid email address"}
+        return
+
+  @register: (data, fieldsToReturn, callback)->
+    self = this
+    @encryptPassword data.password, (error, hash)->
+      if error?
+        callback new errors.ValidationError "Invalid Password", {"password":"Invalid Password"} #error encrypting password, so fail
+        return
+      else
+        data.password = hash
+        self.add data, (error, client)->
+          if error?
+            if error.code is 11000
+              callback new errors.ValidationError "Email Already Exists", {"email":"Email Already Exists"} #email exists error
+            else
+              callback error
+          else
+            client = self._copyFields(client, fieldsToReturn)
+            callback error, client
+          return
+      return
+    return
+
+  @getByEmail: (email, fieldsToReturn, callback)->
+    if Object.isFunction fieldsToReturn
+      callback = fieldsToReturn
+      fieldsToReturn = {} #all fields
+    query = @_query()
+    query.where('email', email)
+    query.fields(fieldsToReturn)
+    query.findOne (error, user)->
+      if error?
+        callback error #db error
+      else
+        callback null, user #if no consumer with that email will return null
+      return
+    return
+
+  @updateWithPassword: (id, password, data, callback)->
+    self = this
+    if Object.isString(id)?
+      id = new ObjectId(id)
+    console.log password
+    @validatePassword id, password, (error, success)->
+      if error?
+        logger.error error
+        e = new errors.ValidationError({"Invalid password, unable to save.","password":"Unable to validate password"})
+        callback(e)
+        return
+      else if !success #true/false
+        e = new errors.ValidationError("Incorrect password.", {"password":"Incorrect Password"})
+        callback(e)
+        return
+      console.log "success"+success
+
+      async.series {
+        encryptPassword: (cb)->#only if the user is trying to update their password field
+          if data.password?
+            self.encryptPassword data.password, (error, hash)->
+              if error?
+                callback new errors.ValidationError "Invalid password, unable to save.", {"password":"Unable to encrypt password"} #error encrypting password, so fail
+                cb(error)
+                return
+              else
+                data.password = hash
+                cb(null)
+                return
+          else
+            cb(null)
+            return
+
+        updateDb: (cb)->
+          #password was valid so do what we need to now
+          query = self._query()
+          query.where('_id', id)
+          query.findOne (error, client)->
+            if error?
+              callback error
+              cb(error)
+              return
+            else if client?
+              for own k,v of data
+                client[k] = v
+              client.save callback
+              cb(null)
+              return
+            else #!client?
+              e = new errors.ValidationError "Incorrect password.",{'password':"Incorrect Password"} #invalid login error
+              callback(e)
+              cb(e)
+              return
+          return
+      },
+      (error, results)->
+        return
     return
 
   @updateMedia: (id, media, callback)->
@@ -537,6 +705,7 @@ class Users extends API
         return
       return
     return
+
   @updateMediaWithFacebook: (id, fbid, callback)->
     self = this
     if Object.isString id
@@ -829,60 +998,42 @@ class Consumers extends Users
           else
             #previously registered user not found
             #brand new user!
-            consumer.email = facebookData.me.email
-            consumer.facebook = {}
-            consumer.facebook.access_token = accessToken
-            consumer.facebook.id = facebookData.me.id
-            if facebookData.pic?
-              mediaGuid = guidGen.v1()
-              consumer.media = {
-                guid    : mediaGuid
-                url     : facebookData.pic
-                thumb   : facebookData.pic
-                mediaId : null
-              }
-              callTransloadit = true
-
-            #save new user
-            newUserModel = new self.model(consumer)
-            newUserModel.save (error, newUserAllFields)->
+            consumer.password = hashlib.md5(globals.secretWord + facebookData.me.email+(new Date().toString()))+'-'+generatePassword(12, false, /\d/)
+            #generate a random password...
+            self.encryptPassword consumer.password, (error, hash)->
               if error?
-                callback error #dberror
-              else
-                newUserSelectFields = self._copyFields(newUserAllFields, fieldsToReturn)
-                callback null, newUserSelectFields
-                if callTransloadit
-                  self._sendFacebookPicToTransloadit newUserAllFields._id, mediaGuid, facebookData.pic
+                callback new errors.ValidationError "Invalid Password", {"password":"Invalid Password"} #error encrypting password, so fail
+                return
+              #successful password encryption
+              consumer.password = hash
+              consumer.email = facebookData.me.email
+              consumer.facebook = {}
+              consumer.facebook.access_token = accessToken
+              consumer.facebook.id = facebookData.me.id
+              if facebookData.pic?
+                mediaGuid = guidGen.v1()
+                consumer.media = {
+                  guid    : mediaGuid
+                  url     : facebookData.pic
+                  thumb   : facebookData.pic
+                  mediaId : null
+                }
+                callTransloadit = true
+              #save new user
+              newUserModel = new self.model(consumer)
+              newUserModel.save (error, newUser)->
+                if error?
+                  callback error #dberror
+                else
+                  newUserFields = self._copyFields(newUser._doc, fieldsToReturn)
+                  callback null, newUserFields
+                  if callTransloadit
+                    self._sendFacebookPicToTransloadit newUser._id, mediaGuid, facebookData.pic
+                return
               return
           return
 
     return #end @facebookLogin
-
-
-  @register: (user, callback)->
-    @.add(user, callback)
-
-  @login: (email, password, callback)->
-    query = @_query()
-    query.where('email', email)#.where('password', password)
-    query.findOne (error, consumer)->
-      if error?
-        callback error, consumer
-        return
-      else if consumer?
-        if !consumer.password? #if there is no pasword set then they are a facebook user
-          callback new errors.ValidationError "Please authenticate via Facebook", {"login":"invalid authentication mechanism - use facebook"}
-          return
-        bcrypt.compare password+defaults.passwordSalt, consumer.password, (error, success)->
-          if error? or !success
-            callback new errors.ValidationError "Invalid Password", {"login":"invalid password"}
-            return
-          else
-            callback error, consumer
-            return
-      else
-        callback new errors.ValidationError "Invalid Email Address", {"login":"invalid email address"}
-        return
 
   @getProfile: (id, callback)->
     console.log "getProfile"
@@ -976,14 +1127,40 @@ class Consumers extends Users
 
     @model.collection.findAndModify {_id: id, 'transactions.ids': {$ne: transactionId}}, [], {$addToSet: {"transactions.ids": transactionId}, $inc: {'funds.remaining': amount, 'funds.allocated': amount }}, {new: true, safe: true}, callback
 
-  @updatePassword: (id, password, callback)->
+  @passwordReset: (key, newPassword, callback)->
+    self = this
     if Object.isString(id)
       id = new ObjectId(id)
+    PasswordResetRequests.pending key, (error, resetRequest)->
+      if error?
+        callback error
+        return
+      if !resetRequest?
+        callback new errors.ValidationError "The password-reset key is invalid, expired or already used.", {"key","invalid, expired,or used"}
+        return
+      #key found and active.
+      self._updatePasswordHelper resetRequest.entity.id, newPassword, (error, count)->
+        if error?
+          callback error
+          return
+        #password update success
+        success = count>0 #true
+        callback null, success #responsd to the user, well clear the request after.
+        # Change the status of the request
+        PasswordResetRequests.consume resetRequest._id, (error)->
+          if error?
+            logger.error error
+            return
+          #consumer request success
+          return
+        return
+      return
+    return
 
-    query = {_id: id}
+    where = {_id: id}
     update = {$set: {password: password}}
     options = {remove: false, new: true, upsert: false}
-    @model.collection.findAndModify query, [], update, options, (error, user)->
+    @model.collection.findAndModify where, [], update, options, (error, user)->
       if error?
         callback error
         return
@@ -1204,9 +1381,21 @@ class Consumers extends Users
 class Clients extends API
   @model = Client
 
-  ###
-  @callback error, valid
-  ###
+  @_updatePasswordHelper = (id, password, callback)->
+    #this function is a helper to update a users password
+    #ussually a user has to enter their previous password or
+    #have a secure reset-password link to update their password.
+    #do not call this function directly.. w/out security.
+    self = this
+    @encryptPassword password, (error, hash)->
+      if error?
+        callback new errors.ValidationError "Invalid Password", {"password":"Invalid Password"} #error encrypting password, so fail
+        return
+      #password encrypted successfully
+      password = hash
+      self.update id, {password: hash}, callback
+      return
+
   @validatePassword: (id, password, callback)->
     if(Object.isString(id))
       id = new ObjectId(id)
@@ -1234,9 +1423,6 @@ class Clients extends API
         callback new error.ValidationError "Invalid id", {"id", "invalid"}
         return
 
-  ###
-  @callback error, hash
-  ###
   @encryptPassword:(password, callback)->
     bcrypt.gen_salt 10, (error, salt)=>
       if error?
@@ -1302,14 +1488,18 @@ class Clients extends API
           ids.push business.id
         callback null, ids
 
-  @getByEmail: (email, callback)->
+  @getByEmail: (email, fieldsToReturn, callback)->
+    if Object.isFunction fieldsToReturn
+      callback = fieldsToReturn
+      fieldsToReturn = {} #all fields
     query = @_query()
     query.where('email', email)
-    query.findOne (error, client)->
+    query.fields(fieldsToReturn)
+    query.findOne (error, user)->
       if error?
         callback error #db error
       else
-        callback null, client #if no client with that email will return null
+        callback null, user #if no consumer with that email will return null
       return
     return
 
@@ -1350,7 +1540,7 @@ class Clients extends API
             cb(e)
             return
           else
-            if !success?
+            if !success #true/false
               e = new errors.ValidationError("Incorrect Password.",{"password":"Incorrect Password"})
               callback(e)
               cb(e)
@@ -1699,6 +1889,9 @@ class Businesses extends API
     query = @_query()
     query.where('locations.tapins', true)
     query.exec callback
+
+class Organizations extends API
+  @model = Organizations
 
 
 class Campaigns extends API
@@ -2289,6 +2482,8 @@ class Discussions extends Campaigns
     if data.media? and Object.isString(data.media.mediaId) and data.media.mediaId.length>0
       data.media.mediaId = new ObjectId(data.media.mediaId)
 
+    if data.tags?
+      Tags.addAll data.tags, choices.tags.types.DISCUSSIONS
     #Set the fields you want updated now, not afte the update
     #for the ones that you want set after the update put those
     #in the transactionData and make thsoe changes in the
@@ -2366,7 +2561,7 @@ class Discussions extends Campaigns
   @add = (data, amount, callback)->
     instance = new @model(data)
     if data.tags?
-      Tags.addAll data.tags
+      Tags.addAll data.tags, choices.tags.types.DISCUSSIONS
     transactionData = {
       amount: amount
     }
@@ -2663,14 +2858,14 @@ class ClientInvitations extends API
 class Tags extends API
   @model = Tag
 
-  @add = (name, callback)->
-    @_add {name: name}, callback
+  @add = (name, type, callback)->
+    @_add {name: name, type: type}, callback
 
-  @addAll = (nameArr, callback)->
+  @addAll = (nameArr, type, callback)->
     #callback is not required..
     countUpdates = 0
     for val,i in nameArr
-      @model.update {name:val}, {$inc:{count:1}}, {upsert:true,safe:true}, (error, success)->
+      @model.update {name:val, type: type}, {$inc:{count:1}}, {upsert:true,safe:true}, (error, success)->
         if error?
           callback error
           return
@@ -2678,10 +2873,16 @@ class Tags extends API
           callback null, countUpdates
         return
 
-  @search = (name, callback)->
+  @search = (name, type, callback)->
     re = new RegExp("^"+name+".*", 'i')
     query = @_query()
     query.where('name', re)
+    console.log "outragesous shenanigans"
+    console.log ""
+    console.log type in choices.tags.types._enum
+    console.log type
+    if type in choices.tags.types._enum
+      query.where('type', type)
     query.limit(10)
     query.exec callback
 
@@ -3518,52 +3719,34 @@ class Streams extends API
 class PasswordResetRequests extends API
   @model: PasswordResetRequest
 
-  @consume: (id, callback)->
-    if Object.isString(id)
-      id = new ObjectId(id)
-
-    query = {_id: id}
-    update = {$set: {consumed: true}}
-    options = {remove: false, new: true, upsert: false}
-    @model.collection.findAndModify query, [], update, options, (error, request)->
-      if error?
-        callback error
-        return
-      if !request?
-        callback new errors.ValidationError {"_id": "_id does not exist"}
-        return
-      if request?
-        callback error, request
-      return
-
-  @pending: (key, callback)->
-    minutes = new Date().getMinutes()
-    minutes -= globals.defaults.passwordResets.keyLife
-    date = new Date()
-    date.setMinutes minutes
-    options =
-      key: key
-      date: {$gt: date}
-      consumed: false
-    @model.findOne options, callback
+  @update: (id, doc, dbOptions, callback)->
+    if Object.isString id
+      id = new ObjectId id
+    if Object.isFunction dbOptions
+      callback = dbOptions
+      dbOptions = {safe:true}
+    #id typecheck is done in .update
+    where = {_id:id}
+    @model.update where, doc, dbOptions, callback
+    return
 
   @add: (type, email, callback)->
     # determine user type
     if type == choices.entities.CONSUMER
-      userModel = Consumers.model
+      UserClass = Consumers
     else if type == choices.entities.CLIENT
-      userModel = Clients.model
+      UserClass = Clients
     else
-      callback new errors.ValidationError {
-        "type": "Not a valid entity type."
-      }
+      callback new errors.ValidationError {"type": "Not a valid entity type."}
       return
       # find the user
-    userModel.findOne {email: email}, (error, user)=>
+    UserClass.getByEmail email, {_id:1,"facebook.id":1}, (error, user)=>
       if error?
         callback error
         return
       #found the user now submit the request
+      if user.facebook? && user.facebook.id?
+        callback new errors.ValidationError "Your account is authenticated through Facebook.", {"user":"facebookuser"} #do not update this error without updating the frontend javascript
       request =
         entity:
           type: type
@@ -3571,6 +3754,56 @@ class PasswordResetRequests extends API
         key: hashlib.md5(globals.secretWord+email+(new Date().toString()))
       instance = new @model request
       instance.save callback
+      return
+    return
+
+  @pending: (key, callback)->
+    date = (globals.defaults.passwordResets.keyLife).minutesBefore(new Date());
+    where =
+      key: key
+      date: {$gt: date}
+      consumed: false
+    console.log date
+    @model.findOne where, callback
+    return
+
+  @consume: (key, newPassword, callback)->
+    self = this
+    if Object.isString(id)
+      id = new ObjectId(id)
+    self.pending key, (error, resetRequest)->
+      if error?
+        callback error
+        return
+      if !resetRequest?
+        callback new errors.ValidationError "The password-reset key is invalid, expired or already used.", {"key":"invalid, expired,or used"}
+        return
+      #key found and active.
+      switch resetRequest.entity.type
+        when choices.entities.CONSUMER
+          userClass = Consumers
+        when choices.entities.CLIENT
+          userClass = Clients
+        else
+          callback new errors.ValidationError {"type": "Not a valid entity type."}
+
+      userClass._updatePasswordHelper resetRequest.entity.id, newPassword, (error, count)->
+        if error?
+          callback error
+          return
+        #password update success
+        success = count>0 #true
+        callback null, success #respond to the user, well clear the request after.
+        # Change the status of the request
+        self.update resetRequest._id, {$set:{consumed:true}}, (error)->
+          if error?
+            logger.error error
+            return
+          #consumer request success
+          return
+        return
+      return
+    return
 
 
 class Statistics extends API

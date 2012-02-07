@@ -183,7 +183,7 @@ PasswordResetRequest = new Schema {
 ####################
 Consumer = new Schema {
   email           : {type: String, set: utils.toLower, validate: Email, unique: true}
-  password        : {type: String, min:5, default: mongoose.Types.ObjectId.createPk(), required:true}
+  password        : {type: String, min:5, required: true}
   firstName       : {type: String, required: true}
   lastName        : {type: String, required: true}
   screenName      : {type: String, default: mongoose.Types.ObjectId.createPk(), unique: true}
@@ -210,6 +210,7 @@ Consumer = new Schema {
     interests     : [ProfileEntry] #not fb
     aboutme       : {} #not fb
     timezone      : {}
+    affiliations  : [ObjectId]
     #interests movies music books?
   }
   permissions: {
@@ -225,6 +226,7 @@ Consumer = new Schema {
     fbinterests   : {type: Boolean, default: false} #not fb
     aboutme       : {type: Boolean, default: false} #not fb
     timezone      : {type: Boolean, default: false}
+    affiliations  : {type: Boolean, default: false}
     hiddenFacebookItems : {
       work: [{type:String}]      #hidden work ids
       education: [{type:String}] #hidden education ids
@@ -323,7 +325,6 @@ Business = new Schema {
     #managers    : [String]
   }
 }
-
 
 ####################
 # Poll #############
@@ -606,9 +607,9 @@ Stream.index {"where.org.type": 1, "where.org.id": 1}
 # TAG ##############
 ####################
 Tag = new Schema {
-  name: {type: String, required: true}
-  #category: {type: String, required: true}
-
+  name  : {type: String, required: true}
+  type  : {type: String, required: true, enum: choices.tags.types._enum}
+  count : {type: Number}
   transactions: transactions
 }
 
