@@ -1360,28 +1360,35 @@ class Consumers extends Users
         "profile.affiliations": {$ne:affiliationId}
       }
       doc = {
-        $push: {
-          "profile.affiliations": affiliationId
+        $set: { #this is temporary ... this will eventually be $push..
+          "profile.affiliations": [affiliationId]
         }
+        # $push: {
+        #   "profile.affiliations": affiliationId
+        # }
       }
     else if op == "remove"
       where = {
         _id : id
       }
       doc = {
-        $pull: {
-          "profile.affiliations": affiliationId
+        $set: {
+          "profile.affiliations": []
         }
+        # $pull: {
+        #   "profile.affiliations": affiliationId
+        # }
       }
     else
       callback new errors.ValidationError {"op":"Invalid value."}
       return
     @model.update where, doc, (error, success)->
-      if success==0
-        callback new errors.ValidationError "Whoops, looks like you already added that affiliation.", {"name":"Affiliation already added."}
-      else
-        callback error, success
-      return
+      callback error, success
+      # if success==0
+      #   callback new errors.ValidationError "Whoops, looks like you already added that affiliation.", {"name":"Affiliation already added."}
+      # else
+      #   callback error, success
+      # return
     return
 
 
