@@ -327,6 +327,16 @@ Business = new Schema {
 }
 
 ####################
+# Organization #####
+####################
+
+Organization = new Schema {
+  name    : {type: String, required: true}
+  type    : {type: String, required: true}
+  subType : {type: String, required: true}
+}
+
+####################
 # Poll #############
 ####################
 Poll = new Schema {
@@ -776,6 +786,7 @@ exports.BusinessTransaction   = mongoose.model 'BusinessTransaction', BusinessTr
 exports.BusinessRequest       = mongoose.model 'BusinessRequest', BusinessRequest
 exports.PasswordResetRequest  = mongoose.model 'PasswordResetRequest', PasswordResetRequest
 exports.Statistic             = mongoose.model 'Statistic', Statistic
+exports.Organization          = mongoose.model 'Organization', Organization
 
 exports.schemas = {
   Consumer: Consumer
@@ -794,4 +805,5 @@ exports.schemas = {
   BusinessRequest: BusinessRequest
   PasswordResetRequest: PasswordResetRequest
   Statistic: Statistic
+  Organization: Organization
 }
