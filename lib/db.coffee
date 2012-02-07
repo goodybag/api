@@ -164,6 +164,14 @@ DBTransaction.index {"by.type": 1, "by.id": 1}
 
 
 ##################################
+# SEQUENCE #######################
+##################################
+Sequence = new Schema {
+  urlShortner: {type: Number, default: 0}
+}
+
+
+##################################
 # PASSWORD RESET REQUEST #########
 ##################################
 PasswordResetRequest = new Schema {
@@ -760,6 +768,7 @@ Statistic.index {'org.type': 1, 'org.id':1, consumerId: 1, "polls.totalAnswered"
 Statistic.index {'org.type': 1, 'org.id':1, consumerId: 1, "polls.lastAnsweredDate": 1}
 
 exports.DBTransaction         = mongoose.model 'DBTransaction', DBTransaction
+exports.Sequence              = mongoose.model 'Sequence', Sequence
 exports.Consumer              = mongoose.model 'Consumer', Consumer
 exports.Client                = mongoose.model 'Client', Client
 exports.Business              = mongoose.model 'Business', Business
@@ -778,20 +787,21 @@ exports.PasswordResetRequest  = mongoose.model 'PasswordResetRequest', PasswordR
 exports.Statistic             = mongoose.model 'Statistic', Statistic
 
 exports.schemas = {
-  Consumer: Consumer
-  Client: Client
-  Business: Business
-  Poll: Poll
-  Discussion: Discussion
-  Response: Response
-  Media: Media
-  ClientInvitation: ClientInvitation
-  Tag: Tag
-  EventRequest: EventRequest
-  Stream: Stream
-  Event: Event
-  BusinessTransaction: BusinessTransaction
-  BusinessRequest: BusinessRequest
-  PasswordResetRequest: PasswordResetRequest
-  Statistic: Statistic
+  Sequence             : Sequence
+  Consumer             : Consumer
+  Client               : Client
+  Business             : Business
+  Poll                 : Poll
+  Discussion           : Discussion
+  Response             : Response
+  Media                : Media
+  ClientInvitation     : ClientInvitation
+  Tag                  : Tag
+  EventRequest         : EventRequest
+  Stream               : Stream
+  Event                : Event
+  BusinessTransaction  : BusinessTransaction
+  BusinessRequest      : BusinessRequest
+  PasswordResetRequest : PasswordResetRequest
+  Statistic            : Statistic
 }
