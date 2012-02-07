@@ -44,6 +44,7 @@ BusinessTransaction = db.BusinessTransaction
 BusinessRequest = db.BusinessRequest
 PasswordResetRequest = db.PasswordResetRequest
 Statistic = db.Statistic
+Organization = db.Organization
 
 #TODO:
 #Make sure that all necessary fields exist for each function before sending the query to the db
@@ -923,11 +924,23 @@ class Consumers extends Users
     query.only("_id", "screenName")
     query.in("_id", ids)
     query.exec callback
+    return
 
   @getByBarcodeId: (barcodeId, callback)->
     query = @queryOne()
     query.where("barcodeId", barcodeId)
     query.exec callback
+    return
+
+  @updateBarcodeId: (id, barcodeId, callback)->
+    @update id, {barcodeId: barcodeId}, (error, count)->
+      if error?
+        callback error
+        return
+      #success
+      success = count>0
+      callback null, success
+    return
 
   @facebookLogin: (accessToken, fieldsToReturn, callback)->
     if Object.isFunction fieldsToReturn
@@ -1180,50 +1193,6 @@ class Consumers extends Users
 
     @model.collection.findAndModify {_id: id, 'transactions.ids': {$ne: transactionId}}, [], {$addToSet: {"transactions.ids": transactionId}, $inc: {'funds.remaining': amount, 'funds.allocated': amount }}, {new: true, safe: true}, callback
 
-  @passwordReset: (key, newPassword, callback)->
-    self = this
-    if Object.isString(id)
-      id = new ObjectId(id)
-    PasswordResetRequests.pending key, (error, resetRequest)->
-      if error?
-        callback error
-        return
-      if !resetRequest?
-        callback new errors.ValidationError "The password-reset key is invalid, expired or already used.", {"key","invalid, expired,or used"}
-        return
-      #key found and active.
-      self._updatePasswordHelper resetRequest.entity.id, newPassword, (error, count)->
-        if error?
-          callback error
-          return
-        #password update success
-        success = count>0 #true
-        callback null, success #responsd to the user, well clear the request after.
-        # Change the status of the request
-        PasswordResetRequests.consume resetRequest._id, (error)->
-          if error?
-            logger.error error
-            return
-          #consumer request success
-          return
-        return
-      return
-    return
-
-    where = {_id: id}
-    update = {$set: {password: password}}
-    options = {remove: false, new: true, upsert: false}
-    @model.collection.findAndModify where, [], update, options, (error, user)->
-      if error?
-        callback error
-        return
-      if !user?
-        callback new errors.ValidationError {"_id": "_id does not exist"}
-        return
-      if user?
-        callback error, user
-      return
-
   @updatePermissions: (id, data, callback)->
     if Object.isString id
       id = new ObjectId(id)
@@ -1332,7 +1301,7 @@ class Consumers extends Users
     else
       callback new errors.ValidationError {"op":"Invalid value."}
       return
-    @model.update where, doc, (error, success)->
+    this.model.update where, doc, (error, success)->
       if success==0
         callback new errors.ValidationError "Whoops, looks like you already added that company.", {"name":"Company with that name already added."}
       else
@@ -1429,6 +1398,50 @@ class Consumers extends Users
       return
     return
 
+  @addRemoveAffiliation: (op, id, affiliationId, callback)->
+    if Object.isString id
+      id = new ObjectId id
+    if Object.isString affiliationId
+      affiliationId = new ObjectId affiliationId
+
+    console.log id
+    console.log affiliationId
+    if op == "add"
+      where = {
+        _id : id
+        "profile.affiliations": {$ne:affiliationId}
+      }
+      doc = {
+        $set: { #this is temporary ... this will eventually be $push..
+          "profile.affiliations": [affiliationId]
+        }
+        # $push: {
+        #   "profile.affiliations": affiliationId
+        # }
+      }
+    else if op == "remove"
+      where = {
+        _id : id
+      }
+      doc = {
+        $set: {
+          "profile.affiliations": []
+        }
+        # $pull: {
+        #   "profile.affiliations": affiliationId
+        # }
+      }
+    else
+      callback new errors.ValidationError {"op":"Invalid value."}
+      return
+    @model.update where, doc, (error, success)->
+      callback error, success
+      # if success==0
+      #   callback new errors.ValidationError "Whoops, looks like you already added that affiliation.", {"name":"Affiliation already added."}
+      # else
+      #   callback error, success
+      # return
+    return
 
 class Clients extends API
   @model = Client
@@ -1944,7 +1957,17 @@ class Businesses extends API
 
 
 class Organizations extends API
-  @model = Organizations
+  @model = Organization
+
+  @search = (name, type, callback)->
+    re = new RegExp("^"+name+".*", 'i')
+    query = @_query()
+    if name? and !name.isBlank()
+      query.where('name', re)
+    if type in choices.organizations.types._enum
+      query.where('type', type)
+    query.limit(10)
+    query.exec callback
 
 
 class Campaigns extends API
@@ -2929,11 +2952,8 @@ class Tags extends API
   @search = (name, type, callback)->
     re = new RegExp("^"+name+".*", 'i')
     query = @_query()
-    query.where('name', re)
-    console.log "outragesous shenanigans"
-    console.log ""
-    console.log type in choices.tags.types._enum
-    console.log type
+    if name? or name.isBlank()
+      query.where('name', re)
     if type in choices.tags.types._enum
       query.where('type', type)
     query.limit(10)
@@ -4002,3 +4022,4 @@ exports.BusinessTransactions = BusinessTransactions
 exports.BusinessRequests = BusinessRequests
 exports.PasswordResetRequests = PasswordResetRequests
 exports.Statistics = Statistics
+exports.Organizations = Organizations
