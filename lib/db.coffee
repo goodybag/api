@@ -344,10 +344,13 @@ Business = new Schema {
 ####################
 
 Organization = new Schema {
-  name    : {type: String, required: true}
   type    : {type: String, required: true}
   subType : {type: String, required: true}
+  name    : {type: String, required: true}
 }
+
+Organization.index {type: 1, name: 1}, {unique: true}
+Organization.index {type: 1, subType: 1, name: 1}
 
 ####################
 # Poll #############
@@ -635,6 +638,8 @@ Tag = new Schema {
   count : {type: Number}
   transactions: transactions
 }
+
+Tag.index {type: 1, name:1}, {unique: true}
 
 
 ############
