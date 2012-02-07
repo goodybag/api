@@ -118,6 +118,7 @@ organization = {
   name              : {type: String}
 }
 
+
 transactions = {
   ids               : [ObjectId]
   failed            : [ObjectId]
@@ -739,6 +740,52 @@ BusinessRequest = new Schema {
     read                : {type: Date}
   }
 }
+
+
+##############
+# REFERRAL ###
+##############
+Referral = new Schema {
+  type                  : {type: String, enum: choices.referrals.types._enum, required: true}
+
+  entity: {
+    type                : {type: String, required: true, enum: choices.entities._enum}
+    id                  : {type: ObjectId, required: true}
+  }
+  by: {
+    type                : {type: String, required: true, enum: choices.entities._enum}
+    id                  : {type: ObjectId, required: true}
+  }
+  incentive             : {type:Number, required: true, default: 0.0}
+
+  #if type is choices.referrals.types.STICKER then we have this sub document
+  stickers: {
+    range: {
+      start             : {type: Number}
+      stop              : {type: Number}
+    }
+    eventId             : {type: ObjectId}
+  }
+
+  #if type is choices.referrals.types.LINK then we have this sub document
+  link: {
+    code                : {type: String}
+    url                 : {type: String, validate: Url}
+    type                : {type: String, enum: choices.referrals.links.types._enum}
+    visits              : {type: Number}
+  }
+  signups               : {type: Number, required: true}
+}
+
+#Indexes
+Referral.index {type: 1, 'entity.type': 1, 'entity.id': 1, 'link.url': 1}
+
+Referral.index {type: 1, 'stickers.range.start': 1, 'stickers.range.stop': 1}
+Referral.index {type: 1, 'stickers.eventId': 1}
+
+Referral.index {type: 1, 'entity.type': 1, 'entity.id':1, 'stickers.eventId': 1}
+Referral.index {type: 1, 'link.code': 1}
+Referral.index {type: 1, 'link.url': 1}
 
 
 ##########
