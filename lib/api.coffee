@@ -22,10 +22,12 @@ errors = globals.errors
 transloadit = globals.transloadit
 guidGen = globals.guid
 fb = globals.facebook
+urlShortner = globals.urlShortner
 
 ObjectId = globals.mongoose.Types.ObjectId
 
 DBTransaction = db.DBTransaction
+Sequence = db.Sequence
 Client = db.Client
 Consumer = db.Consumer
 Business = db.Business
@@ -423,8 +425,46 @@ class API
 
     @model.findOne $query, callback
 
+
 class DBTransactions extends API
-  @model = DBTransaction
+  @model: DBTransaction
+
+
+class Sequences extends API
+  @model: Sequence
+
+  @current: (key, callback)->
+    $fields = {}
+    $fields[key] = 1
+    @model.collection.findOne {id: new ObjectId(0)}, {fields: $fields}, (error, doc)->
+      if error?
+        callback(error)
+      else if !doc?
+        callback({"sequence": "could not find sequence document"})
+      else
+        callback(null, doc[key])
+
+  @next: (key, count, callback)->
+    if Object.isFunction(count)
+      callback = count
+      count = 1
+
+    $inc = {}
+    $inc[key] = count
+
+    $update = {$inc: $inc}
+
+    $fields = {}
+    $fields[key]= 1
+
+    @model.collection.findAndModify {id: new ObjectId(0)}, [], $update, {new: true, safe: true, fields: $fields, upsert: true}, (error, doc)->
+      if error?
+        callback(error)
+      else if !doc?
+        callback({"sequence": "could not find sequence document"})
+      else
+        callback(null, doc[key])
+
 
 class Users extends API
   #start potential new API functions
@@ -866,6 +906,7 @@ class Users extends API
       return
     return
 
+
 class Consumers extends Users
   @model = Consumer
 
@@ -882,6 +923,7 @@ class Consumers extends Users
     query.only("_id", "screenName")
     query.in("_id", ids)
     query.exec callback
+
   @getByBarcodeId: (barcodeId, callback)->
     query = @queryOne()
     query.where("barcodeId", barcodeId)
@@ -1019,16 +1061,27 @@ class Consumers extends Users
                   mediaId : null
                 }
                 callTransloadit = true
-              #save new user
-              newUserModel = new self.model(consumer)
-              newUserModel.save (error, newUser)->
+
+              consumer.referralCodes = {}
+              Sequences.next 'urlShortner', 2, (error, sequence)->
                 if error?
                   callback error #dberror
-                else
-                  newUserFields = self._copyFields(newUser._doc, fieldsToReturn)
-                  callback null, newUserFields
-                  if callTransloadit
-                    self._sendFacebookPicToTransloadit newUser._id, mediaGuid, facebookData.pic
+                tapInCode = urlShortner.encode(sequence-1)
+                userCode = urlShortner.encode(sequence)
+                consumer.referralCodes.tapIn = tapInCode
+                consumer.referralCodes.user = userCode
+
+                #save new user
+                newUserModel = new self.model(consumer)
+                newUserModel.save (error, newUser)->
+                  if error?
+                    callback error #dberror
+                  else
+                    newUserFields = self._copyFields(newUser._doc, fieldsToReturn)
+                    callback null, newUserFields
+                    if callTransloadit
+                      self._sendFacebookPicToTransloadit newUser._id, mediaGuid, facebookData.pic
+                  return
                 return
               return
           return
@@ -1375,7 +1428,6 @@ class Consumers extends Users
       callback error, count
       return
     return
-
 
 
 class Clients extends API
@@ -1889,6 +1941,7 @@ class Businesses extends API
     query = @_query()
     query.where('locations.tapins', true)
     query.exec callback
+
 
 class Organizations extends API
   @model = Organizations

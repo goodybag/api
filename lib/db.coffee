@@ -246,6 +246,11 @@ Consumer = new Schema {
     remaining     : {type: Number, default: 0.0, required: true}
   }
 
+  referralCodes: {
+    tapIn         : {type: String}
+    user          : {type: String}
+  }
+
   barcodeId       : {type:String}
 
   gbAdmin         : {type: Boolean, default: false}
