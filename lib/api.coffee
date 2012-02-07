@@ -1966,7 +1966,7 @@ class Organizations extends API
       query.where('name', re)
     if type in choices.organizations.types._enum
       query.where('type', type)
-    query.limit(10)
+    query.limit(100)
     query.exec callback
 
 
