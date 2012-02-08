@@ -437,7 +437,7 @@ class Sequences extends API
   @current: (key, callback)->
     $fields = {}
     $fields[key] = 1
-    @model.collection.findOne {id: new ObjectId(0)}, {fields: $fields}, (error, doc)->
+    @model.collection.findOne {_id: new ObjectId(0)}, {fields: $fields}, (error, doc)->
       if error?
         callback(error)
       else if !doc?
@@ -458,7 +458,7 @@ class Sequences extends API
     $fields = {}
     $fields[key]= 1
 
-    @model.collection.findAndModify {id: new ObjectId(0)}, [], $update, {new: true, safe: true, fields: $fields, upsert: true}, (error, doc)->
+    @model.collection.findAndModify {_id: new ObjectId(0)}, [], $update, {new: true, safe: true, fields: $fields, upsert: true}, (error, doc)->
       if error?
         callback(error)
       else if !doc?
