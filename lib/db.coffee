@@ -774,7 +774,8 @@ Referral = new Schema {
     type                : {type: String, enum: choices.referrals.links.types._enum}
     visits              : {type: Number}
   }
-  signups               : {type: Number, required: true}
+  signups               : {type: Number, required: true, default:0}
+  referredUsers         : [Entity]
 }
 
 #Indexes
@@ -837,6 +838,7 @@ exports.BusinessTransaction   = mongoose.model 'BusinessTransaction', BusinessTr
 exports.BusinessRequest       = mongoose.model 'BusinessRequest', BusinessRequest
 exports.PasswordResetRequest  = mongoose.model 'PasswordResetRequest', PasswordResetRequest
 exports.Statistic             = mongoose.model 'Statistic', Statistic
+exports.Referral              = mongoose.model 'Referral', Referral
 
 exports.schemas = {
   Sequence             : Sequence
@@ -856,4 +858,5 @@ exports.schemas = {
   BusinessRequest      : BusinessRequest
   PasswordResetRequest : PasswordResetRequest
   Statistic            : Statistic
+  Referral             : Referral
 }
