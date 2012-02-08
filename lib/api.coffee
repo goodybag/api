@@ -1471,6 +1471,11 @@ class Consumers extends Users
     amount = parseFloat(amount)
     if amount <0
       callback({message: "amount cannot be negative"})
+      return
+
+    $update = {$inc: {"funds.remaining": amount, "funds.allocated": amount} }
+
+    @model.collection.update {_id: id}, $update, {safe: true}, callback
 
 
 class Clients extends API
@@ -4092,8 +4097,8 @@ class Referrals extends API
 
   @signUp: (code, referredEntity, callback)->
     $update = {
-      $inc: {signUps: 1}
-      #$push: {referredUsers: referredEntity}
+      $inc: {signups: 1}
+      $push: {referredUsers: referredEntity}
     }
 
     $fields = {_id: 1, entity: 1, incentives: 1}
