@@ -940,7 +940,7 @@ class Consumers extends Users
     query.where("barcodeId", barcodeId)
     query.exec callback
 
-  @facebookLogin: (accessToken, fieldsToReturn, callback)->
+  @facebookLogin: (accessToken, fieldsToReturn, referralCode, callback)->
     if Object.isFunction fieldsToReturn
       callback = fieldsToReturn
       fieldsToReturn = {}
@@ -1097,8 +1097,12 @@ class Consumers extends Users
                       type: choices.entities.CONSUMER
                       id: newUserModel._doc._id
                     }
-                    api.Referrals.add(entity, "/", tapInCode)
-                    api.Referrals.add(entity, "/", userCode)
+
+                    Referrals.addUserLink(entity, "/", userCode)
+                    Referrals.addTapInLink(entity, "/", tapInCode)
+
+                    if !utils.isBlank(referralCode)
+                      Referrals.signUp(referralCode, entity)
 
                     if callTransloadit
                       self._sendFacebookPicToTransloadit newUser._id, mediaGuid, facebookData.pic
@@ -1450,6 +1454,15 @@ class Consumers extends Users
       return
     return
 
+  @addFunds: (id, amount, callback)->
+    amount = parseFloat(amount)
+    if amount <0
+      callback({message: "amount cannot be negative"})
+      return
+
+    $update = {$inc: {"funds.remaining": amount, "funds.allocated": amount} }
+
+    @model.collection.update {_id: id}, $update, {safe: true}, callback
 
 class Clients extends API
   @model = Client
@@ -1962,6 +1975,16 @@ class Businesses extends API
     query = @_query()
     query.where('locations.tapins', true)
     query.exec callback
+
+  @addFunds: (id, amount, callback)->
+    amount = parseFloat(amount)
+    if amount <0
+      callback({message: "amount cannot be negative"})
+      return
+
+    $update = {$inc: {"funds.remaining": amount, "funds.allocated": amount} }
+
+    @model.collection.update {_id: id}, $update, {safe: true}, callback
 
 
 class Organizations extends API
@@ -4017,7 +4040,7 @@ class Referrals extends API
         type: entity.type
         id: entity.id
       }
-      incentive: defaults.referrals.incentives.USER
+      incentive: {referrer: defaults.referrals.incentives.referrers.USER, referred: defaults.referrals.incentives.referreds.USER}
       link: {
         code: code
         url:  link
@@ -4038,7 +4061,7 @@ class Referrals extends API
         type: entity.type
         id: entity.id
       }
-      incentive: defaults.referrals.incentives.TAPIN
+      incentive: {referrer: defaults.referrals.incentives.referrers.TAP_IN, referred: defaults.referrals.incentives.referreds.TAP_IN}
       link: {
         code: code
         url:  link
@@ -4050,6 +4073,33 @@ class Referrals extends API
     }
 
     @model.collection.insert(doc, {safe: true}, callback)
+
+  @signUp: (code, referredEntity, callback)->
+    $update = {
+      $inc: {signUps: 1}
+      #$push: {referredUsers: referredEntity}
+    }
+
+    $fields = {_id: 1, entity: 1, incentives: 1}
+
+    logger.info "code: " + code
+    @model.collection.findAndModify {"link.code": code}, [], $update, {safe: true, new: true, fields: $fields}, (error, doc)->
+      if error?
+        callback(error)
+        return
+      else
+        logger.debug doc._doc
+        #deposit money into the referred's account
+        if doc.entity.type is choices.entities.CONSUMER
+          Consumers.addFunds(referredEntity.id, doc.incentives.referred)
+        else if choices.entities.BUSINESS
+          Businesses.addFunds(referredEntity.id, doc.incentives.referred)
+
+        #deposit money into the referrer's account
+        if doc.entity.type is choices.entities.CONSUMER
+          Consumers.addFunds(doc.entity._id, doc.incentives.referrer)
+        else if choices.entities.BUSINESS
+          Businesses.addFunds(doc.entity._id, doc.incentives.referrer)
 
 
 exports.DBTransactions = DBTransactions

@@ -756,7 +756,11 @@ Referral = new Schema {
     type                : {type: String, required: true, enum: choices.entities._enum}
     id                  : {type: ObjectId, required: true}
   }
-  incentive             : {type:Number, required: true, default: 0.0}
+
+  incentives: {
+    referrer            : {type:Number, required: true, default: 0.0}
+    referred            : {type:Number, required: true, default: 0.0}
+  }
 
   #if type is choices.referrals.types.STICKER then we have this sub document
   stickers: {
