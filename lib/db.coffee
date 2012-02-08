@@ -118,6 +118,7 @@ organization = {
   name              : {type: String}
 }
 
+
 transactions = {
   ids               : [ObjectId]
   failed            : [ObjectId]
@@ -756,6 +757,57 @@ BusinessRequest = new Schema {
 }
 
 
+##############
+# REFERRAL ###
+##############
+Referral = new Schema {
+  type                  : {type: String, enum: choices.referrals.types._enum, required: true}
+
+  entity: {
+    type                : {type: String, required: true, enum: choices.entities._enum}
+    id                  : {type: ObjectId, required: true}
+  }
+  by: {
+    type                : {type: String, required: true, enum: choices.entities._enum}
+    id                  : {type: ObjectId, required: true}
+  }
+
+  incentives: {
+    referrer            : {type:Number, required: true, default: 0.0}
+    referred            : {type:Number, required: true, default: 0.0}
+  }
+
+  #if type is choices.referrals.types.STICKER then we have this sub document
+  stickers: {
+    range: {
+      start             : {type: Number}
+      stop              : {type: Number}
+    }
+    eventId             : {type: ObjectId}
+  }
+
+  #if type is choices.referrals.types.LINK then we have this sub document
+  link: {
+    code                : {type: String}
+    url                 : {type: String, validate: Url}
+    type                : {type: String, enum: choices.referrals.links.types._enum}
+    visits              : {type: Number}
+  }
+  signups               : {type: Number, required: true, default:0}
+  referredUsers         : [Entity]
+}
+
+#Indexes
+Referral.index {type: 1, 'entity.type': 1, 'entity.id': 1, 'link.url': 1}
+
+Referral.index {type: 1, 'stickers.range.start': 1, 'stickers.range.stop': 1}
+Referral.index {type: 1, 'stickers.eventId': 1}
+
+Referral.index {type: 1, 'entity.type': 1, 'entity.id':1, 'stickers.eventId': 1}
+Referral.index {type: 1, 'link.code': 1}
+Referral.index {type: 1, 'link.url': 1}
+
+
 ##########
 # Stat ###
 ##########
@@ -806,6 +858,7 @@ exports.BusinessRequest       = mongoose.model 'BusinessRequest', BusinessReques
 exports.PasswordResetRequest  = mongoose.model 'PasswordResetRequest', PasswordResetRequest
 exports.Statistic             = mongoose.model 'Statistic', Statistic
 exports.Organization          = mongoose.model 'Organization', Organization
+exports.Referral              = mongoose.model 'Referral', Referral
 
 exports.schemas = {
   Sequence             : Sequence
@@ -826,4 +879,5 @@ exports.schemas = {
   PasswordResetRequest : PasswordResetRequest
   Statistic            : Statistic
   Organization         : Organization
+  Referral             : Referral
 }

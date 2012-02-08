@@ -45,7 +45,7 @@ BusinessRequest = db.BusinessRequest
 PasswordResetRequest = db.PasswordResetRequest
 Statistic = db.Statistic
 Organization = db.Organization
-
+Referral = db.Referral
 #TODO:
 #Make sure that all necessary fields exist for each function before sending the query to the db
 class API
@@ -638,16 +638,26 @@ class Users extends API
         return
       else
         data.password = hash
-        self.add data, (error, client)->
+        data.referralCodes = {}
+        Sequences.next 'urlShortner', 2, (error, sequence)->
           if error?
-            if error.code is 11000
-              callback new errors.ValidationError "Email Already Exists", {"email":"Email Already Exists"} #email exists error
+            callback error #dberror
+            return
+          tapInCode = urlShortner.encode(sequence-1)
+          userCode = urlShortner.encode(sequence)
+          data.referralCodes.tapIn = tapInCode
+          data.referralCodes.user = userCode
+          self.add data, (error, client)->
+            if error?
+              if error.code is 11000
+                callback new errors.ValidationError "Email Already Exists", {"email":"Email Already Exists"} #email exists error
+              else
+                callback error
             else
-              callback error
-          else
-            client = self._copyFields(client, fieldsToReturn)
-            callback error, client
-          return
+              client = self._copyFields(client, fieldsToReturn)
+              callback error, client
+            return
+        return
       return
     return
 
@@ -942,7 +952,7 @@ class Consumers extends Users
       callback null, success
     return
 
-  @facebookLogin: (accessToken, fieldsToReturn, callback)->
+  @facebookLogin: (accessToken, fieldsToReturn, referralCode, callback)->
     if Object.isFunction fieldsToReturn
       callback = fieldsToReturn
       fieldsToReturn = {}
@@ -1079,6 +1089,7 @@ class Consumers extends Users
               Sequences.next 'urlShortner', 2, (error, sequence)->
                 if error?
                   callback error #dberror
+                  return
                 tapInCode = urlShortner.encode(sequence-1)
                 userCode = urlShortner.encode(sequence)
                 consumer.referralCodes.tapIn = tapInCode
@@ -1092,6 +1103,19 @@ class Consumers extends Users
                   else
                     newUserFields = self._copyFields(newUser._doc, fieldsToReturn)
                     callback null, newUserFields
+
+                    #create referral codes in the referral's collection
+                    entity = {
+                      type: choices.entities.CONSUMER
+                      id: newUserModel._doc._id
+                    }
+
+                    Referrals.addUserLink(entity, "/", userCode)
+                    Referrals.addTapInLink(entity, "/", tapInCode)
+
+                    if !utils.isBlank(referralCode)
+                      Referrals.signUp(referralCode, entity)
+
                     if callTransloadit
                       self._sendFacebookPicToTransloadit newUser._id, mediaGuid, facebookData.pic
                   return
@@ -1442,6 +1466,12 @@ class Consumers extends Users
       #   callback error, success
       # return
     return
+
+  @addFunds: (id, amount, callback)->
+    amount = parseFloat(amount)
+    if amount <0
+      callback({message: "amount cannot be negative"})
+
 
 class Clients extends API
   @model = Client
@@ -1954,6 +1984,16 @@ class Businesses extends API
     query = @_query()
     query.where('locations.tapins', true)
     query.exec callback
+
+  @addFunds: (id, amount, callback)->
+    amount = parseFloat(amount)
+    if amount <0
+      callback({message: "amount cannot be negative"})
+      return
+
+    $update = {$inc: {"funds.remaining": amount, "funds.allocated": amount} }
+
+    @model.collection.update {_id: id}, $update, {safe: true}, callback
 
 
 class Organizations extends API
@@ -4003,6 +4043,79 @@ class Statistics extends API
   @setTransactionProcessing: @__setTransactionProcessing
   @setTransactionProcessed: @__setTransactionProcessed
   @setTransactionError: @__setTransactionError
+
+
+class Referrals extends API
+  @model = Referral
+
+  @addUserLink: (entity, link, code, callback )->
+    doc = {
+      _id: new ObjectId()
+      type: choices.referrals.types.LINK
+      entity: {
+        type: entity.type
+        id: entity.id
+      }
+      incentive: {referrer: defaults.referrals.incentives.referrers.USER, referred: defaults.referrals.incentives.referreds.USER}
+      link: {
+        code: code
+        url:  link
+        type: choices.referrals.links.types.USER
+        visits: 0
+      }
+      signups: 0
+      referredUsers: []
+    }
+
+    @model.collection.insert(doc, {safe: true}, callback)
+
+  @addTapInLink: (entity, link, code, callback)->
+    doc = {
+      _id: new ObjectId()
+      type: choices.referrals.types.LINK
+      entity: {
+        type: entity.type
+        id: entity.id
+      }
+      incentive: {referrer: defaults.referrals.incentives.referrers.TAP_IN, referred: defaults.referrals.incentives.referreds.TAP_IN}
+      link: {
+        code: code
+        url:  link
+        type: choices.referrals.links.types.TAPIN
+        visits: 0
+      }
+      signups: 0
+      referredUsers: []
+    }
+
+    @model.collection.insert(doc, {safe: true}, callback)
+
+  @signUp: (code, referredEntity, callback)->
+    $update = {
+      $inc: {signUps: 1}
+      #$push: {referredUsers: referredEntity}
+    }
+
+    $fields = {_id: 1, entity: 1, incentives: 1}
+
+    logger.info "code: " + code
+    @model.collection.findAndModify {"link.code": code}, [], $update, {safe: true, new: true, fields: $fields}, (error, doc)->
+      if error?
+        callback(error)
+        return
+      else
+        logger.debug doc._doc
+        #deposit money into the referred's account
+        if doc.entity.type is choices.entities.CONSUMER
+          Consumers.addFunds(referredEntity.id, doc.incentives.referred)
+        else if choices.entities.BUSINESS
+          Businesses.addFunds(referredEntity.id, doc.incentives.referred)
+
+        #deposit money into the referrer's account
+        if doc.entity.type is choices.entities.CONSUMER
+          Consumers.addFunds(doc.entity._id, doc.incentives.referrer)
+        else if choices.entities.BUSINESS
+          Businesses.addFunds(doc.entity._id, doc.incentives.referrer)
 
 
 exports.DBTransactions = DBTransactions
