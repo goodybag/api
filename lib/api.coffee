@@ -4056,7 +4056,7 @@ class Referrals extends API
         type: entity.type
         id: entity.id
       }
-      incentive: {referrer: defaults.referrals.incentives.referrers.USER, referred: defaults.referrals.incentives.referreds.USER}
+      incentives: {referrer: defaults.referrals.incentives.referrers.USER, referred: defaults.referrals.incentives.referreds.USER}
       link: {
         code: code
         url:  link
@@ -4077,7 +4077,7 @@ class Referrals extends API
         type: entity.type
         id: entity.id
       }
-      incentive: {referrer: defaults.referrals.incentives.referrers.TAP_IN, referred: defaults.referrals.incentives.referreds.TAP_IN}
+      incentives: {referrer: defaults.referrals.incentives.referrers.TAP_IN, referred: defaults.referrals.incentives.referreds.TAP_IN}
       link: {
         code: code
         url:  link
@@ -4104,7 +4104,7 @@ class Referrals extends API
         callback(error)
         return
       else
-        logger.debug doc._doc
+        logger.debug doc
         #deposit money into the referred's account
         if doc.entity.type is choices.entities.CONSUMER
           Consumers.addFunds(referredEntity.id, doc.incentives.referred)
