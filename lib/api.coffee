@@ -632,6 +632,7 @@ class Users extends API
 
   @register: (data, fieldsToReturn, callback)->
     self = this
+    data.screenName = new ObjectId()
     @encryptPassword data.password, (error, hash)->
       if error?
         callback new errors.ValidationError "Invalid Password", {"password":"Invalid Password"} #error encrypting password, so fail
@@ -1064,6 +1065,7 @@ class Consumers extends Users
             #previously registered user not found
             #brand new user!
             consumer.password = hashlib.md5(globals.secretWord + facebookData.me.email+(new Date().toString()))+'-'+generatePassword(12, false, /\d/)
+            consumer.screenName = new ObjectId()
             #generate a random password...
             self.encryptPassword consumer.password, (error, hash)->
               if error?
