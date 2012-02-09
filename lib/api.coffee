@@ -48,6 +48,8 @@ Organization = db.Organization
 Referral = db.Referral
 #TODO:
 #Make sure that all necessary fields exist for each function before sending the query to the db
+
+ ## API ##
 class API
   @model = null
   constructor: ()->
@@ -196,6 +198,9 @@ class API
 
   #TRANSACTIONS
   @createTransaction: (state, action, data, direction, entity)->
+    if Object.isString(entity.id)
+      entity.id = new ObjectId(entity.id)
+
     transaction = {
       _id: new ObjectId() #We are putting this in here only because mongoose does for us. #CONSIDER REMOVING THE REGULAR ID FIELD AND ONLY USE THIS
       id: new ObjectId()
@@ -208,10 +213,7 @@ class API
       }
       data: data
       direction: direction
-      entity: {
-        type: entity.type
-        id: entity.id
-      }
+      entity: entity
     }
 
     return transaction
@@ -370,7 +372,8 @@ class API
     Object.merge($update, modifierDoc)
     Object.merge($update.$set, $set)
 
-    @model.collection.findAndModify $query, [], $update, {new: true, safe: true}, callback
+    @model.collection.findAndModify $query, [], $update, {new: true, safe: true}, (error, doc)->
+      callback(error, doc)
 
   @__setTransactionError: (id, transactionId, locking, removeLock, errorObj, modifierDoc, callback)->
     if Object.isString(id)
@@ -427,6 +430,7 @@ class API
     @model.findOne $query, callback
 
 
+## DBTransactions ##
 class DBTransactions extends API
   @model: DBTransaction
 
@@ -1477,7 +1481,13 @@ class Consumers extends Users
 
     @model.collection.update {_id: id}, $update, {safe: true}, callback
 
+  @setTransactonPending: @__setTransactionPending
+  @setTransactionProcessing: @__setTransactionProcessing
+  @setTransactionProcessed: @__setTransactionProcessed
+  @setTransactionError: @__setTransactionError
 
+
+## Clients ##
 class Clients extends API
   @model = Client
 
@@ -1794,7 +1804,13 @@ class Clients extends API
         callback error, user
       return
 
+  @setTransactonPending: @__setTransactionPending
+  @setTransactionProcessing: @__setTransactionProcessing
+  @setTransactionProcessed: @__setTransactionProcessed
+  @setTransactionError: @__setTransactionError
 
+
+## Businesses ##
 class Businesses extends API
   @model = Business
 
@@ -2014,7 +2030,13 @@ class Organizations extends API
     query.limit(100)
     query.exec callback
 
+  @setTransactonPending: @__setTransactionPending
+  @setTransactionProcessing: @__setTransactionProcessing
+  @setTransactionProcessed: @__setTransactionProcessed
+  @setTransactionError: @__setTransactionError
 
+
+## Campaigns ##
 class Campaigns extends API
   @updateMedia: (entityType, entityId, guid, data, mediaKey, callback)->
     if(Object.isString(entityId))
@@ -2045,6 +2067,7 @@ class Campaigns extends API
     return
 
 
+## Polls ##
 class Polls extends Campaigns
   @model = Poll
 
@@ -2076,7 +2099,7 @@ class Polls extends Campaigns
       amount: amount
     }
 
-    transaction = @createTransaction(choices.transactions.states.PENDING, choices.transactions.actions.POLL_CREATED, transactionData, choices.transactions.directions.INBOUND, instance.entity)
+    transaction = @createTransaction(choices.transactions.states.PENDING, choices.transactions.actions.POLL_CREATED, transactionData, choices.transactions.directions.INBOUND, instance._doc.entity)
 
     instance.transactions.state = choices.transactions.states.PENDING #soley for reading purposes
     instance.transactions.locked = true
@@ -2384,7 +2407,6 @@ class Polls extends Campaigns
             cb()
 
       save: (cb)->
-
         inc = new Object()
         set = new Object()
         push = new Object()
@@ -2574,6 +2596,7 @@ class Polls extends Campaigns
   @setTransactionError: @__setTransactionError
 
 
+## Discussions ##
 class Discussions extends Campaigns
   @model = Discussion
 
@@ -2590,6 +2613,28 @@ class Discussions extends Campaigns
     query.where('transaction.state', state) if options.state?
 
     return query
+
+  @add = (data, amount, callback)->
+    instance = new @model(data)
+    if data.tags?
+      Tags.addAll data.tags
+    transactionData = {
+      amount: amount
+    }
+
+    transaction = @createTransaction(choices.transactions.states.PENDING, choices.transactions.actions.DISCUSSION_CREATED, transactionData, choices.transactions.directions.INBOUND, instance._doc.entity)
+
+    instance.transactions.locked = true
+    instance.transactions.ids = [transaction.id]
+    instance.transactions.log = [transaction]
+
+    instance.save (error, discussion)->
+      callback error, discussion
+      if error?
+        return
+      else
+        tp.process(discussion._doc, transaction)
+    return
 
   @update: (entityType, entityId, discussionId, newAllocated, data, callback)->
     self = this
@@ -2679,29 +2724,64 @@ class Discussions extends Campaigns
         tp.process(discussion, transaction)
     return
 
-  @add = (data, amount, callback)->
-    instance = new @model(data)
-    if data.tags?
-      Tags.addAll data.tags, choices.tags.types.DISCUSSIONS
-    transactionData = {
-      amount: amount
+
+  @del: (entityType, entityId, discussionId, lastModifiedBy, callback)->
+    self = this
+    if Object.isString(entityId)
+      entityId = new ObjectId(entityId)
+    if Object.isString(discussionId)
+      discussionId = new ObjectId(discussionId)
+    if Object.isString(lastModifiedBy.id)
+      lastModifiedBy.id = new ObjectId(lastModifiedBy.id)
+
+    entity = {}
+    transactionData = {}
+    transaction = self.createTransaction choices.transactions.states.PENDING, choices.transactions.actions.DISCUSSION_DELETED, transactionData, choices.transactions.directions.OUTBOUND, entity
+
+    $set = {
+      "deleted": true
+      "transactions.locked": true #THIS IS A LOCKING TRANSACTION, SO IF ANYONE ELSE TRIES TO DO A LOKCING TRANSACTION IT WILL NOT HAPPEN (AS LONG AS YOU CHECK FOR THAT)
+      "transactions.state": choices.transactions.states.PENDING
+
+      "lastModifiedBy.type": lastModifiedBy.type
+      "lastModifiedBy.id": lastModifiedBy.id
+    }
+    $push = {
+      "transactions.ids": transaction.id
+      "transactions.log": transaction
     }
 
-    transaction = @createTransaction(choices.transactions.states.PENDING, choices.transactions.actions.DISCUSSION_CREATED, transactionData, choices.transactions.directions.INBOUND, instance.entity)
+    $update = {
+      $set: $set
+      $push: $push
+    }
 
-    instance.transactions.locked = true
-    instance.transactions.ids = [transaction.id]
-    instance.transactions.log = [transaction]
-
-    instance.save (error, discussion)->
-      callback error, discussion
+    where = {
+      _id: discussionId,
+      "entity.type":entityType,
+      "entity.id":entityId,
+      "transactions.locked": false,
+      "deleted": false
+      $or : [
+        {"dates.start": {$gt:new Date()}, "transactions.state": choices.transactions.states.PROCESSED},
+        {"transactions.state": choices.transactions.states.ERROR}
+      ]
+    }
+    @model.collection.findAndModify where, [], $update, {safe: true, new: true}, (error, discussion)->
       if error?
-        return
+        logger.error "DISCUSSIONS - DELETE: unable to findAndModify"
+        logger.error error
+        callback error, null
+      else if !discussion?
+        logger.warn "DISCUSSIONS - DELETE: no document found to modify"
+        callback new errors.ValidationError({"discussion":"Discussion does not exist or Access Denied."})
       else
-        tp.process(discussion._doc, transaction)
+        logger.info "DISCUSSIONS - DELETE: findAndModify succeeded, transaction starting"
+        callback null, discussion
+        tp.process(discussion, transaction)
     return
 
-  @list: (entityType, entityId, stage, options, callback)->
+  @listCampaigns: (entityType, entityId, stage, options, callback)->
     #options: count(boolean)-to return just the count, skip(int), limit(int)
     query = @_query()
     query.where("entity.type", entityType)
@@ -2777,65 +2857,505 @@ class Discussions extends Campaigns
       query.count callback
     return
 
-  @del: (entityType, entityId, discussionId, lastModifiedBy, callback)->
-    self = this
-    if Object.isString(entityId)
-      entityId = new ObjectId(entityId)
+  ### _list_ ###
+  #
+  # - **limit** _Number, default: 25_ limit number of discussions returned
+  # - **skip** _Number, default: 0_ an offset for number of discussions returned
+  #
+  # **callback** error, discussions
+  @list: (options, callback)->
+    if Object.isFunction(options)
+      callback = options
+    else
+      limit = options.limit || 25
+      skip = options.skip || 0
+
+    $query = {
+      "dates.start"           : {$lte: new Date()}
+      , deleted               : {$ne: true}
+      , "transactions.state"  : choices.transactions.states.PROCESSED
+      , "transactions.locked" : {$ne: true}
+    }
+
+    $fields = {
+      question          : 1
+      , tags            : 1
+      , media           : 1
+      , thanker         : 1
+      , donors          : 1
+      , donationAmounts : 1
+      , dates           : 1
+      , funds           : 1
+      , donationCount   : 1
+      , thankCount      : 1
+    }
+
+    @model.collection.find $query, $fields, (error, cursor)->
+      if error?
+        callback(error)
+        return
+      cursor.toArray (error, discussions)->
+        callback(error, discussions)
+
+  ### _get_ ###
+  #
+  # **discussionId** _String/ObjectId_ id of discussion
+  #
+  # **responseOptions**
+  #
+  # - **limit** _Number, default: 10_ limit of responses
+  # - **skip** _Number, default: 0_  responses to skip
+  #
+  # **callback** error, discussion
+  @get: (discussionId, responseOptions, callback)->
     if Object.isString(discussionId)
       discussionId = new ObjectId(discussionId)
-    if Object.isString(lastModifiedBy.id)
-      lastModifiedBy.id = new ObjectId(lastModifiedBy.id)
 
-    entity = {}
-    transactionData = {}
-    transaction = self.createTransaction choices.transactions.states.PENDING, choices.transactions.actions.DISCUSSION_DELETED, transactionData, choices.transactions.directions.OUTBOUND, entity
+    if Object.isFunction(responseOptions)
+      callback = responseOptions
+      responseOptions = {}
 
-    $set = {
-      "deleted": true
-      "transactions.locked": true #THIS IS A LOCKING TRANSACTION, SO IF ANYONE ELSE TRIES TO DO A LOKCING TRANSACTION IT WILL NOT HAPPEN (AS LONG AS YOU CHECK FOR THAT)
-      "transactions.state": choices.transactions.states.PENDING
+    responseOptions.limit = responseOptions.limit || 10
+    responseOptions.skip = responseOptions.skip || 0
 
-      "lastModifiedBy.type": lastModifiedBy.type
-      "lastModifiedBy.id": lastModifiedBy.id
-    }
-    $push = {
-      "transactions.ids": transaction.id
-      "transactions.log": transaction
+    $query = {
+      "dates.start"           : {$lte: new Date()}
+      , deleted               : {$ne: true}
+      , "transactions.state"  : choices.transactions.states.PROCESSED
+      , "transactions.locked" : {$ne: true}
     }
 
-    $update = {
-      $set: $set
-      $push: $push
+    $fields = {
+      question          : 1
+      , tags            : 1
+      , media           : 1
+      , thanker         : 1
+      , donors          : 1
+      , donationAmounts : 1
+      , dates           : 1
+      , funds           : 1
+      , donationCount   : 1
+      , thankCount      : 1
+      , responses       : {$slice:[responseOptions.skip, responseOptions.skip + responseOptions.limit]}
     }
 
-    where = {
-      _id: discussionId,
-      "entity.type":entityType,
-      "entity.id":entityId,
-      "transactions.locked": false,
-      "deleted": false
-      $or : [
-        {"dates.start": {$gt:new Date()}, "transactions.state": choices.transactions.states.PROCESSED},
-        {"transactions.state": choices.transactions.states.ERROR}
-      ]
+    @model.collection.findOne $query, $fields, (error, discussion)->
+      callback(error, discussion)
+
+  ### _getResponses_ ###
+  # **discussionId** _String/ObjectId_ Id of discussion
+  #
+  # **responseOptions**
+  #
+  # - **limit** _Number, default: 10_ limit of responses
+  # - **skip** _Number, default: 0_  responses to skip
+  #
+  # **callback** error, discussion
+  @getResponses: (discussionId, responseOptions, callback)->
+    if Object.isString(discussionId)
+      discussionId = new ObjectId(discussionId)
+
+    if Object.isFunction(responseOptions)
+      callback = responseOptions
+      responseOptions = {}
+
+    responseOptions.limit = responseOptions.limit || 10
+    responseOptions.skip = responseOptions.skip || 0
+
+    $query = {
+      "dates.start"           : {$lte: new Date()}
+      , deleted               : {$ne: true}
+      , "transactions.state"  : choices.transactions.states.PROCESSED
+      , "transactions.locked" : {$ne: true}
     }
-    @model.collection.findAndModify where, [], $update, {safe: true, new: true}, (error, discussion)->
-      if error?
-        logger.error "DISCUSSIONS - DELETE: unable to findAndModify"
-        logger.error error
-        callback error, null
-      else if !discussion?
-        logger.warn "DISCUSSIONS - DELETE: no document found to modify"
-        callback new errors.ValidationError({"discussion":"Discussion does not exist or Access Denied."})
-      else
-        logger.info "DISCUSSIONS - DELETE: findAndModify succeeded, transaction starting"
-        callback null, discussion
-        tp.process(discussion, transaction)
-    return
+
+    $fields = {
+      _id: 1
+      , responses       : {$slice:[responseOptions.skip, responseOptions.skip + responseOptions.limit]}
+    }
+
+    @model.collection.findOne $query, $fields, (error, discussion)->
+      callback(error, discussion.responses)
 
   @getByEntity: (entityType, entityId, discussionId, callback)->
     @model.findOne {_id: discussionId, 'entity.type': entityType ,'entity.id': entityId}, callback
     return
+
+  ### _thank_ ###
+  # **discussionId** _String/ObjectId_ Id of discussion <br />
+  # **responseId** _String/ObjectId_ Id of response in discussion <br />
+  # **thankerEntity** _Object_ an entity object containing at least `type` and `id` <br />
+  # **amount** _Float_ the amount that the user wishes to thank the respondant <br />
+  # **callback** error, numDocsModified
+  @thank: (discussionId, responseId, thankerEntity, amount, callback)-> #take money out of my own funds and give to another user, update discussion
+    if Object.isString(discussionId)
+      discussionId = new ObjectId(discussionId)
+    if Object.isString(responseId)
+      responseId = new ObjectId(responseId)
+    if Object.isString(thankerEntity.id)
+      thankerEntity.id = new ObjectId(thankerEntity.id)
+
+    amount = parseFloat(amount)
+    if amount<0
+      callback(new errors.ValidationError("discussion": "can not thank a negative amount"))
+
+    thankerApiClass = null
+    if thankerEntity.type is choices.entities.CONSUMER
+      thankerApiClass = Consumers
+    else if thankerEntity.type is choices.entities.BUSINESS
+      thankerApiClass = Businesses
+    else
+      callback new errors.ValidationError({"discussion":"Entity type: #{thankerEntity.type} is invalid or unsupported"})
+      return
+
+    fieldsToReturn = {}
+    fieldsToReturn["responseEntities.#{responseId.toString()}"] = 1
+
+    entityThanked = null
+    async.series {
+      getResponseEntity: (cb)=>
+        @model.collection.findOne {_id: discussionId}, fieldsToReturn, (error, discussion)->
+          if error?
+            cb error
+            return
+          else if !discussion?
+            cb new errors.ValidationError("discussion": "response doesn't exist")
+            return
+          else
+            entityThanked = discussion.responseEntities["#{responseId.toString()}"]
+            cb()
+            return
+      save: (cb)=>
+        transactionData = {
+          amount: amount
+          thankerEntity: thankerEntity
+          discussionId: discussionId
+          responseId: responseId
+          timestamp: new Date()
+        }
+
+        transaction = @createTransaction(choices.transactions.states.PENDING, choices.transactions.actions.DISCUSSION_THANKED, transactionData, choices.transactions.directions.OUTBOUND, entityThanked)
+
+        $set = {}
+        $push = {
+          "transactions.ids": transaction.id
+          "transactions.log": transaction
+        }
+
+        $inc = {
+          "funds.remaining": -1*amount
+        }
+
+        $update = {$push: $push, $set: $set, $inc: $inc}
+
+        fieldsToReturn = {_id: 1}
+
+        thankerApiClass.model.collection.findAndModify {_id: thankerEntity.id, "funds.remaining": {$gte: amount}}, [], $update, {safe: true, fields: fieldsToReturn}, (error, doc)->
+          if error?
+            cb error
+          else if !doc?
+            cb new errors.ValidationError({"funds.remaining":"insufficient funds remaining"})
+          else
+            callback(null, 1) #1 for number of documents updated (no need to return document)
+            tp.process(doc, transaction)
+            cb()
+    },
+    (error, results)=>
+      if error?
+        callback(error)
+
+  ### _donate_ ###
+  # **discussionId** _String/ObjectId_ Id of discussion <br />
+  # **entity** _Object_ an entity object containing at least `type` and `id` <br />
+  # **amount** _Float_ the amount that the user wishes to thank the respondant <br />
+  # **callback** error, numDocsModified
+  @donate: (discussionId, entity, amount, callback)->
+    if Object.isString(discussionId)
+      discussionId = new ObjectId(discussionId)
+    if Object.isString(entity.id)
+      entity.id = new ObjectId(entity.id)
+
+    amount = parseFloat(amount)
+    if amount<0
+      callback(new errors.ValidationError("discussion": "can not donate negative funds"))
+
+    transactionData = {
+      amount: amount
+      timestamp: new Date()
+    }
+    transaction = @createTransaction(choices.transactions.states.PENDING, choices.transactions.actions.DISCUSSION_DONATED, transactionData, choices.transactions.directions.INBOUND, entity)
+
+    $set = {}
+    $push = {
+      "transactions.ids": transaction.id
+      "transactions.log": transaction
+    }
+    $update = {$push: $push, $set: $set}
+
+    fieldsToReturn = {_id: 1 }
+    @model.collection.findAndModify {_id: discussionId}, [], $update, {safe: true, fields: fieldsToReturn}, (error, discussion)->
+      if error?
+        callback(error)
+      else if !discussion?
+        callback new errors.ValidationError({"discussion":"Discussion does not exist or is not editable."})
+      else
+        callback(null, 1) #1 for number of documents updated (no need to return document)
+        tp.process(discussion, transaction)
+
+  ### distributeDonation ###
+  # **discussionId** _String/ObjectId_ Id of discussion <br />
+  # **responseId** _String/ObjectId_ Id of response in discussion <br />
+  # **donorEntity** _Object_ an entity object containing at least `type` and `id` <br />
+  # **amount** _Float_ the amount that the user wishes to donate into the discussions <br />
+  # **callback** error, numDocsModified
+  @distributeDonation: (discussionId, responseId, donorEntity, amount, callback)-> #distribute the amount that the donorEntity has donated to a particular response
+    if Object.isString(discussionId)
+      discussionId = new ObjectId(discussionId)
+    if Object.isString(responseId)
+      responseId = new ObjectId(responseId)
+    if Object.isString(donorEntity.id)
+      donorEntity.id = new ObjectId(donorEntity.id)
+
+    amount = parseFloat(amount)
+    if amount<0
+      callback(new errors.ValidationError("discussion": "can not distribute negative funds"))
+
+    fieldsToReturn = {}
+    fieldsToReturn["responseEntities.#{responseId.toString()}"] = 1
+
+    doneeEntity = null
+    async.series {
+      getResponseEntity: (cb)=>
+        @model.collection.findOne {_id: discussionId}, fieldsToReturn, (error, discussion)->
+          if error?
+            cb error
+            return
+          else if !discussion?
+            cb new errors.ValidationError("discussion": "response doesn't exist")
+            return
+          else
+            doneeEntity = discussion.responseEntities["#{responseId.toString()}"]
+            cb()
+            return
+      save: (cb)=>
+        transactionData = {
+          amount: amount
+          donorEntity: donorEntity
+          discussionId: discussionId
+          responseId: responseId
+          timestamp: new Date()
+        }
+
+        transaction = @createTransaction(choices.transactions.states.PENDING, choices.transactions.actions.DISCUSSION_DONATION_DISTRIBUTED, transactionData, choices.transactions.directions.OUTBOUND, doneeEntity)
+
+        $set = {}
+        $push = {
+          "transactions.ids": transaction.id
+          "transactions.log": transaction
+        }
+
+        $inc = {
+          "funds.remaining": -1*amount
+        }
+
+        $update = {$push: $push, $set: $set, $inc: $inc}
+
+        fieldsToReturn = {_id: 1}
+
+        $query = {_id: discussionId}
+        $query["donationAmounts.#{donorEntity.type}_#{donorEntity.id}.remaining"] = {$gte: amount}
+
+        logger.debug $query
+        logger.debug $update
+        @model.collection.findAndModify $query, [], $update, {safe: true, fields: fieldsToReturn}, (error, doc)->
+          if error?
+            cb error
+          else if !doc?
+            cb new errors.ValidationError({"funds.remaining":"insufficient funds remaining"})
+          else
+            callback(null, 1) #1 for number of documents updated (no need to return document)
+            tp.process(doc, transaction)
+            cb()
+    },
+    (error, results)=>
+      if error?
+        callback(error)
+
+  ### _respond_ ###
+  # **discussionId** _String/ObjectId_ Id of discussion <br />
+  # **entity** _Object_ an entity object containing at least `type` and `id` <br />
+  # **content** _String_ the content of the response <br />
+  # **callback** error, numDocsModified
+  @respond: (discussionId, entity, content, callback)->
+    if Object.isString(discussionId)
+      discussionId = new ObjectId(discussionId)
+    if Object.isString(entity.id)
+      entity.id = new ObjectId(entity.id)
+
+    response = {
+      _id               : new ObjectId()
+      entity            : entity
+      content           : content
+
+      commentCount      : 0
+
+      dates: {
+        created         : new Date()
+        lastModified    : new Date()
+      }
+    }
+
+    $push = {
+      responses: response
+    }
+
+    $set = {}
+    $set["responseEntities.#{response._id.toString()}"] = entity
+
+    $inc = {
+      responseCount: 1
+    }
+
+    $update = {$push: $push, $inc: $inc, $set: $set}
+
+    @model.collection.update {_id: discussionId}, $update, {safe: true}, callback
+
+  ### _comment_ ###
+  # **discussionId** _String/ObjectId_ Id of discussion <br />
+  # **responseId** _String/ObjectId_ Id of response in discussion <br />
+  # **entity** _Object_ an entity object containing at least `type` and `id` <br />
+  # **content** _String_ the content of the comment <br />
+  # **callback** error, numDocsModified
+  @comment: (discussionId, responseId, entity, content, callback)->
+    if Object.isString(discussionId)
+      discussionId = new ObjectId(discussionId)
+    if Object.isString(responseId)
+      responseId = new ObjectId(responseId)
+    if Object.isString(entity.id)
+      entity.id = new ObjectId(entity.id)
+
+      comment = {
+        _id               : new ObjectId()
+        entity            : entity
+        content           : content
+
+        dates: {
+          created         : new Date()
+          lastModified    : new Date()
+        }
+      }
+
+      $push = {"responses.$.comments": comment}
+      $inc = {"responses.$.commentCount": 1}
+
+      $update = {$push: $push, $inc: $inc}
+      @model.collection.update {_id: discussionId, "responses._id": responseId}, $update, {safe: true}, callback
+
+  ### _voteUp_ ###
+  # **discussionId** _String/ObjectId_ Id of discussion <br />
+  # **responseId** _String/ObjectId_ Id of response in discussion <br />
+  # **entity** _Object_ an entity object containing at least `type` and `id` <br />
+  # **callback** error
+  @voteUp: (discussionId, responseId, entity, callback)->
+    @_vote(discussionId, responseId, entity, choices.votes.UP, callback)
+
+  ### _voteDown_ ###
+  # **discussionId** _String/ObjectId_ Id of discussion <br />
+  # **responseId** _String/ObjectId_ Id of response in discussion <br />
+  # **entity** _Object_ an entity object containing at least `type` and `id` <br />
+  # **callback** error
+  @voteDown: (discussionId, responseId, entity, callback)->
+    @_vote(discussionId, responseId, entity, choices.votes.DOWN, callback)
+
+  ### _\_vote_ ###
+  # **discussionId** _String/ObjectId_ Id of discussion <br />
+  # **responseId** _String/ObjectId_ Id of response in discussion <br />
+  # **entity** _Object_ an entity object containing at least `type` and `id` <br />
+  # **direction** _String, enum: choices.votes_ <br />
+  # **callback** error
+  @_vote: (discussionId, responseId, entity, direction, callback)->
+    if Object.isString(discussionId)
+      discussionId = new ObjectId(discussionId)
+    if Object.isString(responseId)
+      responseId = new ObjectId(responseId)
+    if Object.isString(entity.id)
+      entity.id = new ObjectId(entity.id)
+
+    d = "up"
+    opposite = choices.votes.DOWN
+    if direction is choices.votes.DOWN
+      d = "down"
+      opposite = choices.votes.UP
+
+    #if the user has voted the opposite, undo that
+    @_undoVote discussionId, responseId, entity, opposite, (error, data)->
+      return
+
+    entity._id = new ObjectId() #we do this because mongoose does it to every document array
+
+    $query = {_id: discussionId, "responses._id": responseId}
+
+    $inc = {"responses.$.votes.count": 1}
+    $set = {}
+    $push = {}
+
+    $query["responses.votes.#{d}.by.id"] = {$ne: entity.id} #not already set
+    $inc["responses.$.votes.#{d}.count"] = 1
+    $push["responses.$.votes.#{d}.by"] = entity
+    $set["responses.$.votes.#{d}.ids.#{entity.type}_#{entity.id.toString()}"] = 1
+
+    $update = {$inc: $inc, $push: $push, $set: $set}
+
+    @model.collection.update $query, $update, {safe: false}, callback
+
+
+  ### _undoVoteUp_ ###
+  # **discussionId** _String/ObjectId_ Id of discussion <br />
+  # **responseId** _String/ObjectId_ Id of response in discussion <br />
+  # **entity** _Object_ an entity object containing at least `type` and `id` <br />
+  # **callback** error
+  @undoVoteUp: (discussionId, responseId, entity, callback)->
+    @_undoVote(discussionId, responseId, entity, choices.votes.UP, callback)
+
+  ### _undoVoteDown_ ###
+  # **discussionId** _String/ObjectId_ Id of discussion <br />
+  # **responseId** _String/ObjectId_ Id of response in discussion <br />
+  # **entity** _Object_ an entity object containing at least `type` and `id` <br />
+  # **callback** error
+  @undoVoteDown: (discussionId, responseId, entity, callback)->
+    @_undoVote(discussionId, responseId, entity, choices.votes.DOWN, callback)
+
+  ### _\_undoVote_ ###
+  # **discussionId** _String/ObjectId_ Id of discussion <br />
+  # **responseId** _String/ObjectId_ Id of response in discussion <br />
+  # **entity** _Object_ an entity object containing at least `type` and `id` <br />
+  # **direction** _String, enum: choices.votes_ <br />
+  # **callback** error
+  @_undoVote: (discussionId, responseId, entity, direction, callback)->
+    if Object.isString(discussionId)
+      discussionId = new ObjectId(discussionId)
+    if Object.isString(responseId)
+      responseId = new ObjectId(responseId)
+    if Object.isString(entity.id)
+      entity.id = new ObjectId(entity.id)
+
+    d = "up"
+    if direction is choices.votes.DOWN
+      d = "down"
+
+    $query = {_id: discussionId, "responses._id": responseId}
+    $pull = {}
+    $inc = {"responses.$.votes.count": -1}
+    $unset = {}
+
+    $query["responses.votes.#{d}.by.id"] = entity.id
+    $pull["responses.$.votes.#{d}.by"] = {type: entity.type, id: entity.id}
+    $inc["responses.$.votes.#{d}.count"] = -1
+    $unset["responses.$.votes.#{d}.ids.#{entity.type}_#{entity.id.toString()}"] = 1
+
+    $update = {$inc: $inc, $pull: $pull, $unset: $unset}
+
+    @model.collection.update $query, $update, {safe: false}, callback
 
   @setTransactonPending: @__setTransactionPending
   @setTransactionProcessing: @__setTransactionProcessing
@@ -2843,14 +3363,7 @@ class Discussions extends Campaigns
   @setTransactionError: @__setTransactionError
 
 
-class Responses extends API
-  @model = Response
-
-  @count = (entityType, businessId, discussionId, callback)->
-    @model.count {'entity.id':businessId, 'entity.type':entityType, discussionId: discussionId}, (error, count)->
-      callback error, count
-
-
+## Medias ##
 class Medias extends API
   @model = Media
 
@@ -2942,6 +3455,7 @@ class Medias extends API
     #@get {'entity.type': entityType, 'entity.id': entityId, 'media.guid': guid}, callback
 
 
+## ClientInvitations ##
 class ClientInvitations extends API
   @model = ClientInvitation
 
@@ -2976,6 +3490,7 @@ class ClientInvitations extends API
     query.remove(callback)
 
 
+## Tags ##
 class Tags extends API
   @model = Tag
 
@@ -3005,6 +3520,7 @@ class Tags extends API
     query.exec callback
 
 
+## EventRequests ##
 class EventRequests extends API
   @model = EventRequest
 
@@ -3023,6 +3539,7 @@ class EventRequests extends API
     @model.collection.findAndModify $query, [], $update, $options, callback
 
 
+## Events ##
 class Events extends API
   @model = Event
 
@@ -3070,6 +3587,7 @@ class Events extends API
   @setTransactionError: @__setTransactionError
 
 
+## BusinessTransactions ##
 class BusinessTransactions extends API
   @model = db.BusinessTransaction
 
@@ -3141,7 +3659,7 @@ class BusinessTransactions extends API
           amount: doc.amount
         }
 
-        statTransaction = @createTransaction(choices.transactions.states.PENDING, choices.transactions.actions.STAT_BT_TAPPED, transactionData, choices.transactions.directions.INBOUND, instance.organizationEntity)
+        statTransaction = @createTransaction(choices.transactions.states.PENDING, choices.transactions.actions.STAT_BT_TAPPED, transactionData, choices.transactions.directions.INBOUND, instance._doc.organizationEntity)
 
         instance.transactions.locked = false
         instance.transactions.ids = [statTransaction.id]
@@ -3233,6 +3751,7 @@ class BusinessTransactions extends API
   @setTransactionError: @__setTransactionError
 
 
+## BusinessRequests ##
 class BusinessRequests extends API
   @model = BusinessRequest
 
@@ -3246,6 +3765,7 @@ class BusinessRequests extends API
     instance.save callback
 
 
+## Streams ##
 class Streams extends API
   @model: Stream
 
@@ -3833,7 +4353,6 @@ class Streams extends API
           return
         callback error, {activities: activities, consumers: consumers}
 
-
 class PasswordResetRequests extends API
   @model: PasswordResetRequest
 
@@ -3923,7 +4442,7 @@ class PasswordResetRequests extends API
       return
     return
 
-
+## Statistics ##
 class Statistics extends API
   @model: Statistic
 
@@ -4049,7 +4568,6 @@ class Statistics extends API
   @setTransactionProcessed: @__setTransactionProcessed
   @setTransactionError: @__setTransactionError
 
-
 class Referrals extends API
   @model = Referral
 
@@ -4124,20 +4642,19 @@ class Referrals extends API
 
 
 exports.DBTransactions = DBTransactions
-exports.Clients = Clients
 exports.Consumers = Consumers
+exports.Clients = Clients
 exports.Businesses = Businesses
-exports.Medias = Medias
 exports.Polls = Polls
 exports.Discussions = Discussions
-exports.Responses = Responses
+exports.Medias = Medias
 exports.ClientInvitations = ClientInvitations
 exports.Tags = Tags
 exports.EventRequests = EventRequests
 exports.Events = Events
-exports.Streams = Streams
 exports.BusinessTransactions = BusinessTransactions
 exports.BusinessRequests = BusinessRequests
-exports.PasswordResetRequests = PasswordResetRequests
+exports.Streams = Streams
 exports.Statistics = Statistics
 exports.Organizations = Organizations
+exports.PasswordResetRequests = PasswordResetRequests
