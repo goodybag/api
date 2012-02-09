@@ -824,6 +824,7 @@ class Users extends API
           return
         return
     return
+
   @updateMediaByGuid: (id, guid, media, mediaKey, callback)->
     if(Object.isString(id))
       id = new ObjectId(id)
@@ -944,6 +945,9 @@ class Consumers extends Users
     return
 
   @updateBarcodeId: (id, barcodeId, callback)->
+    if Object.isString(id)
+      id = new ObjectId(id)
+
     @update id, {barcodeId: barcodeId}, (error, count)->
       if error?
         callback error
@@ -4120,9 +4124,9 @@ class Referrals extends API
 
         #deposit money into the referrer's account
         if doc.entity.type is choices.entities.CONSUMER
-          Consumers.addFunds(doc.entity._id, doc.incentives.referrer)
+          Consumers.addFunds(doc.entity.id, doc.incentives.referrer)
         else if choices.entities.BUSINESS
-          Businesses.addFunds(doc.entity._id, doc.incentives.referrer)
+          Businesses.addFunds(doc.entity.id, doc.incentives.referrer)
 
 
 exports.DBTransactions = DBTransactions
