@@ -441,7 +441,7 @@ class Sequences extends API
   @current: (key, callback)->
     $fields = {}
     $fields[key] = 1
-    @model.collection.findOne {id: new ObjectId(0)}, {fields: $fields}, (error, doc)->
+    @model.collection.findOne {_id: new ObjectId(0)}, {fields: $fields}, (error, doc)->
       if error?
         callback(error)
       else if !doc?
@@ -462,7 +462,7 @@ class Sequences extends API
     $fields = {}
     $fields[key]= 1
 
-    @model.collection.findAndModify {id: new ObjectId(0)}, [], $update, {new: true, safe: true, fields: $fields, upsert: true}, (error, doc)->
+    @model.collection.findAndModify {_id: new ObjectId(0)}, [], $update, {new: true, safe: true, fields: $fields, upsert: true}, (error, doc)->
       if error?
         callback(error)
       else if !doc?
@@ -636,6 +636,7 @@ class Users extends API
 
   @register: (data, fieldsToReturn, callback)->
     self = this
+    data.screenName = new ObjectId()
     @encryptPassword data.password, (error, hash)->
       if error?
         callback new errors.ValidationError "Invalid Password", {"password":"Invalid Password"} #error encrypting password, so fail
@@ -827,6 +828,7 @@ class Users extends API
           return
         return
     return
+
   @updateMediaByGuid: (id, guid, media, mediaKey, callback)->
     if(Object.isString(id))
       id = new ObjectId(id)
@@ -947,6 +949,9 @@ class Consumers extends Users
     return
 
   @updateBarcodeId: (id, barcodeId, callback)->
+    if Object.isString(id)
+      id = new ObjectId(id)
+
     @update id, {barcodeId: barcodeId}, (error, count)->
       if error?
         callback error
@@ -1068,6 +1073,7 @@ class Consumers extends Users
             #previously registered user not found
             #brand new user!
             consumer.password = hashlib.md5(globals.secretWord + facebookData.me.email+(new Date().toString()))+'-'+generatePassword(12, false, /\d/)
+            consumer.screenName = new ObjectId()
             #generate a random password...
             self.encryptPassword consumer.password, (error, hash)->
               if error?
@@ -4636,9 +4642,9 @@ class Referrals extends API
 
         #deposit money into the referrer's account
         if doc.entity.type is choices.entities.CONSUMER
-          Consumers.addFunds(doc.entity._id, doc.incentives.referrer)
+          Consumers.addFunds(doc.entity.id, doc.incentives.referrer)
         else if choices.entities.BUSINESS
-          Businesses.addFunds(doc.entity._id, doc.incentives.referrer)
+          Businesses.addFunds(doc.entity.id, doc.incentives.referrer)
 
 
 exports.DBTransactions = DBTransactions
