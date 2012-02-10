@@ -4147,3 +4147,4 @@ exports.BusinessRequests = BusinessRequests
 exports.PasswordResetRequests = PasswordResetRequests
 exports.Statistics = Statistics
 exports.Organizations = Organizations
+exports.Referrals = Referrals
