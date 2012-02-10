@@ -208,7 +208,7 @@ Consumer = new Schema {
   password        : {type: String, min:5, required: true}
   firstName       : {type: String, required: true}
   lastName        : {type: String, required: true}
-  screenName      : {type: String, default: mongoose.Types.ObjectId.createPk(), unique: true}
+  screenName      : {type: String, unique: true}
   setScreenName   : {type: Boolean, default: false}
   created         : {type: Date, default: new Date()}
   logins          : []
