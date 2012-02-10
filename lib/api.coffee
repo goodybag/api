@@ -171,12 +171,28 @@ class API
 
   @del = @remove
 
-  @one: (id, callback)->
+  # @one: (id, callback)->
+  @one: (id, fieldsToReturn, dbOptions, callback)->
     return @_one(id, callback)
 
   @_one: (id, callback)->
-    @model.findOne {_id: id}, callback
+    if Object.isString id
+      id = new ObjectId id
+    if Object.isFunction fieldsToReturn && !fieldsToReturn?
+      #Fields to return must always be specified for consumers...
+      callback = fieldsToReturn
+      fieldsToReturn = {}
+      dbOptions = {}
+      # callback new errors.ValidationError {"fieldsToReturn","Database error, fields must always be specified."}
+      # return
+    if Object.isFunction dbOptions
+      callback = dbOptions
+      dbOptions = {}
+    @model.findById id, fieldsToReturn, dbOptions, callback
     return
+    # @model.findOne {_id: id}, callback
+    # return
+
 
   @get: (options, callback)->
     query = @optionParser(options)
@@ -2088,6 +2104,7 @@ class Polls extends Campaigns
 
   # @add = (data, amount, event, callback)-> #come back to this one, first transactions need to work
   @add: (data, amount, callback)->
+    self = this
     if Object.isString(data.entity.id)
       data.entity.id = new ObjectId data.entity.id
     if data.mediaQuestion and Object.isString(data.mediaQuestion.mediaId) and data.mediaQuestion.mediaId.length>0
@@ -2095,34 +2112,53 @@ class Polls extends Campaigns
     if data.mediaResults? and Object.isString(data.mediaResults.mediaId) and data.mediaResults.mediaId.length>0
       data.mediaResults.mediaId = new ObjectId data.mediaResults.mediaId
 
-    instance = new @model(data)
+    #find Entity, and check if they have enough funds
+    switch data.entity.type
+      when choices.entities.CLIENT
+        entityClass = Clients
+      when choices.entities.CONSUMER
+        entityClass = Consumers
 
-    transactionData = {
-      amount: amount
-    }
-
-    transaction = @createTransaction(choices.transactions.states.PENDING, choices.transactions.actions.POLL_CREATED, transactionData, choices.transactions.directions.INBOUND, instance._doc.entity)
-
-    instance.transactions.state = choices.transactions.states.PENDING #soley for reading purposes
-    instance.transactions.locked = true
-    instance.transactions.ids = [transaction.id]
-    instance.transactions.log = [transaction]
-
-    #instance.events = @_createEventsObj event
-    instance.save (error, poll)->
-      logger.debug error
-      logger.debug poll
-      callback error, poll
+    entityClass.one data.entity.id, {funds:1}, (error, entity)->
       if error?
-        logger.debug "error"
-      else
-        tp.process(poll._doc, transaction)
+        callback error
+        return
+      if !entity?
+        callback new errors.ValidationError "Entity id not found.", {"entity":"Entity not found."}
+        return
+      #found entity
+      if (entity.funds.remaining < (data.funds.perResponse*data.responses.max))
+        callback new errors.ValidationError "Insufficient funds.", {"entity":"Insufficient funds"}
+        return
+      #User has enough funds.
+      instance = new self.model(data)
+
+      transactionData = {
+        amount: amount
+      }
+
+      transaction = self.createTransaction(choices.transactions.states.PENDING, choices.transactions.actions.POLL_CREATED, transactionData, choices.transactions.directions.INBOUND, instance._doc.entity)
+
+      instance.transactions.state = choices.transactions.states.PENDING #soley for reading purposes
+      instance.transactions.locked = true
+      instance.transactions.ids = [transaction.id]
+      instance.transactions.log = [transaction]
+
+      #instance.events = @_createEventsObj event
+      instance.save (error, poll)->
+        logger.debug error
+        logger.debug poll
+        callback error, poll._doc
+        if error?
+          logger.debug "error"
+        else
+          tp.process(poll._doc, transaction)
+        return
       return
     return
 
   @update: (entityType, entityId, pollId, data, newAllocated, perResponse, callback)->
     self = this
-
     instance = new @model(data)
 
     if Object.isString(pollId)
@@ -2130,88 +2166,109 @@ class Polls extends Campaigns
     if Object.isString(entityId)
       entityId = new ObjectId(entityId)
 
-    #Set the fields you want updated now, not afte the update
-    #for the ones that you want set after the update put those
-    #in the transactionData and make thsoe changes in the
-    #setTransactionProcessed function
-
-    $set = {
-      entity: {
-        type          : entityType
-        id            : entityId
-        name          : data.entity.name
-      }
-
-      lastModifiedBy: {
-        type          : data.lastModifiedBy.type
-        id            : data.lastModifiedBy.id
-      }
-
-      name            : data.name
-      type            : data.type
-      question        : data.question
-      choices         : data.choices
-      numChoices      : parseInt(data.numChoices)
-      responses: {
-        remaining     : parseInt(data.responses.max)
-        max           : parseInt(data.responses.max)
-        log           : data.responses.log
-        dates         : data.responses.dates
-        choiceCounts  : data.responses.choiceCounts
-      }
-      showStats       : data.showStats
-      displayName     : data.displayName
-      displayMediaQuestion    : data.displayMediaQuestion
-      displayMediaResults    : data.displayMediaResults
-
-      mediaQuestion : data.mediaQuestion
-      mediaResults  : data.mediaResults
-    }
-    #flat properties so that they dont overwrite their entire subdoc
-    $set["dates.start"]= new Date(data.dates.start) #this is so that we don't lose the create date
-    $set["transactions.locked"]= true #THIS IS A LOCKING TRANSACTION, SO IF ANYONE ELSE TRIES TO DO A LOKCING TRANSACTION IT WILL NOT HAPPEN (AS LONG AS YOU CHECK FOR THAT)
-    $set["transactions.state"]= choices.transactions.states.PENDING
-
-    #TRANSACTION updates
-    transactionEntity = {
-        type          : entityType
-        id            : entityId
-    }
-    transactionData = {
-      newAllocated: newAllocated
-      perResponse: perResponse
-    }
-    transaction = self.createTransaction choices.transactions.states.PENDING, choices.transactions.actions.POLL_UPDATED, transactionData, choices.transactions.directions.INBOUND, transactionEntity
-
-    $push = {
-      "transactions.ids": transaction.id
-      "transactions.log": transaction
-    }
-
-    $update = {
-      $set: $set
-      $push: $push
-    }
-
-    where = {
-      _id: pollId,
-      "entity.type":entityType,
-      "entity.id":entityId,
-      "transactions.locked": false,
-      "deleted": false
-      $or : [
-        {"dates.start": {$gt:new Date()}, "transactions.state": choices.transactions.states.PROCESSED},
-        {"transactions.state": choices.transactions.states.ERROR}
-      ]
-    }
-    @model.collection.findAndModify where, [], $update, {safe: true, new: true}, (error, poll)->
+    #find Entity, and check if they have enough funds
+    switch entityType
+      when choices.entities.CLIENT
+        entityClass = Clients
+      when choices.entities.CONSUMER
+        entityClass = Consumers
+    entityClass.one entityId, {funds:1}, (error, entity)->
       if error?
-        callback error, null
-      else if !poll?
-        callback new errors.ValidationError({"poll":"Poll does not exist or not editable."})
-      else
-        callback null, poll
-        tp.process(poll, transaction)
+        callback error
+        return
+      if !entity?
+        callback new errors.ValidationError "Entity id not found.", {"entity":"Entity not found."}
+        return
+      #found entity
+      if (entity.funds.remaining < (data.funds.perResponse*data.responses.max))
+        callback new errors.ValidationError "Insufficient funds.", {"entity":"Insufficient funds"}
+        return
+      #User has enough funds.
+
+      #Set the fields you want updated now, not afte the update
+      #for the ones that you want set after the update put those
+      #in the transactionData and make thsoe changes in the
+      #setTransactionProcessed function
+
+      $set = {
+        entity: {
+          type          : entityType
+          id            : entityId
+          name          : data.entity.name
+        }
+
+        lastModifiedBy: {
+          type          : data.lastModifiedBy.type
+          id            : data.lastModifiedBy.id
+        }
+
+        name            : data.name
+        type            : data.type
+        question        : data.question
+        choices         : data.choices
+        numChoices      : parseInt(data.numChoices)
+        responses: {
+          remaining     : parseInt(data.responses.max)
+          max           : parseInt(data.responses.max)
+          log           : data.responses.log
+          dates         : data.responses.dates
+          choiceCounts  : data.responses.choiceCounts
+        }
+        showStats       : data.showStats
+        displayName     : data.displayName
+        displayMediaQuestion    : data.displayMediaQuestion
+        displayMediaResults    : data.displayMediaResults
+
+        mediaQuestion : data.mediaQuestion
+        mediaResults  : data.mediaResults
+      }
+      #flat properties so that they dont overwrite their entire subdoc
+      $set["dates.start"]= new Date(data.dates.start) #this is so that we don't lose the create date
+      $set["transactions.locked"]= true #THIS IS A LOCKING TRANSACTION, SO IF ANYONE ELSE TRIES TO DO A LOKCING TRANSACTION IT WILL NOT HAPPEN (AS LONG AS YOU CHECK FOR THAT)
+      $set["transactions.state"]= choices.transactions.states.PENDING
+
+      #TRANSACTION updates
+      transactionEntity = {
+          type          : entityType
+          id            : entityId
+      }
+      transactionData = {
+        newAllocated: newAllocated
+        perResponse: perResponse
+      }
+      transaction = self.createTransaction choices.transactions.states.PENDING, choices.transactions.actions.POLL_UPDATED, transactionData, choices.transactions.directions.INBOUND, transactionEntity
+
+      $push = {
+        "transactions.ids": transaction.id
+        "transactions.log": transaction
+      }
+
+      $update = {
+        $set: $set
+        $push: $push
+      }
+
+      where = {
+        _id: pollId,
+        "entity.type":entityType,
+        "entity.id":entityId,
+        "transactions.locked": false,
+        "deleted": false
+        $or : [
+          {"dates.start": {$gt:new Date()}, "transactions.state": choices.transactions.states.PROCESSED},
+          {"transactions.state": choices.transactions.states.ERROR}
+        ]
+      }
+      self.model.collection.findAndModify where, [], $update, {safe: true, new: true}, (error, poll)->
+        if error?
+          callback error, null
+        else if !poll?
+          callback new errors.ValidationError({"poll":"Poll does not exist or not editable."})
+        else
+          callback null, poll
+          tp.process(poll, transaction)
+        return
+      return
     return
 
 
