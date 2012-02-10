@@ -824,7 +824,6 @@ class Users extends API
           return
         return
     return
-
   @updateMediaByGuid: (id, guid, media, mediaKey, callback)->
     if(Object.isString(id))
       id = new ObjectId(id)
@@ -945,9 +944,6 @@ class Consumers extends Users
     return
 
   @updateBarcodeId: (id, barcodeId, callback)->
-    if Object.isString(id)
-      id = new ObjectId(id)
-
     @update id, {barcodeId: barcodeId}, (error, count)->
       if error?
         callback error
@@ -2533,6 +2529,7 @@ class Polls extends Campaigns
     query.where('dates.start').lte(new Date())            #poll has started
     # query.where('dates.end').gt(new Date())               #poll has not ended
     query.where('transactions.state',choices.transactions.states.PROCESSED)    #poll is processed (paid for) and ready to launch
+    query.where('deleted').ne(true)
     query.limit(1)                                        #you only want the next ONE
 
     query.fields({

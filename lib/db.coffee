@@ -414,8 +414,6 @@ Poll = new Schema {
   deleted              : {type: Boolean, default: false}
 
   transactions: transactions
-
-  deleted             : {type: Boolean, default: false}
 }
 
 
