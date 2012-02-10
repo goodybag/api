@@ -390,7 +390,7 @@ Poll = new Schema {
   type                 : {type: String, required: true, enum: choices.polls.type._enum}
   question             : {type: String, required: true}
   choices              : [type: String, required: true]
-  numChoices           : {type: Number, required: true}
+  numChoices           : {type: Number, min:2, required: true}
   showStats            : {type: Boolean, required: true} #whether to display the stats to the user or not
   displayName          : {type: Boolean, required: true}
   displayMediaQuestion : {type: Boolean, required: true}
@@ -398,7 +398,7 @@ Poll = new Schema {
 
   responses: {
     remaining          : {type: Number,   required: true} #decrement each response
-    max                : {type: Number,   required: true}
+    max                : {type: Number,   min:1, required: true}
     consumers          : [type: ObjectId, required: true, default: new Array()] #append ObjectId(consumerId) each response
     log                : {} #append consumerId:{answers:[1,2],timestamp:Date}
     dates              : [] #append {consumerId:ObjId,timestamp:Date} -- for sorting by date
