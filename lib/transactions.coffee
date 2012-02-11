@@ -124,6 +124,22 @@ _setTransactionError = (clazz, document, transaction, locking, removeLock, error
       logger.info "#{prepend} set transaction state to error successfully"
       callback(null, doc)
 
+_setTransactionErrorAndRefund = (clazz, document, transaction, locking, removeLock, error, data, callback)->
+  prepend = "ID: #{document._id} - TID: #{transaction.id}"
+  logger.warn "#{prepend} Setting errored and refunding"
+
+  $inc = {
+    "funds.remaining": Math.abs(transaction.data.amount)
+  }
+
+  $update = {}
+  $update.$inc = {}
+
+  Object.merge($update, data)
+  Object.merge($update.$inc, $inc)
+
+  _setTransactionError(clazz, document, transaction, locking, removeLock, error, $update, callback)
+
 _cleanupTransaction = (document, transaction, transactionContainerApiClass, transactionMemberApiClasses, callback)->
   for apiClass in transactionMemberApiClasses
     apiClass.removeTransactionInvolvement transaction.id, (error, count)->
@@ -1053,7 +1069,7 @@ discussionThanked = (document, transaction)->
   else #If this ever gets called then you are doing something wrong, shoot yourself for pushing to production
     logger.error "#{prepend} - THANKED ENTITY TYPE #{transaction.entity.type} NOT SUPPORTED FOR THIS TRANSACTION"
     error = {message: "the entity type: #{transaction.entity.type} is not supported"}
-    _setTransactionError thankerEntityApiClass, document, transaction, false, false, error, {}, (error, doc)->
+    _setTransactionErrorAndRefund thankerEntityApiClass, document, transaction, false, false, error, {}, (error, doc)->
       return
     #Nothing can happen with this transaction, it needs to be removed and money refunded - but can't till it's supported!!
     return
@@ -1063,6 +1079,7 @@ discussionThanked = (document, transaction)->
     _cleanupTransaction document, transaction, thankerEntityApiClass, [thankerEntityApiClass, thankedEntityApiClass], callback
 
   setProcessed = true #setProcessed, unless something sets this to false
+  setClean = false
   async.series {
     setProcessing: (callback)->
       _setTransactionProcessing thankerEntityApiClass, document, transaction, false, (error, doc)->
@@ -1081,14 +1098,15 @@ discussionThanked = (document, transaction)->
           callback(null, doc)
         else #null, null passed in which meas the entity to deposit funds to doesn't exist
           error = {message: "the entity to transfer funds to doesn't exist"}
-          _setTransactionError thankerEntityApiClass, document, transaction, false, false, error, {}, (error, doc)->
+          _setTransactionErrorAndRefund thankerEntityApiClass, document, transaction, false, false, error, {}, (error, doc)->
             #we don't care if it set or if it didn't set because:
             # 1. if there was a mongo error then the poller will pick it up and work on it later
             # 2. if it did set then fantastic, we will exit because we don't want to set to processed
             # 3. if it did not set (no error, and no document updated) then we want to exit because
             #    it is already in an error or processed state. In that case we want to do nothing
             setProcessed = false
-            callback(null, null)
+            setClean = true
+            callback()
       return
 
     setProcessed: (callback)->
@@ -1150,7 +1168,7 @@ discussionThanked = (document, transaction)->
       # api.Streams.pollAnswered(transaction.entity, transaction.data.timestamp, document) #we don't care about the callback
   },
   (error, results)->
-    clean = false
+    clean = setClean
     if error?
       logger.error error
       if error.name is "TransactionAlreadyCompleted" #we recevied a null document while trying to set the state - the state is already set to processed or error, just needs to be cleaned up
