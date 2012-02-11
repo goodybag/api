@@ -15,7 +15,7 @@ responseId = "4f2a521d667303221a00000c"
 
 entity = {
   type: "consumer"
-  id: "4f29c3b92892abdd0d000025"
+  id: "4f3301b2d0910de36d000067"
   name: "lalit"
   screenName: "secret"
 }
@@ -98,7 +98,7 @@ getResponses = ()->
 #voteDown()
 #comment()
 #donate()
-#thank()
+thank()
 #distributeDonation()
 #list()
 #get()

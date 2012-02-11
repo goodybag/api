@@ -429,6 +429,7 @@ class API
     Object.merge($update, modifierDoc)
     Object.merge($update.$set, $set)
 
+    logger.debug($update)
     @model.collection.findAndModify $query, [], $update, {new: true, safe: true}, callback
 
   @checkIfTransactionExists: (id, transactionId, callback)->
@@ -2932,7 +2933,7 @@ class Discussions extends Campaigns
 
     $query = {
       "dates.start"           : {$lte: new Date()}
-      , deleted               : {$ne: true}
+      , $or                   : [{deleted: false}, {deleted: {$exists: false}}]
       , "transactions.state"  : choices.transactions.states.PROCESSED
       , "transactions.locked" : {$ne: true}
     }
