@@ -3289,9 +3289,11 @@ class Discussions extends Campaigns
       entity.id = new ObjectId(entity.id)
 
     d = "up"
+    score = 1
     opposite = choices.votes.DOWN
     if direction is choices.votes.DOWN
       d = "down"
+      score = -1
       opposite = choices.votes.UP
 
     #if the user has voted the opposite, undo that
@@ -3302,12 +3304,13 @@ class Discussions extends Campaigns
 
     $query = {_id: discussionId, "responses._id": responseId}
 
-    $inc = {"responses.$.votes.count": 1}
+    $inc = {"votes.count":1, "votes.score": score, "responses.$.votes.count": 1}
     $set = {}
     $push = {}
 
     $query["responses.votes.#{d}.by.id"] = {$ne: entity.id} #not already set
     $inc["responses.$.votes.#{d}.count"] = 1
+    $inc["votes.#{d}"] = 1
     $push["responses.$.votes.#{d}.by"] = entity
     $set["responses.$.votes.#{d}.ids.#{entity.type}_#{entity.id.toString()}"] = 1
 
@@ -3347,17 +3350,20 @@ class Discussions extends Campaigns
       entity.id = new ObjectId(entity.id)
 
     d = "up"
+    score = -1
     if direction is choices.votes.DOWN
       d = "down"
+      score = 1
 
     $query = {_id: discussionId, "responses._id": responseId}
     $pull = {}
-    $inc = {"responses.$.votes.count": -1}
+    $inc = {"votes.count": -1, "votes.score": score, "responses.$.votes.count": -1}
     $unset = {}
 
     $query["responses.votes.#{d}.by.id"] = entity.id
     $pull["responses.$.votes.#{d}.by"] = {type: entity.type, id: entity.id}
     $inc["responses.$.votes.#{d}.count"] = -1
+    $inc["votes.#{d}"] = -1
     $unset["responses.$.votes.#{d}.ids.#{entity.type}_#{entity.id.toString()}"] = 1
 
     $update = {$inc: $inc, $pull: $pull, $unset: $unset}
