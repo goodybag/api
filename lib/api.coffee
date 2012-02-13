@@ -2845,7 +2845,7 @@ class Discussions extends Campaigns
             _id                  : 1,
             name                 : 1,
             question             : 1,
-            "responses.count"    : 1,
+            "responseCount"      : 1,
             dates                : 1,
             funds                : 1,
             "transactions.state" : 1
@@ -2871,7 +2871,7 @@ class Discussions extends Campaigns
             _id                  : 1,
             name                 : 1,
             question             : 1,
-            "responses.count"    : 1,
+            "responseCount"      : 1,
             dates                : 1,
             funds                : 1,
             "transactions.state" : 1
@@ -2891,7 +2891,7 @@ class Discussions extends Campaigns
             _id                   : 1,
             name                  : 1,
             question              : 1,
-            "responses.count"     : 1,
+            "responseCount"       : 1,
             dates                 : 1,
             "transactions.state"  : 1,
             "funds.allocated"     : 1
