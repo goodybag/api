@@ -2885,6 +2885,8 @@ class Discussions extends Campaigns
 
     $fields = {
       question          : 1
+      , details         : 1
+      , entity          : 1
       , tags            : 1
       , media           : 1
       , thanker         : 1
@@ -2894,6 +2896,8 @@ class Discussions extends Campaigns
       , funds           : 1
       , donationCount   : 1
       , thankCount      : 1
+      , responseCount   : 1
+      , responses       : 1
     }
 
     @model.collection.find $query, $fields, (error, cursor)->
@@ -2933,6 +2937,7 @@ class Discussions extends Campaigns
 
     $fields = {
       question          : 1
+      , details         : 1
       , tags            : 1
       , media           : 1
       , thanker         : 1
@@ -2942,6 +2947,7 @@ class Discussions extends Campaigns
       , funds           : 1
       , donationCount   : 1
       , thankCount      : 1
+      , responseCount   : 1
       , responses       : {$slice:[responseOptions.skip, responseOptions.skip + responseOptions.limit]}
     }
 
