@@ -413,6 +413,7 @@ class API
     Object.merge($update, modifierDoc)
     Object.merge($update.$set, $set)
 
+    logger.debug($update)
     @model.collection.findAndModify $query, [], $update, {new: true, safe: true}, callback
 
   @checkIfTransactionExists: (id, transactionId, callback)->
@@ -2865,6 +2866,7 @@ class Discussions extends Campaigns
 
   ### _list_ ###
   #
+  # - **sort** _String, enum: choices.discussions.sort, default: choices.discussions.sort.dateDescending
   # - **limit** _Number, default: 25_ limit number of discussions returned
   # - **skip** _Number, default: 0_ an offset for number of discussions returned
   #
@@ -2872,16 +2874,39 @@ class Discussions extends Campaigns
   @list: (options, callback)->
     if Object.isFunction(options)
       callback = options
+      options = {}
+
+    options.limit = options.limit || 25
+    options.skip = options.skip || 0
+
+    if options.sort? and options.sort in choices.discussions.sorts._enum
+      sort = options.sort
     else
-      limit = options.limit || 25
-      skip = options.skip || 0
+      options.sort = choices.discussions.sorts.DATE_DESCENDING
 
     $query = {
       "dates.start"           : {$lte: new Date()}
-      , deleted               : {$ne: true}
+      , $or                   : [{deleted: false}, {deleted: {$exists: false}}]
       , "transactions.state"  : choices.transactions.states.PROCESSED
       , "transactions.locked" : {$ne: true}
     }
+
+    $sort = {}
+    switch sort
+      when choices.discussions.sorts.DATE_ASCENDING
+        $sort = {'dates.start': 1}
+      when choices.discussions.sorts.DATE_DESCENDING
+        $sort = {'dates.start': -1}
+      when choices.discussions.sorts.RECENTLY_POPULAR_7
+        $query["dates.start"].$gte = Date.create().addWeeks(-1)
+        $sort = {'dates.start': -1}
+        $sort = {'responseCount': 1}
+      when choices.discussions.sorts.RECENTLY_POPULAR_14
+        $query["dates.start"].$gte = Date.create().addWeeks(-2)
+        $sort = {'dates.start': -1, 'responseCount': 1}
+      when choices.discussions.sorts.RECENTLY_POPULAR_1
+        $query["dates.start"].$gte = Date.create().addDays(-1)
+        $sort = {'dates.start': -1, 'responseCount': 1}
 
     $fields = {
       question          : 1
@@ -2900,10 +2925,13 @@ class Discussions extends Campaigns
       , responses       : 1
     }
 
-    @model.collection.find $query, $fields, (error, cursor)->
+    cursor = @model.collection.find $query, $fields, (err, cursor)->
       if error?
         callback(error)
         return
+      cursor.limit(options.limit)
+      cursor.skip(options.skip)
+      cursor.sort($sort)
       cursor.toArray (error, discussions)->
         callback(error, discussions)
 
@@ -3294,9 +3322,11 @@ class Discussions extends Campaigns
       entity.id = new ObjectId(entity.id)
 
     d = "up"
+    score = 1
     opposite = choices.votes.DOWN
     if direction is choices.votes.DOWN
       d = "down"
+      score = -1
       opposite = choices.votes.UP
 
     #if the user has voted the opposite, undo that
@@ -3307,12 +3337,13 @@ class Discussions extends Campaigns
 
     $query = {_id: discussionId, "responses._id": responseId}
 
-    $inc = {"responses.$.votes.count": 1}
+    $inc = {"votes.count":1, "votes.score": score, "responses.$.votes.count": 1}
     $set = {}
     $push = {}
 
     $query["responses.votes.#{d}.by.id"] = {$ne: entity.id} #not already set
     $inc["responses.$.votes.#{d}.count"] = 1
+    $inc["votes.#{d}"] = 1
     $push["responses.$.votes.#{d}.by"] = entity
     $set["responses.$.votes.#{d}.ids.#{entity.type}_#{entity.id.toString()}"] = 1
 
@@ -3352,17 +3383,20 @@ class Discussions extends Campaigns
       entity.id = new ObjectId(entity.id)
 
     d = "up"
+    score = -1
     if direction is choices.votes.DOWN
       d = "down"
+      score = 1
 
     $query = {_id: discussionId, "responses._id": responseId}
     $pull = {}
-    $inc = {"responses.$.votes.count": -1}
+    $inc = {"votes.count": -1, "votes.score": score, "responses.$.votes.count": -1}
     $unset = {}
 
     $query["responses.votes.#{d}.by.id"] = entity.id
     $pull["responses.$.votes.#{d}.by"] = {type: entity.type, id: entity.id}
     $inc["responses.$.votes.#{d}.count"] = -1
+    $inc["votes.#{d}"] = -1
     $unset["responses.$.votes.#{d}.ids.#{entity.type}_#{entity.id.toString()}"] = 1
 
     $update = {$inc: $inc, $pull: $pull, $unset: $unset}

@@ -485,6 +485,13 @@ Discussion = new Schema {
   donationCount       : {type: Number, required: true, default: 0}
   thankCount          : {type: Number, required: true, default: 0}
 
+  votes: { #these are all totals
+    count           : {type: Number, default: 0}
+    score           : {type: Number, default: 0}
+    up              : {type: Number, default: 0}
+    down            : {type: Number, default: 0}
+  }
+
   flagged: {
     by                : [Entity]
     count             : {type: Number, default: 0}
@@ -517,6 +524,7 @@ Response = new Schema {
 
   votes: {
     count           : {type: Number, default: 0}
+    score           : {type: Number, default: 0}
 
     up: {
       by            : [Entity]
