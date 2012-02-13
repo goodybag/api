@@ -2866,6 +2866,7 @@ class Discussions extends Campaigns
 
   ### _list_ ###
   #
+  # - **sort** _String, enum: choices.discussions.sort, default: choices.discussions.sort.dateDescending
   # - **limit** _Number, default: 25_ limit number of discussions returned
   # - **skip** _Number, default: 0_ an offset for number of discussions returned
   #
@@ -2873,9 +2874,15 @@ class Discussions extends Campaigns
   @list: (options, callback)->
     if Object.isFunction(options)
       callback = options
+      options = {}
+
+    options.limit = options.limit || 25
+    options.skip = options.skip || 0
+
+    if options.sort? and options.sort in choices.discussions.sorts._enum
+      sort = options.sort
     else
-      limit = options.limit || 25
-      skip = options.skip || 0
+      options.sort = choices.discussions.sorts.DATE_DESCENDING
 
     $query = {
       "dates.start"           : {$lte: new Date()}
@@ -2883,6 +2890,23 @@ class Discussions extends Campaigns
       , "transactions.state"  : choices.transactions.states.PROCESSED
       , "transactions.locked" : {$ne: true}
     }
+
+    $sort = {}
+    switch sort
+      when choices.discussions.sorts.DATE_ASCENDING
+        $sort = {'dates.start': 1}
+      when choices.discussions.sorts.DATE_DESCENDING
+        $sort = {'dates.start': -1}
+      when choices.discussions.sorts.RECENTLY_POPULAR_7
+        $query["dates.start"].$gte = Date.create().addWeeks(-1)
+        $sort = {'dates.start': -1}
+        $sort = {'responseCount': 1}
+      when choices.discussions.sorts.RECENTLY_POPULAR_14
+        $query["dates.start"].$gte = Date.create().addWeeks(-2)
+        $sort = {'dates.start': -1, 'responseCount': 1}
+      when choices.discussions.sorts.RECENTLY_POPULAR_1
+        $query["dates.start"].$gte = Date.create().addDays(-1)
+        $sort = {'dates.start': -1, 'responseCount': 1}
 
     $fields = {
       question          : 1
@@ -2897,10 +2921,13 @@ class Discussions extends Campaigns
       , thankCount      : 1
     }
 
-    @model.collection.find $query, $fields, (error, cursor)->
+    cursor = @model.collection.find $query, $fields, (err, cursor)->
       if error?
         callback(error)
         return
+      cursor.limit(options.limit)
+      cursor.skip(options.skip)
+      cursor.sort($sort)
       cursor.toArray (error, discussions)->
         callback(error, discussions)
 
