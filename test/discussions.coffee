@@ -98,7 +98,7 @@ getResponses = ()->
 #voteDown()
 #comment()
 #donate()
-thank()
+#thank()
 #distributeDonation()
 #list()
 #get()
