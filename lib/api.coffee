@@ -2957,7 +2957,8 @@ class Discussions extends Campaigns
     responseOptions.skip = responseOptions.skip || 0
 
     $query = {
-      "dates.start"           : {$lte: new Date()}
+      "_id"                   : discussionId
+      , "dates.start"           : {$lte: new Date()}
       , deleted               : {$ne: true}
       , "transactions.state"  : choices.transactions.states.PROCESSED
       , "transactions.locked" : {$ne: true}
@@ -3243,6 +3244,21 @@ class Discussions extends Campaigns
         created         : new Date()
         lastModified    : new Date()
       }
+      votes: {
+        count           : 0
+        score           : 0
+        up: {
+          by            : []
+          ids           : {}
+          count         : 0
+        }
+        down: {
+          by            : []
+          ids           : {}
+          count         : 0
+        }
+      }
+      comments          : []
     }
 
     $push = {
