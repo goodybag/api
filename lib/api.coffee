@@ -2966,6 +2966,7 @@ class Discussions extends Campaigns
 
     $fields = {
       question          : 1
+      , entity          : 1
       , details         : 1
       , tags            : 1
       , media           : 1
