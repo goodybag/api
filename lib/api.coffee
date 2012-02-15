@@ -635,38 +635,6 @@ class Users extends API
         callback new errors.ValidationError "Invalid Email Address", {"login":"invalid email address"}
         return
 
-  @register: (data, fieldsToReturn, callback)->
-    self = this
-    data.screenName = new ObjectId()
-    @encryptPassword data.password, (error, hash)->
-      if error?
-        callback new errors.ValidationError "Invalid Password", {"password":"Invalid Password"} #error encrypting password, so fail
-        return
-      else
-        data.password = hash
-        data.referralCodes = {}
-        Sequences.next 'urlShortner', 2, (error, sequence)->
-          if error?
-            callback error #dberror
-            return
-          tapInCode = urlShortner.encode(sequence-1)
-          userCode = urlShortner.encode(sequence)
-          data.referralCodes.tapIn = tapInCode
-          data.referralCodes.user = userCode
-          self.add data, (error, client)->
-            if error?
-              if error.code is 11000
-                callback new errors.ValidationError "Email Already Exists", {"email":"Email Already Exists"} #email exists error
-              else
-                callback error
-            else
-              client = self._copyFields(client, fieldsToReturn)
-              callback error, client
-            return
-        return
-      return
-    return
-
   @getByEmail: (email, fieldsToReturn, callback)->
     if Object.isFunction fieldsToReturn
       callback = fieldsToReturn
@@ -960,6 +928,47 @@ class Consumers extends Users
       #success
       success = count>0
       callback null, success
+    return
+
+  @register: (data, fieldsToReturn, callback)->
+    self = this
+    data.screenName = new ObjectId()
+    @encryptPassword data.password, (error, hash)->
+      if error?
+        callback new errors.ValidationError "Invalid Password", {"password":"Invalid Password"} #error encrypting password, so fail
+        return
+      else
+        data.password = hash
+        data.referralCodes = {}
+        Sequences.next 'urlShortner', 2, (error, sequence)->
+          if error?
+            callback error #dberror
+            return
+          tapInCode = urlShortner.encode(sequence-1)
+          userCode = urlShortner.encode(sequence)
+          data.referralCodes.tapIn = tapInCode
+          data.referralCodes.user = userCode
+
+          self.add data, (error, consumer)->
+            if error?
+              if error.code is 11000
+                callback new errors.ValidationError "Email Already Exists", {"email":"Email Already Exists"} #email exists error
+              else
+                callback error
+            else
+              entity = {
+                type: choices.entities.CONSUMER
+                id: consumer._doc._id
+              }
+
+              Referrals.addUserLink(entity, "/", userCode)
+              Referrals.addTapInLink(entity, "/", tapInCode)
+
+              consumer = self._copyFields(consumer, fieldsToReturn)
+              callback error, consumer
+            return
+        return
+      return
     return
 
   @facebookLogin: (accessToken, fieldsToReturn, referralCode, callback)->
@@ -1512,6 +1521,39 @@ class Clients extends API
       password = hash
       self.update id, {password: hash}, callback
       return
+
+  @register: (data, fieldsToReturn, callback)->
+    self = this
+    data.screenName = new ObjectId()
+    @encryptPassword data.password, (error, hash)->
+      if error?
+        callback new errors.ValidationError "Invalid Password", {"password":"Invalid Password"} #error encrypting password, so fail
+        return
+      else
+        data.password = hash
+        data.referralCodes = {}
+        Sequences.next 'urlShortner', 2, (error, sequence)->
+          if error?
+            callback error #dberror
+            return
+          tapInCode = urlShortner.encode(sequence-1)
+          userCode = urlShortner.encode(sequence)
+          data.referralCodes.tapIn = tapInCode
+          data.referralCodes.user = userCode
+
+          self.add data, (error, client)->
+            if error?
+              if error.code is 11000
+                callback new errors.ValidationError "Email Already Exists", {"email":"Email Already Exists"} #email exists error
+              else
+                callback error
+            else
+              client = self._copyFields(client, fieldsToReturn)
+              callback error, client
+            return
+        return
+      return
+    return
 
   @validatePassword: (id, password, callback)->
     if(Object.isString(id))
@@ -2803,7 +2845,7 @@ class Discussions extends Campaigns
             _id                  : 1,
             name                 : 1,
             question             : 1,
-            "responses.count"    : 1,
+            "responseCount"      : 1,
             dates                : 1,
             funds                : 1,
             "transactions.state" : 1
@@ -2829,7 +2871,7 @@ class Discussions extends Campaigns
             _id                  : 1,
             name                 : 1,
             question             : 1,
-            "responses.count"    : 1,
+            "responseCount"      : 1,
             dates                : 1,
             funds                : 1,
             "transactions.state" : 1
@@ -2849,7 +2891,7 @@ class Discussions extends Campaigns
             _id                   : 1,
             name                  : 1,
             question              : 1,
-            "responses.count"     : 1,
+            "responseCount"       : 1,
             dates                 : 1,
             "transactions.state"  : 1,
             "funds.allocated"     : 1
