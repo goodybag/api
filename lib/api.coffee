@@ -173,12 +173,12 @@ class API
 
   # @one: (id, callback)->
   @one: (id, fieldsToReturn, dbOptions, callback)->
-    return @_one(id, callback)
+    return @_one(id, fieldsToReturn, dbOptions, callback)
 
-  @_one: (id, callback)->
+  @_one: (id, fieldsToReturn, dbOptions, callback)->
     if Object.isString id
       id = new ObjectId id
-    if Object.isFunction fieldsToReturn && !fieldsToReturn?
+    if Object.isFunction fieldsToReturn
       #Fields to return must always be specified for consumers...
       callback = fieldsToReturn
       fieldsToReturn = {}
