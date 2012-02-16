@@ -71,53 +71,11 @@ class API
           i++
       else
         flat[path] = obj
-      console.log path
       return flat
     #end flatten
     return flatten doc, startPath
 
-  @_copyFields = (obj, fields) ->
-    if obj._doc?
-      #somebody passed a mongoose object, this could be dangerously large (too many loops).
-      #_doc instantiates all objects as {} even when they do not have data (for new models check out model.add ****)
-      #So use .toJSON instead of just using the _doc.. to convert the mongoose class to an object.
-      @obj = obj.toJSON()
-    else
-      @obj = obj
-    if Object.isObject fields
-      fieldArr = []
-      for field,val of fields
-        if val == 1 || val == true
-          fieldArr.push field
-      fields = fieldArr
-    ret = {}
-    for field in fields
-      keys = field.split(".")
-      o = @obj
-      r = ret
-      i = 0
-      newobj = null
-      newkey = null
-      while i<keys.length
-        key = keys[i]
-        if !o[key]?
-          j=0
-          r = ret
-          if newobj? && newkey?
-            delete newobj[newkey]
-          break;
-        if i==keys.length-1
-          r[key] = o[key]
-          break;
-        if !r[key]?
-          r[key] = {}
-          if !newobj? && !newkey?
-            newobj = r
-            newkey = key
-        o = o[key]
-        r = r[key]
-        i++
-    ret
+  @_copyFields = utils.copyFields
 
   @_query: ()->
     return @model.find() #instance of query object
@@ -173,26 +131,22 @@ class API
 
   # @one: (id, callback)->
   @one: (id, fieldsToReturn, dbOptions, callback)->
-    return @_one(id, callback)
+    return @_one(id, fieldsToReturn, dbOptions, callback)
 
-  @_one: (id, callback)->
+  @_one: (id, fieldsToReturn, dbOptions, callback)->
     if Object.isString id
       id = new ObjectId id
-    if Object.isFunction fieldsToReturn && !fieldsToReturn?
-      #Fields to return must always be specified for consumers...
+    if Object.isFunction fieldsToReturn
       callback = fieldsToReturn
       fieldsToReturn = {}
-      dbOptions = {}
+      dbOptions = {safe:true}
       # callback new errors.ValidationError {"fieldsToReturn","Database error, fields must always be specified."}
       # return
     if Object.isFunction dbOptions
       callback = dbOptions
-      dbOptions = {}
+      dbOptions = {safe:true}
     @model.findById id, fieldsToReturn, dbOptions, callback
     return
-    # @model.findOne {_id: id}, callback
-    # return
-
 
   @get: (options, callback)->
     query = @optionParser(options)
@@ -517,7 +471,6 @@ class Users extends API
     }
     client.send params, fields
       ,(success)->
-        console.log success
         if callback?
           callback null, true
         return
@@ -550,10 +503,10 @@ class Users extends API
     if Object.isFunction fieldsToReturn && !fieldsToReturn?
       #Fields to return must always be specified for consumers...
       callback new errors.ValidationError {"fieldsToReturn","Database error, fields must always be specified."}
+      dbOptions = {safe:true}
       return
       # callback = fieldsToReturn
       # fields = {}
-      # dbOptions = {}
     if Object.isFunction dbOptions
       callback = dbOptions
       dbOptions = {}
@@ -599,9 +552,6 @@ class Users extends API
         callback error, user
         return
       else if user?
-        console.log "COMPARETE!!!!"
-        console.log password
-        console.log user.password
         bcrypt.compare password+defaults.passwordSalt, user.password, (error, valid)->
           if error?
             callback (error)
@@ -626,6 +576,8 @@ class Users extends API
       #add the password field, bc is it is necessary to verify the password.
       fieldsToReturn.password = 1
       addedPasswordToFields = true #to determine whether to remove before executing the callback
+    if !fieldsToReturn.facebook? || fieldsToReturn["facebook.id"]!=1
+      fieldsToReturn["facebook.id"] = 1
     query = @_query()
     query.where('email', email)#.where('password', password)
     query.fields(fieldsToReturn)
@@ -634,7 +586,6 @@ class Users extends API
         callback error, consumer
         return
       else if consumer?
-        console.log consumer
         if consumer.facebook? && consumer.facebook.id? #if facebook user
           callback new errors.ValidationError "Please authenticate via Facebook", {"login":"invalid authentication mechanism - use facebook"}
           return
@@ -668,6 +619,14 @@ class Users extends API
           userCode = urlShortner.encode(sequence)
           data.referralCodes.tapIn = tapInCode
           data.referralCodes.user = userCode
+
+          entity = {
+            type: choices.entities.CONSUMER
+            id: newUserModel._doc._id
+          }
+
+          Referrals.addUserLink(entity, "/", userCode)
+          Referrals.addTapInLink(entity, "/", tapInCode)
           self.add data, (error, client)->
             if error?
               if error.code is 11000
@@ -701,7 +660,6 @@ class Users extends API
     self = this
     if Object.isString(id)?
       id = new ObjectId(id)
-    console.log password
     @validatePassword id, password, (error, success)->
       if error?
         logger.error error
@@ -712,7 +670,6 @@ class Users extends API
         e = new errors.ValidationError("Incorrect password.", {"password":"Incorrect Password"})
         callback(e)
         return
-      console.log "success"+success
 
       async.series {
         encryptPassword: (cb)->#only if the user is trying to update their password field
@@ -1116,16 +1073,12 @@ class Consumers extends Users
                 userCode = urlShortner.encode(sequence)
                 consumer.referralCodes.tapIn = tapInCode
                 consumer.referralCodes.user = userCode
-
                 #save new user
                 newUserModel = new self.model(consumer)
                 newUserModel.save (error, newUser)->
                   if error?
                     callback error #dberror
                   else
-                    newUserFields = self._copyFields(newUser._doc, fieldsToReturn)
-                    callback null, newUserFields
-
                     #create referral codes in the referral's collection
                     entity = {
                       type: choices.entities.CONSUMER
@@ -1136,7 +1089,17 @@ class Consumers extends Users
                     Referrals.addTapInLink(entity, "/", tapInCode)
 
                     if !utils.isBlank(referralCode)
-                      Referrals.signUp(referralCode, entity)
+                      Referrals.signUp referralCode, entity, (error, found)->
+                        if error?
+                          callback error
+                        else
+                          newUserFields = self._copyFields(newUser._doc, fieldsToReturn)
+                          referrerCodeFound = true
+                          callback null, newUserFields, referrerCodeFound
+                    else
+                      newUserFields = self._copyFields(newUser._doc, fieldsToReturn)
+                      referrerCodeFound = false
+                      callback null, newUserFields, referrerCodeFound
 
                     if callTransloadit
                       self._sendFacebookPicToTransloadit newUser._id, mediaGuid, facebookData.pic
@@ -1148,7 +1111,6 @@ class Consumers extends Users
     return #end @facebookLogin
 
   @getProfile: (id, callback)->
-    console.log "getProfile"
     fieldsToReturn = {
       _id           : 1
       firstName     : 1
@@ -1163,9 +1125,6 @@ class Consumers extends Users
       education : 1
     }
     Object.merge fieldsToReturn, @_flattenDoc(facebookMeFields,"facebook.me")
-    console.log "-"
-    console.log fieldsToReturn
-    console.log "-"
     @one id, fieldsToReturn, (error, consumer)->
       if error?
         callback error
@@ -1257,7 +1216,6 @@ class Consumers extends Users
     permissionsKeys = Object.keys(consumerModel._doc.permissions)
     permissionsKeys.remove("hiddenFacebookItems")
     for k,v of data
-      console.log k
       permission = "permissions."+k
       if !(k in permissionsKeys)
         callback new errors.ValidationError {"permissionKey":"Unknown value."}
@@ -1450,8 +1408,6 @@ class Consumers extends Users
     if Object.isString affiliationId
       affiliationId = new ObjectId affiliationId
 
-    console.log id
-    console.log affiliationId
     if op == "add"
       where = {
         _id : id
@@ -3429,15 +3385,10 @@ class Medias extends API
 
   #validate Media Objects for other collections
   @validateMedia: (media, imageType, callback)->
-    console.log "media"
-    console.log media
-    console.log media.mediaId?
-    console.log "media"
     if !media?
       callback new errors.ValidationError {"media":"Media is null."}
       return
     if media.mediaId? and (!media.url? or !media.thumb?) #new mediaId and no urls -> look up urls
-      console.log "mediaID!!!!!"
       #mediaId typecheck is done in one
       Medias.one media.mediaId, (error, data)->
         if error?
@@ -3459,7 +3410,6 @@ class Medias extends API
         callback null, media #media found and urls set
         return
     else if media.guid?
-      console.log "guid1!!!!!"
       if !media.url?
         callback new errors.ValidationError({"media.url":"Media url (temp. url) is required when supplying guid."})
       else if !media.thumb?
@@ -3468,7 +3418,6 @@ class Medias extends API
         callback null, media
       return
     else if (media.url? || media.thumb?) #and !data.media.guid and !data.media.mediaId
-      console.log "guid@222!!!!!"
       callback new errors.ValidationError({"media":"Guid or MediaId is required when supplying a media.url"})
       return
     else
@@ -4460,7 +4409,6 @@ class PasswordResetRequests extends API
       key: key
       date: {$gt: date}
       consumed: false
-    console.log date
     @model.findOne where, callback
     return
 
@@ -4684,10 +4632,14 @@ class Referrals extends API
     logger.info "code: " + code
     @model.collection.findAndModify {"link.code": code}, [], $update, {safe: true, new: true, fields: $fields}, (error, doc)->
       if error?
-        callback(error)
+        if callback?
+          callback(error)
         return
       else
         logger.debug doc
+        referralFound = doc?
+        if callback?
+          callback(null, referralFound)
         #deposit money into the referred's account
         if doc.entity.type is choices.entities.CONSUMER
           Consumers.addFunds(referredEntity.id, doc.incentives.referred)

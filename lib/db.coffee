@@ -212,6 +212,7 @@ Consumer = new Schema {
   setScreenName   : {type: Boolean, default: false}
   created         : {type: Date, default: new Date()}
   logins          : []
+  loginCount      : {type: Number, default: 1}
   honorScore      : {type: Number, default: 0}
   charities       : {}
   media           : media
