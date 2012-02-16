@@ -3826,11 +3826,19 @@ class BusinessRequests extends API
   @model = BusinessRequest
 
   @add = (userId, business, callback)->
-    data =
-      userEntity:
+    data = {
+      businessName: business
+    }
+
+    if userId?
+      data.userEntity = {
         type: choices.entities.CONSUMER
         id: userId
-      businessName: business
+      }
+      data.loggedin = true
+    else
+      data.loggedin = false
+
     instance = new @model data
     instance.save callback
 

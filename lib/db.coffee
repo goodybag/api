@@ -801,10 +801,11 @@ BusinessTransaction = new Schema {
 #######################
 BusinessRequest = new Schema {
   userEntity: {
-    type                : {type: String, required: true, enum: choices.entities._enum}
-    id                  : {type: ObjectId, required: true}
+    type                : {type: String, required: false, enum: choices.entities._enum}
+    id                  : {type: ObjectId, required: false}
     name                : {type: String}
   }
+  loggedin              : {type: Boolean, required: true, default: true}
   businessName          : {type: String, require: true}
   date: {
     requested           : {type: Date, default: Date.now}
