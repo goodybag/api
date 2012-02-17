@@ -3678,8 +3678,8 @@ class BusinessTransactions extends API
 
       locationId      : data.locationId
       registerId      : data.registerId
-      barcodeId       : data.barcodeId
-      transactionId   : data.transactionId
+      barcodeId       : data.barcodeId+"" #make string
+      transactionId   : data.transactionId+"" #make string
       date            : Date.create(timestamp)
       time            : new Date(0,0,0, timestamp.getHours(), timestamp.getMinutes(), timestamp.getSeconds(), timestamp.getMilliseconds()) #this is for slicing by time
       amount          : parseFloat(data.amount).round(2)
@@ -3723,26 +3723,27 @@ class BusinessTransactions extends API
               cb(new errors.ValidationError {"DNE": "Business Does Not Exist"})
 
       save: (cb)=> #save it and write to the statistics table
-        instance = new @model(doc)
-
         transactionData = {
           amount: doc.amount
         }
 
         statTransaction = @createTransaction(choices.transactions.states.PENDING, choices.transactions.actions.STAT_BT_TAPPED, transactionData, choices.transactions.directions.INBOUND, instance._doc.organizationEntity)
 
-        instance.transactions.locked = false
-        instance.transactions.ids = [statTransaction.id]
-        instance.transactions.log = [statTransaction]
+        doc.transactions = {}
+        doc.transactions.locked = false
+        doc.transactions.ids = [statTransaction.id]
+        doc.transactions.log = [statTransaction]
 
-        instance.save (error, bt)->
-          cb error, bt
+        @model.collection.insert doc, {safe: true}, (error, bt)->
+          logger.debug error
+          logger.debug bt
+          cb error, bt[0]
           if error?
             return
           if doc.userEntity?
             who = doc.userEntity
-            tp.process(bt._doc, statTransaction) #write stat to collection
-            Streams.btTapped bt._doc #NOTICE THE _doc HERE, BECAUSE !!!! #we don't care about the callback
+            tp.process(bt[0], statTransaction) #write stat to collection
+            Streams.btTapped bt[0] #NOTICE THE _doc HERE, BECAUSE !!!! #we don't care about the callback
         return
     }, (error, results)->
       if error?
