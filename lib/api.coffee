@@ -882,8 +882,14 @@ class Consumers extends Users
     return
 
   @updateBarcodeId: (id, barcodeId, callback)->
+    if !barcodeId?
+      callback(null, false)
+      return
     @update id, {barcodeId: barcodeId}, (error, count)->
       if error?
+        if error.code is 11000 or error.code is 11001
+          callback new errors.ValidationError "Barcode is already in use", {"barcodeId": "barcode is already in use"}
+          return
         callback error
         return
       #success

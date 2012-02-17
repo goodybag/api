@@ -266,11 +266,13 @@ Consumer = new Schema {
     user          : {type: String}
   }
 
-  barcodeId       : {type:String}
+  barcodeId       : {type: String}
 
   gbAdmin         : {type: Boolean, default: false}
   transactions    : transactions
 }
+
+Consumer.index {barcodeId: 1}, {unique: true, sparse: true} #sparse because we allow for null/non-existant values
 
 
 ####################
