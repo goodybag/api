@@ -1880,6 +1880,7 @@ class Businesses extends API
     query = @_optionParser(options, q)
     query.in('clients', [options.clientId]) if options.clientId?
     query.where 'locations.tapins', true if options.tapins?
+    query.where 'type', options.type if options.type?
     return query
 
   @add = (clientId, data, callback)->
