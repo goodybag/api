@@ -3767,6 +3767,14 @@ class BusinessTransactions extends API
     query.where 'userEntity.id', userId
     query.exec callback
 
+  @byBarcode = (barcodeId, options, callback)->
+    if Object.isFunction options
+      callback = options
+      options = {}
+    query = @optionParser options
+    query.where 'barcode', barcodeId
+    query.exec callback
+
   @byBusiness = (businessId, options, callback)->
     if Object.isFunction options
       callback = options
