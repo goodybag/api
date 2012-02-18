@@ -8,6 +8,7 @@ logger = loggers.transaction
 choices = globals.choices
 
 process = (document, transaction)-> #this is just a router
+  logger.debug "FINDING PROCESSOR FOR: #{transaction.action}"
   switch transaction.action
 
     #FINANCIAL - POLLS

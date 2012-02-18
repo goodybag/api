@@ -212,6 +212,7 @@ Consumer = new Schema {
   setScreenName   : {type: Boolean, default: false}
   created         : {type: Date, default: new Date()}
   logins          : []
+  loginCount      : {type: Number, default: 1}
   honorScore      : {type: Number, default: 0}
   charities       : {}
   media           : media
@@ -265,11 +266,13 @@ Consumer = new Schema {
     user          : {type: String}
   }
 
-  barcodeId       : {type:String}
+  barcodeId       : {type: String}
 
   gbAdmin         : {type: Boolean, default: false}
   transactions    : transactions
 }
+
+Consumer.index {barcodeId: 1}, {unique: true, sparse: true} #sparse because we allow for null/non-existant values
 
 
 ####################
@@ -800,10 +803,11 @@ BusinessTransaction = new Schema {
 #######################
 BusinessRequest = new Schema {
   userEntity: {
-    type                : {type: String, required: true, enum: choices.entities._enum}
-    id                  : {type: ObjectId, required: true}
+    type                : {type: String, required: false, enum: choices.entities._enum}
+    id                  : {type: ObjectId, required: false}
     name                : {type: String}
   }
+  loggedin              : {type: Boolean, required: true, default: true}
   businessName          : {type: String, require: true}
   date: {
     requested           : {type: Date, default: Date.now}
