@@ -217,6 +217,7 @@ Consumer = new Schema {
   charities       : {}
   media           : media
   secureMedia     : media
+  tapinsToFacebook: {type: Boolean, default: false}
 
   facebook: {
     access_token  : {type: String}

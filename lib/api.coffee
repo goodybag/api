@@ -898,6 +898,17 @@ class Consumers extends Users
       callback null, success
     return
 
+  @updateTapinsToFacebook: (uid, value, callback)->
+    if !value?
+      callback(null, false)
+      return
+    @update uid, {tapinsToFacebook: value}, (error)->
+      if error?
+        callback error
+        return
+      callback null
+    return
+
   @register: (data, fieldsToReturn, callback)->
     self = this
     data.screenName = new ObjectId()
