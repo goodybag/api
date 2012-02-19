@@ -882,11 +882,14 @@ class Consumers extends Users
     query.exec callback
     return
 
-  @updateBarcodeId: (id, barcodeId, callback)->
+  @updateBarcodeId: (entity, barcodeId, callback)->
+    if Object.isString(entity.id)
+      entity.id = new ObjectId(entity.id)
+
     if !barcodeId?
       callback(null, false)
       return
-    @update id, {barcodeId: barcodeId}, (error, count)->
+    @update entity.id, {barcodeId: barcodeId}, (error, count)->
       if error?
         if error.code is 11000 or error.code is 11001
           callback new errors.ValidationError "Barcode is already in use", {"barcodeId": "barcode is already in use"}
@@ -896,6 +899,8 @@ class Consumers extends Users
       #success
       success = count>0
       callback null, success
+      BusinessTransactions.claimBarcodeId entity, barcodeId, (error, bt)->
+        return
     return
 
   @register: (data, fieldsToReturn, callback)->
@@ -3759,6 +3764,21 @@ class BusinessTransactions extends API
       else if results.save?
         callback(null, results.save)
 
+  @claimBarcodeId = (entity, barcodeId, callback)->
+    if Object.isString(entity.id)
+      entity.id = new ObjectId(entity.id)
+
+    barcodeId = barcodeId + ""
+    $set = {
+      userEntity: {
+        type: choices.entities.CONSUMER
+        , id: entity.id
+        , name: entity.name
+        , screenName: entity.screenName
+      }
+    }
+    @model.collection.update {barcodeId: barcodeId}, {$set: $set}, {multi:true, safe:true}, callback
+
   @byUser = (userId, options, callback)->
     if Object.isFunction options
       callback = options
@@ -3772,7 +3792,7 @@ class BusinessTransactions extends API
       callback = options
       options = {}
     query = @optionParser options
-    query.where 'barcode', barcodeId
+    query.where 'barcodeId', barcodeId
     query.exec callback
 
   @byBusiness = (businessId, options, callback)->
