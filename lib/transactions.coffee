@@ -35,6 +35,10 @@ process = (document, transaction)-> #this is just a router
     when choices.transactions.actions.DISCUSSION_DONATION_DISTRIBUTED
       discussionDonationDistributed(document, transaction)
 
+    #FINANCIAL - CONSUMERS
+    when choices.transactions.actions.CONSUMER_DONATED
+      consumerDonated(document, transaction)
+
     #STAT - POLLS
     when choices.transactions.actions.STAT_POLL_ANSWERED
       statPollAnswered(document, transaction)
@@ -624,6 +628,72 @@ pollAnswered = (document, transaction)->
           logger.error error
           logger.error "#{prepend} unable to properly clean up - the poller will try later"
 
+
+consumerDonated = (document, transaction)->
+  prepend = "ID: #{document._id} - TID: #{transaction.id}"
+  logger.info "Creating transaction for consumer donated to charity"
+  logger.info "#{prepend} - #{transaction.direction}"
+
+  cleanup = (callback)->
+    logger.info "#{prepend} cleaning up"
+    _cleanupTransaction document, transaction, api.Consumers, [api.Consumers, api.Businesses], callback
+
+  setProcessed = true #setProcessed, unless something sets this to false
+  async.series {
+    setProcessing: (callback)->
+      _setTransactionProcessing api.Consumers, document, transaction, false, (error, doc)->
+        document = doc #we do this because the entities object is missing when the poll is answered
+        callback error, doc
+      return
+    depositFunds: (callback)->
+      if transaction.entity.type is choices.entities.BUSINESS
+        logger.debug "#{prepend} attempting to deposit funds to consumer: #{transaction.entity.id}"
+        _depositFunds api.Businesses, api.Consumers, document, transaction, false, false, (error, doc)->
+          if error?
+            logger.error error #mongo errored out
+            callback(error)
+          else if doc?  #transaction was successful, so continue to set processed
+            callback(null, doc)
+          else #null, null passed in which meas insufficient funds, so set error, and exit
+            error = {message: "entity to deposit funds to was not found"}
+            _setTransactionError api.Consumers, document, transaction, false, false, error, {}, (error, doc)->
+              #we don't care if it set or if it didn't set because:
+              # 1. if there was a mongo error then the poller will pick it up and work on it later
+              # 2. if it did set then fantastic, we will exit because we don't want to set to processed
+              # 3. if it did not set (no error, and no document updated) then we want to exit because
+              #    it is already in an error or processed state. In that case we want to do nothing
+              setProcessed = false
+              callback(null, null)
+      else
+        callback({name:"NullError", message: "Unsupported Entity Type: #{transaction.entity.type}"})
+      return
+
+    setProcessed: (callback)->
+      if setProcessed is false
+        callback() #we are not suppose to set to processed so exit cleanly
+        return
+
+      _setTransactionProcessed(api.Consumers, document, transaction, false, false, {}, callback)
+      #if it went through great, if it didn't go through then the poller will take care of it
+      #, no other state changes need to occur
+  },
+  (error, results)->
+    clean = false
+    if error?
+      logger.error error
+      if error.name is "TransactionAlreadyCompleted" #we recevied a null document while trying to set the state - the state is already set to processed or error, just needs to cleaned up
+        clean = true
+      else
+        logger.error "#{prepend} the poller will try later" #we received some other type of error, so we will try again later
+        return
+    else if results and results.setProcessed?
+      clean = true
+
+    if clean is true
+      cleanup (error, dbTransaction)-> #start cleaning up
+        if error?
+          logger.error error
+          logger.error "#{prepend} unable to properly clean up - the poller will try later"
 #INBOUND
 discussionCreated = (document, transaction)->
   prepend = "ID: #{document._id} - TID: #{transaction.id}"

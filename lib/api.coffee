@@ -149,8 +149,12 @@ class API
     @model.findById id, fieldsToReturn, dbOptions, callback
     return
 
-  @get: (options, callback)->
+  @get: (options, fieldsToReturn, callback)->
+    if Object.isFunction fieldsToReturn
+      callback = fieldsToReturn
+      fieldsToReturn = {} #all..
     query = @optionParser(options)
+    query.fields fieldsToReturn
     logger.debug query
     query.exec callback
     return
@@ -882,11 +886,14 @@ class Consumers extends Users
     query.exec callback
     return
 
-  @updateBarcodeId: (id, barcodeId, callback)->
+  @updateBarcodeId: (entity, barcodeId, callback)->
+    if Object.isString(entity.id)
+      entity.id = new ObjectId(entity.id)
+
     if !barcodeId?
       callback(null, false)
       return
-    @update id, {barcodeId: barcodeId}, (error, count)->
+    @update entity.id, {barcodeId: barcodeId}, (error, count)->
       if error?
         if error.code is 11000 or error.code is 11001
           callback new errors.ValidationError "Barcode is already in use", {"barcodeId": "barcode is already in use"}
@@ -896,6 +903,8 @@ class Consumers extends Users
       #success
       success = count>0
       callback null, success
+      BusinessTransactions.claimBarcodeId entity, barcodeId, (error, bt)->
+        return
     return
 
   @updateTapinsToFacebook: (uid, value, callback)->
@@ -1182,6 +1191,86 @@ class Consumers extends Users
               break;
 
       callback null, consumer
+      return
+    return
+
+  @donate: (id, donationObj, callback)->
+    self = this
+    if Object.isString id
+      id = new ObjectId id
+    entityType = choices.entities.CONSUMER
+
+    @one id, {funds:1}, (error, entity)->
+      if error?
+        callback error
+        return
+      if !entity?
+        callback new errors.ValidationError "Entity id not found.", {"entity":"Entity not found."}
+        return
+      #found entity
+      totalAmount = 0;
+      charityIds = []
+      for charityId, amount of donationObj
+        console.log charityId
+        console.log amount
+        if Object.isString charityId
+          charityId = new ObjectId charityId
+        amount = parseFloat(amount)
+        if !isNaN(amount) && amount>0
+          charityIds.push charityId
+          totalAmount += amount
+          if entity.funds.remaining < (totalAmount)
+            callback new errors.ValidationError "Insufficient funds.", {"entity":"Insufficient funds."}
+            return
+        else
+          delete donationObj[charityId]
+      numDonations = charityIds.length
+      if numDonations == 0
+        callback new errors.ValidationError "No valid donations entered.", {"donation amounts":"Invalid donation amounts."}
+        return
+      #verify charities exist..and that the bizs are charities
+      transactions = []
+      transactionIds = []
+      Businesses.model.find {_id:{$in:charityIds},isCharity:true}, {_id:1}, {safe:true}, (error, charitiesVerified)->
+        if error?
+          callback error #dberror
+          return
+        if charitiesVerified.length < numDonations
+          callback new errors.ValidationError "Incorrect charity id found.", {'charityId', 'Invalid charityId.'}
+          return
+        #all charities found and verified
+        #create transactions
+        for charityId, amount of donationObj
+          charityEntity = {
+            type: choices.entities.BUSINESS,
+            id  : charityId
+          }
+          transactionData = {
+            amount: parseFloat(amount)
+          }
+          transaction = self.createTransaction(choices.transactions.states.PENDING, choices.transactions.actions.CONSUMER_DONATED, transactionData, choices.transactions.directions.OUTBOUND, charityEntity)
+          transactionIds.push transaction.id
+          transactions.push transaction
+
+        #update consumer, and start transactions
+        pushAll = {}
+        inc  = {}
+        pushAll["transactions.ids"] = transactionIds
+        pushAll["transactions.log"] = transactions
+        inc["funds.remaining"]   = -1*totalAmount
+        update = {
+          $pushAll : pushAll,
+          $inc  : inc
+        }
+        self.model.collection.findAndModify {_id:id}, [], update, {new:true, safe:true, fields:{_id:1,funds:1}}, (error, consumer)->
+          if error?
+            callback error
+            return
+          callback null, consumer
+          for transaction in transactions
+            tp.process(consumer, transaction)
+          return
+        return
       return
     return
 
@@ -1839,6 +1928,7 @@ class Businesses extends API
     query = @_optionParser(options, q)
     query.in('clients', [options.clientId]) if options.clientId?
     query.where 'locations.tapins', true if options.tapins?
+    query.where 'isCharity', true if options.charity?
     query.where 'type', options.type if options.type?
     return query
 
@@ -2037,6 +2127,7 @@ class Businesses extends API
 
     @model.collection.update {_id: id}, $update, {safe: true}, callback
 
+class
 
 class Organizations extends API
   @model = Organization
@@ -3770,6 +3861,21 @@ class BusinessTransactions extends API
       else if results.save?
         callback(null, results.save)
 
+  @claimBarcodeId = (entity, barcodeId, callback)->
+    if Object.isString(entity.id)
+      entity.id = new ObjectId(entity.id)
+
+    barcodeId = barcodeId + ""
+    $set = {
+      userEntity: {
+        type: choices.entities.CONSUMER
+        , id: entity.id
+        , name: entity.name
+        , screenName: entity.screenName
+      }
+    }
+    @model.collection.update {barcodeId: barcodeId}, {$set: $set}, {multi:true, safe:true}, callback
+
   @byUser = (userId, options, callback)->
     if Object.isFunction options
       callback = options
@@ -3783,7 +3889,7 @@ class BusinessTransactions extends API
       callback = options
       options = {}
     query = @optionParser options
-    query.where 'barcode', barcodeId
+    query.where 'barcodeId', barcodeId
     query.exec callback
 
   @byBusiness = (businessId, options, callback)->

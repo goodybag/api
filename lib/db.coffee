@@ -311,7 +311,7 @@ Business = new Schema {
   type          : [{type: String, required: true, enum: choices.businesses.types._enum}]
   url           : {type: String, validate: Url}
   email         : {type: String, validate: Email}
-
+  isCharity     : {type: Boolean, default: false}
   legal: { #legal
     street1     : {type: String, required: true}
     street2     : {type: String}
