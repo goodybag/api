@@ -4607,7 +4607,7 @@ class PasswordResetRequests extends API
     return
 
   @pending: (key, callback)->
-    date = (globals.defaults.passwordResets.keyLife).minutesBefore(new Date());
+    date = (new Date()).addMinutes(0 - globals.defaults.passwordResets.keyLife);
     where =
       key: key
       date: {$gt: date}
