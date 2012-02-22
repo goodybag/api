@@ -831,7 +831,7 @@ class Users extends API
       if count==0
         callback new errors.ValidationError({"password":"Incorrect password."}) #assuming id is correct..
         return
-      callback error, count>0
+      callback error, data.changeEmail
       return
     return
 
