@@ -2202,7 +2202,7 @@ class Polls extends Campaigns
       when choices.entities.CONSUMER
         entityClass = Consumers
 
-    entityClass.one data.entity.id, {funds:1}, (error, entity)->
+    Businesses.one data.entity.id, {funds:1}, (error, entity)->
       if error?
         callback error
         return
@@ -3878,6 +3878,7 @@ class BusinessTransactions extends API
       callback = options
       options = {}
     query = @optionParser options
+    query.sort("date", -1)
     query.where 'barcodeId', barcodeId
     query.exec callback
 
