@@ -2141,7 +2141,6 @@ class Businesses extends API
     $set.registers[registerId] = {}
     $set.registers[registerId].location = locationId
     $push.locRegister[locationId] = registerId
-    f
 
     $set = @_flattenDoc $set
     $push = @_flattenDoc $push
