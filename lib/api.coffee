@@ -3776,6 +3776,8 @@ class BusinessTransactions extends API
       data.organizationEntity.id = new ObjectId(data.organizationEntity.id)
     if Object.isString(data.locationId)
       data.locationId = new ObjectId(data.locationId)
+    if Object.isString(data.registerId)
+      data.registerId = new ObjectId(data.registerId)
 
     timestamp = Date.create(data.timestamp)
 
@@ -3793,6 +3795,8 @@ class BusinessTransactions extends API
       date            : Date.create(timestamp)
       time            : new Date(0,0,0, timestamp.getHours(), timestamp.getMinutes(), timestamp.getSeconds(), timestamp.getMilliseconds()) #this is for slicing by time
       amount          : parseFloat(data.amount).round(2)
+      receipt         : data.receipt
+      hasReceipt      : if data.receipt? then true else false
       #donationAmount  : data.donationAmount #business don't have a donation $ or % field in db
     }
 
@@ -3813,14 +3817,14 @@ class BusinessTransactions extends API
               }
               cb(null)
             else
-              cb(null) #insert the transaction anyway, it is an invalid bar code though
+              cb(null) #insert the transaction anyway, it is an invalid or unassigned bar code though
               #cb(new errors.ValidationError {"DNE": "Consumer Does Not Exist"})
         else
           cb(null)
 
       findOrg: (cb)-> #do 3 things, make sure org exists, get the name, get donation amount
         if doc.organizationEntity.type is choices.entities.BUSINESS
-          Businesses.one doc.organizationEntity.id, (error, business)->
+          Businesses.validateTransactionEntity doc.organizationEntity.id, doc.locationId, doc.registerId, (error, business)->
             if error?
               cb(error, null)
               return
