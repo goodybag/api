@@ -663,6 +663,8 @@ class Users extends API
               cb(error)
               return
             else if client?
+              logger.debug "##### POOOP"
+              logger.debug data
               for own k,v of data
                 client[k] = v
               client.save callback
@@ -811,6 +813,8 @@ class Users extends API
 
   #@updateEmail
   @updateEmailRequest: (id, password, newEmail, callback)->
+    logger.debug "###### ID ######"
+    logger.debug id
     #id typecheck is done in @update
     @getByEmail newEmail, (error, user)->
       if error?
@@ -1749,7 +1753,6 @@ class Clients extends API
   @updateEmail: (id, password, newEmail, callback)->
     if(Object.isString(id))
       id = new ObjectId(id)
-
     async.parallel {
       validatePassword: (cb)->
         Clients.validatePassword id, password, (error, success)->
@@ -2127,7 +2130,26 @@ class Businesses extends API
 
     @model.collection.update {_id: id}, $update, {safe: true}, callback
 
-class
+  @newRegister = (businessId, locationId, callback)->
+    if Object.isString businessId
+      businessId = new ObjectId businessId
+    if Object.isObject locationId
+      locationId = locationId.toString()
+    registerId = new ObjectId().toString()
+
+    $set = {registers: {}}
+    $push = {locRegister: {}}
+    $set.registers[registerId] = {}
+    $set.registers[registerId].location = locationId
+    $push.locRegister[locationId] = registerId
+
+    $set = @_flattenDoc $set
+    $push = @_flattenDoc $push
+
+    query = @_query()
+    query.where '_id', businessId
+    query.update {$set: $set, $push: $push}, (error)->
+      callback error, registerId
 
 class Organizations extends API
   @model = Organization
@@ -3705,12 +3727,16 @@ class EventRequests extends API
   @model = EventRequest
 
   @requestsPending: (businessId, callback)->
+    if Object.isString businessId
+      businessId = new ObjectId businessId
     query = @_query()
     query.where 'organizationEntity.id', businessId
     query.where('date.responded').exists false
     query.exec callback
 
   @respond: (requestId, callback)->
+    if Object.isString requestId
+      requestId = new ObjectId requestId
     $query = {_id: requestId}
     $update =
       $set:

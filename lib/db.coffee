@@ -218,6 +218,7 @@ Consumer = new Schema {
   media           : media
   secureMedia     : media
   tapinsToFacebook: {type: Boolean, default: false}
+  changeEmail   : {}
 
   facebook: {
     access_token  : {type: String}
@@ -322,6 +323,9 @@ Business = new Schema {
     phone       : {type: String, required: true}
     fax         : {type: String}
   }
+
+  registers     : {} # {registerId: {location: locationId, ...}}
+  locRegister   : {} # {locationId: [registerId]}
 
   locations     : [Location]
 
