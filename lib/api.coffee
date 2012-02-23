@@ -2127,7 +2127,8 @@ class Businesses extends API
 
     @model.collection.update {_id: id}, $update, {safe: true}, callback
 
-class
+  @validateTransactionEntity: (businessId, locationId, registerId, callback)->
+    @model.collection.findOne {_id: businessId, locations._id: locationId, registerId: }
 
 class Organizations extends API
   @model = Organization
