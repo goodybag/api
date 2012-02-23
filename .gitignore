@@ -1,6 +1,10 @@
+.DS_Store
+docs/
 log/
+docs/
 *.log
 *.swp
 *.swo
 node_modules
 .monitor
+.DS_store

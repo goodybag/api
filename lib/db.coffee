@@ -12,35 +12,83 @@ mongoose = globals.mongoose
 
 Schema = mongoose.Schema
 ObjectId = mongoose.SchemaTypes.ObjectId
+DocumentArray = mongoose.SchemaTypes.DocumentArray
 
 #validation
 Url = /(ftp|http|https):\/\/(\w+:{0,1}\w*@)?(\S+)(:[0-9]+)?(\/|\/([\w#!:.?+=&%@!\-\/]))?/
 Email = /^(([^<>()[\]\\.,;:\s@\"]+(\.[^<>()[\]\\.,;:\s@\"]+)*)|(\".+\"))@((\[[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\])|(([a-zA-Z\-0-9]+\.)+[a-zA-Z]{2,}))$/
 
 
-###############
-# ENTITY ######
-###############
-Entity = new Schema {
-  type            : {type: String, required: true, enum: choices.entities._enum}
-  id              : {type: ObjectId, required: true}
-  name            : {type: String}
-}
+###################################################################
+###################################################################
+###################################################################
 
-
-##################
-# REFERENCE ######
-##################
-Reference = new Schema {
+#####################
+# Reference #########
+#####################
+reference = {
   type            : {type:String, required: true}
   id              : {type: ObjectId, required: true}
 }
 
+##################
+# Entity #########
+##################
+entity = {
+  type              : {type: String, required: true, enum: choices.entities._enum}
+  id                : {type: ObjectId, required: true}
+  name              : {type: String} #TODO: consider making this required with a default of  ""
+  screenName        : {type: String} #only applies to consumers
+  by: { #only if on behalf of another entity (if the entity is a business - this is the client in that business)
+    type: {type: String, enum: choices.entities._enum}
+    id: {type: ObjectId}
+    name: {type: String}
+  }
+}
+
+##############
+# DONOR ######
+##############
+donor = {
+  entity          : entity
+  funds: {
+    remaining     : {type: Number, required: true, default: 0.0}
+    allocated     : {type: Number, required: true, default: 0.0}
+  }
+}
+
+########################
+# Organization #########
+########################
+organization = {
+  type              : {type: String, required: true, enum: choices.organizations._enum}
+  id                : {type: ObjectId, required: true}
+  name              : {type: String}
+}
 
 ####################
-# TRANSACTION ######
+# Location #########
 ####################
-Transaction = new Schema {
+location = {
+    name          : {type: String}
+    street1       : {type: String, required: true}
+    street2       : {type: String}
+    city          : {type: String, required: true}
+    state         : {type: String, required: true}
+    zip           : {type: Number, required: true}
+    country       : {type: String, enum: countries.codes, required: true, default: "us"}
+    phone         : {type: String}
+    fax           : {type: String}
+    lat           : {type: Number}
+    lng           : {type: Number}
+    #Lets us know if this business can supports tapins
+    tapins        : {type: Boolean}
+}
+
+#######################
+# transaction #########
+#######################
+transaction = {
   id              : {type: ObjectId, required: true}
   state           : {type: String, required: true, enum: choices.transactions.states._enum}
   action          : {type: String, required: true, enum: choices.transactions.actions._enum}
@@ -50,9 +98,9 @@ Transaction = new Schema {
   }
 
   dates: {
-    created       : {type: Date, required: true, default: new Date( (new Date()).toUTCString() )}
+    created       : {type: Date, required: true, default: new Date()}
     completed     : {type: Date}
-    lastModified  : {type: Date, required: true, default: new Date( (new Date()).toUTCString() )}
+    lastModified  : {type: Date, required: true, default: new Date()}
   }
 
   #EXTRA INFO GOES IN HERE
@@ -70,52 +118,11 @@ Transaction = new Schema {
 
   attempts        : {type: Number, default: 0}
   pollerId        : {type: ObjectId} #THIS IS FOR IF WE FAIL AND THE POLLER PICKS IT UP
-
 }
 
-
-####################
-# Location #########
-####################
-Location = new Schema {
-    name          : {type: String}
-    street1       : {type: String, required: true}
-    street2       : {type: String}
-    city          : {type: String, required: true}
-    state         : {type: String, required: true}
-    zip           : {type: Number, required: true}
-    country       : {type: String, enum: countries.codes, required: true, default: "us"}
-    phone         : {type: String}
-    fax           : {type: String}
-    lat           : {type: Number}
-    lng           : {type: Number}
-    #Lets us know if this business can supports tapins
-    tapins        : {type: Boolean}
-}
-
-
-###################################################################
-###################################################################
-###################################################################
-
-reference = {
-  type            : {type:String, required: true}
-  id              : {type: ObjectId, required: true}
-}
-
-entity = {
-  type              : {type: String, required: true, enum: choices.entities._enum}
-  id                : {type: ObjectId, required: true}
-  name              : {type: String}
-  screenName        : {type: String} #only applies to consumers
-}
-
-organization = {
-  type              : {type: String, required: true, enum: choices.organizations._enum}
-  id                : {type: ObjectId, required: true}
-  name              : {type: String}
-}
-
+########################
+# transactions #########
+########################
 transactions = {
   ids               : [ObjectId]
   failed            : [ObjectId]
@@ -125,6 +132,9 @@ transactions = {
   state             : {type: String, enum: choices.transactions.states._enum}
 }
 
+#################
+# Media #########
+#################
 media = {
   url               : {type: String, validate: Url} #video or image
   thumb             : {type: String, validate: Url}
@@ -132,16 +142,54 @@ media = {
   mediaId           : {type: ObjectId}
 }
 
+ProfileEntry = new Schema {
+  name              : {type: String}
+  type              : {type: String}
+}
+
 ###################################################################
 ###################################################################
 ###################################################################
+
+Reference = new Schema reference
+Entity = new Schema entity
+Location = new Schema location
+Donor = new Schema donor
+Transaction = new Schema transaction
+
+#################################
+# DATABASE TRANSACTIONS #########
+#################################
+DBTransaction = new Schema {
+  document: {
+    type            : {type: String, required: true}
+    id              : {type: ObjectId, required: true}
+  }
+  timestamp         : {type: Date, default: new Date()}
+  transaction       : transaction
+}
+
+DBTransaction.index {"document.type": 1, "document.id": 1, "transaction.id": 1}, {unique: true}
+DBTransaction.index {"transaction.id": 1, "transaction.state": 1, "transaction.action": 1}
+DBTransaction.index {"transaction.state": 1}
+DBTransaction.index {"transaction.action": 1}
+DBTransaction.index {"entity.type": 1, "entity.id": 1}
+DBTransaction.index {"by.type": 1, "by.id": 1}
+
+
+##################################
+# SEQUENCE #######################
+##################################
+Sequence = new Schema {
+  urlShortner: {type: Number, default: 0}
+}
 
 
 ##################################
 # PASSWORD RESET REQUEST #########
 ##################################
 PasswordResetRequest = new Schema {
-  date        : {type: Date, default: new Date( (new Date()).toUTCString() )}
+  date        : {type: Date, default: new Date()}
   key         : {type: String, required: true, unique: true}
   entity: {
     type      : {type: String, required: true, enum: choices.entities._enum}
@@ -151,34 +199,81 @@ PasswordResetRequest = new Schema {
   consumed    : {type: Boolean, default: false}
 }
 
+
 ####################
 # CONSUMER #########
 ####################
 Consumer = new Schema {
   email           : {type: String, set: utils.toLower, validate: Email, unique: true}
-  password        : {type: String, validate:/.{5,}/, required: true}
+  password        : {type: String, min:5, required: true}
   firstName       : {type: String, required: true}
   lastName        : {type: String, required: true}
-  screenName      : {type: String, default: mongoose.Types.ObjectId.createPk(), unique: true}
+  screenName      : {type: String, unique: true}
   setScreenName   : {type: Boolean, default: false}
-  facebook: {
-    access_token  : String
-    #id            : Number
-  }
-  created         : {type: Date, default: new Date( (new Date()).toUTCString() )}
+  created         : {type: Date, default: new Date()}
   logins          : []
+  loginCount      : {type: Number, default: 1}
   honorScore      : {type: Number, default: 0}
   charities       : {}
+  media           : media
+  secureMedia     : media
+  tapinsToFacebook: {type: Boolean, default: false}
 
-  funds: {
-    allocated     : {type: Number, default: 0.0}
-    remaining     : {type: Number, default: 0.0}
+  facebook: {
+    access_token  : {type: String}
+    id            : {type: String}
   }
 
-  gbAdmin         : {type: Boolean, default: false}
-  transactions: transactions
+  profile: {
+    birthday      : {type: Date}
+    gender        : {}
+    education     : [ProfileEntry] #fb
+    work          : [ProfileEntry] #fb
+    location      : {} #fb
+    hometown      : {} #fb
+    interests     : [ProfileEntry] #not fb
+    aboutme       : {} #not fb
+    timezone      : {}
+    affiliations  : [ObjectId]
+    #interests movies music books?
+  }
+  permissions: {
+    email         : {type: Boolean, default: false}
+    media         : {type: Boolean, default: true}
+    birthday      : {type: Boolean, default: false}
+    gender        : {type: Boolean, default: false}
+    education     : {type: Boolean, default: false} #fb
+    work          : {type: Boolean, default: false} #fb
+    location      : {type: Boolean, default: false} #fb
+    hometown      : {type: Boolean, default: false} #fb
+    interests     : {type: Boolean, default: false} #not fb
+    fbinterests   : {type: Boolean, default: false} #not fb
+    aboutme       : {type: Boolean, default: false} #not fb
+    timezone      : {type: Boolean, default: false}
+    affiliations  : {type: Boolean, default: false}
+    hiddenFacebookItems : {
+      work: [{type:String}]      #hidden work ids
+      education: [{type:String}] #hidden education ids
+    }
+  }
 
+  funds: {
+    allocated     : {type: Number, default: 0.0, required: true}
+    remaining     : {type: Number, default: 0.0, required: true}
+  }
+
+  referralCodes: {
+    tapIn         : {type: String}
+    user          : {type: String}
+  }
+
+  barcodeId       : {type: String}
+
+  gbAdmin         : {type: Boolean, default: false}
+  transactions    : transactions
 }
+
+Consumer.index {barcodeId: 1}, {unique: true, sparse: true} #sparse because we allow for null/non-existant values
 
 
 ####################
@@ -194,7 +289,7 @@ Client = new Schema {
   media:media
 
   dates: {
-    created     : {type: Date, required: true, default: new Date( (new Date()).toUTCString() )}
+    created     : {type: Date, required: true, default: new Date()}
   }
 
   funds: {
@@ -202,7 +297,7 @@ Client = new Schema {
     remaining   : {type: Number, required: true, default: 0.0}
   }
 
-  transactions: transactions
+  transactions  : transactions
 
 }
 
@@ -216,7 +311,7 @@ Business = new Schema {
   type          : [{type: String, required: true, enum: choices.businesses.types._enum}]
   url           : {type: String, validate: Url}
   email         : {type: String, validate: Email}
-
+  isCharity     : {type: Boolean, default: false}
   legal: { #legal
     street1     : {type: String, required: true}
     street2     : {type: String}
@@ -241,13 +336,16 @@ Business = new Schema {
   }
 
   dates: {
-    created     : {type: Date, required: true, default: new Date( (new Date()).toUTCString() )}
+    created     : {type: Date, required: true, default: new Date()}
   }
 
   funds: {
     allocated   : {type: Number, required: true, default: 0.0}
     remaining   : {type: Number, required: true, default: 0.0}
   }
+  gbEquipped    : {type: Boolean, default: false}
+
+  transactions  : transactions
 
   permissions: { #permissions for groups
   #nothing needs to be done for now, but in the future permissions for groups will be taken care of here.
@@ -257,17 +355,89 @@ Business = new Schema {
     #owners      : [String]
     #managers    : [String]
   }
-
-  transactions: transactions
-
-  gbEquipped    : {type: Boolean, default: false}
 }
 
+####################
+# Organization #####
+####################
+
+Organization = new Schema {
+  type    : {type: String, required: true}
+  subType : {type: String, required: true}
+  name    : {type: String, required: true}
+}
+
+Organization.index {type: 1, name: 1}, {unique: true}
+Organization.index {type: 1, subType: 1, name: 1}
 
 ####################
 # Poll #############
 ####################
 Poll = new Schema {
+  entity: { #We support various types of users creating discussions (currently businesses and consumers can create discussions)
+    type               : {type: String, required: true, enum: choices.entities._enum}
+    id                 : {type: ObjectId, required: true}
+    name               : {type: String}
+  }
+
+  createdBy: { #if it was created by a business or any other organization type, we want to know by which user in that organization otherwise just the consumer
+    type               : {type: String, required: true, enum: choices.entities._enum}
+    id                 : {type: ObjectId, required: true}
+  }
+
+  lastModifiedBy: { #if it was created by a business or any other organization type, we want to know by which user in that organization otherwise just the consumer
+    type               : {type: String, required: true, enum: choices.entities._enum}
+    id                 : {type: ObjectId, required: true}
+  }
+
+  name                 : {type: String, required: true}
+  type                 : {type: String, required: true, enum: choices.polls.type._enum}
+  question             : {type: String, required: true}
+  choices              : [type: String, required: true]
+  numChoices           : {type: Number, min:2, required: true}
+  showStats            : {type: Boolean, required: true} #whether to display the stats to the user or not
+  displayName          : {type: Boolean, required: true}
+  displayMediaQuestion : {type: Boolean, required: true}
+  displayMediaResults  : {type: Boolean, required: true}
+
+  responses: {
+    remaining          : {type: Number,   required: true} #decrement each response
+    max                : {type: Number,   min:1, required: true}
+    consumers          : [type: ObjectId, required: true, default: new Array()] #append ObjectId(consumerId) each response
+    log                : {} #append consumerId:{answers:[1,2],timestamp:Date}
+    dates              : [] #append {consumerId:ObjId,timestamp:Date} -- for sorting by date
+    choiceCounts       : [type: Number,   required: true, default: new Array()] #increment each choice chosen, default should be a zero array..
+    flagConsumers      : [type: ObjectId, required: true, default: new Array()]
+    flagCount          : {type: Number,   required: true, default: 0}
+    skipConsumers      : [type: ObjectId, required: true, default: new Array()]
+    skipCount          : {type: Number,   required: true, default: 0}
+  }
+
+  mediaQuestion: media #if changed please update api calls, transloadit hook, frontend code (uploadify/transloadit)
+  mediaResults: media #if changed please update api calls, transloadit hook, frontend code (uploadify/transloadit)
+
+  dates: {
+    created            : {type: Date, required: true, default: new Date()}
+    start              : {type: Date, required: true}
+    end                : {type: Date}
+  }
+
+  funds: {
+    perResponse        : {type: Number, required: true}
+    allocated          : {type: Number, required: true, default: 0.0}
+    remaining          : {type: Number, required: true, default: 0.0}
+  }
+
+  deleted              : {type: Boolean, default: false}
+
+  transactions: transactions
+}
+
+
+####################
+# Discussion #######
+####################
+Discussion = new Schema {
   entity: { #We support various types of users creating discussions (currently businesses and consumers can create discussions)
     type              : {type: String, required: true, enum: choices.entities._enum}
     id                : {type: ObjectId, required: true}
@@ -285,128 +455,137 @@ Poll = new Schema {
   }
 
   name                : {type: String, required: true}
-  type                : {type: String, required: true, enum: choices.polls.type._enum}
-  question            : {type: String, required: true}
-  choices             : [type: String, required: true]
-  numChoices          : {type: Number, required: true}
-  showStats           : {type: Boolean, required: true} #whether to display the stats to the user or not
-  displayName         : {type: Boolean, required: true}
-  displayMediaQuestion : {type: Boolean, required: true}
-  displayMediaResults  : {type: Boolean, required: true}
-  responses: {
-    remaining     : {type: Number,   required: true} #decrement each response
-    max           : {type: Number,   required: true}
-    consumers     : [type: ObjectId, required: true, default: new Array()] #append ObjectId(consumerId) each response
-    log           : {}                             #append consumerId:{answers:[1,2],timestamp:Date}
-    dates         : []                             #append {consumerId:ObjId,timestamp:Date} -- for sorting by date
-    choiceCounts  : [type: Number,   required: true, default: new Array()] #increment each choice chosen, default should be a zero array..
-    flagConsumers : [type: ObjectId, required: true, default: new Array()]
-    flagCount     : {type: Number,   required: true, default: 0}
-    skipConsumers : [type: ObjectId, required: true, default: new Array()]
-    skipCount     : {type: Number,   required: true, default: 0}
-  }
-
-  mediaQuestion: media #if changed please update api calls, transloadit hook, frontend code (uploadify/transloadit)
-  mediaResults: media #if changed please update api calls, transloadit hook, frontend code (uploadify/transloadit)
-  dates: {
-    created           : {type: Date, required: true, default: new Date( (new Date()).toUTCString() )}
-    start             : {type: Date, required: true}
-    end               : {type: Date}
-  }
-  funds: {
-    perResponse       : {type: Number, required: true}
-    allocated         : {type: Number, required: true, default: 0.0}
-    remaining         : {type: Number, required: true, default: 0.0}
-  }
-
-
-  transactions: transactions
-
-  deleted             : {type: Boolean, default: false}
-}
-
-
-####################
-# Discussion #######
-####################
-Discussion = new Schema {
-  entity: { #We support various types of users creating discussions (currently businesses and consumers can create discussions)
-    type              : {type: String, required: true, enum: choices.entities._enum}
-    id                : {type: ObjectId, required: true}
-    name              : {type: String}
-  }
-  name                : {type: String, required: true}
   question            : {type: String, required: true}
   details             : {type: String}
   tags                : [String]
   displayName         : {type: Boolean, required: true}
   displayMedia        : {type: Boolean, required: true}
-  responses: {
-    count         : {type: Number, required: true, default: 0}
-    consumers     : [type: ObjectId, required: true, default: new Array()] #append ObjectId(consumerId) each response
-    log           : {}                             #append consumerId:{answers:[1,2],timestamp:Date}
-    dates         : []                             #append {consumerId:ObjId,timestamp:Date} -- for sorting by date
-    flagConsumers : [type: ObjectId, required: true, default: new Array()]
-    flagCount     : {type: Number,   required: true, default: 0}
-  }
-  media: media
-  dates: {
-    created           : {type: Date, required: true, default: new Date( (new Date()).toUTCString() )}
-    start             : {type: Date, required: true, default: new Date( (new Date()).toUTCString() )}
-    end               : {type: Date}
 
-    #end           : {type: Date, required: true, default: new Date( (new Date().addWeeks(3)).toUTCString() )} #three week later
+  media               : media
+  thanker             : [Entity] #entities who have thanked a response (not using donated funds)
+  donors              : [Entity] #entities who have put money into this discussion (including creator)
+  # remove name, screenName, by from the donors list - because we want to use addToSet here
+  # donorNames          : {} #{entityTYPE_ObjectIdAsStr: NAME}
+  # donorBy             : {} #{entityTYPE_ObjectIdAsStr: [Name]} #if done on behalf of a business
+  donationAmounts     : {} #{entityTYPE_ObjectIdAsStr: {allocated: AMOUNT, remaining: AMOUNT}} #amount donated by that entity #we are storing it here instead of in donors, incase the same entity donates multiple times
+
+  dates: {
+    created           : {type: Date, required: true, default: new Date()}
+    start             : {type: Date, required: true, default: new Date()}
+    end               : {type: Date}
   }
+
   funds: {
     allocated         : {type: Number, required: true, default: 0.0}
     remaining         : {type: Number, required: true, default: 0.0}
+
+    #these are just total sums
+    donations         : {type: Number, required: true, default: 0.0}
+    thanks            : {type: Number, required: true, default: 0.0}
   }
 
-  transactions: transactions
+  donationCount       : {type: Number, required: true, default: 0}
+  thankCount          : {type: Number, required: true, default: 0}
+
+  votes: { #these are all totals
+    count           : {type: Number, default: 0}
+    score           : {type: Number, default: 0}
+    up              : {type: Number, default: 0}
+    down            : {type: Number, default: 0}
+  }
+
+  flagged: {
+    by                : [Entity]
+    count             : {type: Number, default: 0}
+  }
+
+  responseCount       : {type: Number, required: true, default: 0}
+
+  responses           : [Response]
+  responseEntities    : {} #{responseId: entity} #this is used for determining who to donate money to later, so we don't iterate responses array
 
   deleted             : {type: Boolean, default: false}
+  transactions        : transactions
 }
+
 
 ####################
 # Response #########
 ####################
-#Responses happen on the consumer end, so no need to worry about specing this out right now
-#Responses are in their own collection for two reasons:
-#   They need to be pulled in a limit/skip fashion
-#   We want to section them off in groups of either 25/50/100. This way will result in less requests to the database
-
-###THIS IS AN OPTIMIZATION WE CAN DO LATER - LETS REACH THIS MUCH ACTIVITY THAT OUR SITE SLOWS DOWN :)
 Response = new Schema {
-  discussionId    : {type: ObjectId, required: true}
-  responses: [{
-    entity: { #We support various types of users creating discussions (currently businesses and consumers can create discussions)
-      type   : {type: String, required: true, enum: choices.entities._enum}
-      id     : {type: ObjectId, required: true}
-      name   : {type: String}
+  entity            : entity
+  content           : {type: String}
+
+  dates: {
+    created         : {type: Date, required: true, default: new Date()}
+    lastModified    : {type: Date, required: true, default: new Date()}
+  }
+
+  comments          : [Comment]
+  commentCount      : {type: Number, required: true, default: 0}
+
+  votes: {
+    count           : {type: Number, default: 0}
+    score           : {type: Number, default: 0}
+
+    up: {
+      by            : [Entity]
+      ids           : {} # {TYPE_ObjectIdAsStr: 1} for each user that votes up
+      count         : {type: Number, default: 0}
     }
-    response : {type: String, required: true}
-  }]
+
+    down: {
+      by            : [Entity]
+      ids           : {} # {TYPE_ObjectIdAsStr: 1} for each user that votes down
+      count         : {type: Number, default: 0}
+    }
+  }
+
+  flagged: {
+    by              : [Entity]
+    count           : {type: Number, default: 0}
+  }
+
+  earned            : {type: Number, default: 0.0}
+
+  thanks: {
+    count           : {type: Number, default: 0}
+    amount          : {type: Number, default: 0.0} #total
+
+    by: [{
+      entity        : entity
+      amount        : {type: Number}
+    }]
+  }
+
+  donations: {
+    count           : {type: Number, default: 0}
+    amount          : {type: Number, default: 0.0} #total
+
+    by: [{
+      entity        : entity
+      amount        : {type: Number}
+    }]
+  }
 }
 
-###
 
-Response = new Schema {
-  entity: { #We support various types of users creating discussions (currently businesses and consumers can create discussions)
-    type          : {type: String, required: true, enum: choices.entities._enum}
-    id            : {type: ObjectId, required: true}
-    name          : {type: String}
-  }
+####################
+# Comment ##########
+####################
+Comment = new Schema {
+  entity            : entity
+  content           : {type: String}
 
-  discussionId    : {type: ObjectId, required: true}
-  response        : {type: String, required: true}
-  parent          : {type: ObjectId} #was this in response to a previous response? which one?
   dates: {
-    created       : {type: Date, default: new Date( (new Date()).toUTCString() )}
+    created         : {type: Date, required: true, default: new Date()}
+    lastModified    : {type: Date, required: true, default: new Date()}
   }
 
-  transactions: transactions
-
-  deleted             : {type: Boolean, default: false}
+  flagged: {
+    by              : [Entity]
+    count           : {type: Number, default: 0}
+  }
 }
 
 
@@ -415,23 +594,25 @@ Response = new Schema {
 ####################
 Media = new Schema {
   entity: { #We support different types of users creating and uploading content
-    type      : {type: String, required: true, enum: choices.entities._enum}
-    id        : {type: ObjectId, required: true}
-    name      : {type: String}
+    type        : {type: String, required: true, enum: choices.entities._enum}
+    id          : {type: ObjectId, required: true}
+    name        : {type: String}
   }
-  type        : {type: String, required: true, enum: choices.media.type._enum}
-  name        : {type: String, required: true}
-  duration    : {type: Number}
-  thumbs      : [] #only populated if video
-  sizes       : {} #only for images, not yet implemented in transloaded's template, or api
-  tags        : []
+
+  type          : {type: String, required: true, enum: choices.media.type._enum}
+  name          : {type: String, required: true}
+  duration      : {type: Number}
+  thumbs        : [] #only populated if video
+  sizes         : {} #this should match transloadits sizes
+  tags          : []
+
   dates: {
-    created   : {type: Date, required: true, default: new Date( (new Date()).toUTCString() )}
+    created     : {type: Date, required: true, default: new Date()}
   }
 
-  transactions: transactions
+  transactions  : transactions
 
-  deleted             : {type: Boolean, default: false}
+  deleted       : {type: Boolean, default: false}
 }
 
 #indexes
@@ -451,12 +632,13 @@ ClientInvitation = new Schema {
   email           : {type: String, required: true, validate: Email}
   key             : {type: String, required: true}
   status          : {type: String, required: true, enum: choices.invitations.state._enum, default: choices.invitations.state.PENDING}
+
   dates: {
-    created       : {type: Date, default: new Date( (new Date()).toUTCString() )}
+    created       : {type: Date, default: new Date()}
     expires       : {type: Date}
   }
 
-  transactions: transactions
+  transactions    : transactions
 }
 
 #unique index on businessId + group + email address is required
@@ -473,7 +655,6 @@ Stream = new Schema {
     id                : {type: ObjectId}
     name              : {type:String}
   }
-
   entitiesInvolved    : [Entity]
   what                : reference #the document this stream object is about
   when                : {type: Date, required: true, default: new Date()}
@@ -484,20 +665,28 @@ Stream = new Schema {
       name            : {type: String}
     }
     locationId        : {type: ObjectId}
-    locationName      : {type: String}
+    locationName      : {type: String} #generally we don't have this information #probably remove this
   }
   events              : [{type:String, required: true, enum: choices.eventTypes}]
   feeds: {
     global            : {type: Boolean, required: true, default: false}
   }
   dates: {
-    created           : {type: Date, default: new Date( (new Date()).toUTCString() )}
+    created           : {type: Date, default: new Date()}
     lastModified      : {type: Date}
   }
-  data                : {}#eventTypes to info mapping:=> eventType: {id: XX, extraFF: GG}
+  data                : {}#available to all enabled feeds #eventTypes to info mapping:=> eventType: {id: XX, extraFF: GG} #essentially if this was in feedSpecificData it would be the feed: global
+
+  feedSpecificData: { #available only for the specified feeds #feed to eventType to info mapping: {involved: {eventType: {id: XX, extraFF: GG} } }
+    #data              : {} #this is the data object above
+    involved          : {} #data this is visible to all the entities involved only
+  }
+
+  entitySpecificData  : {} #avialable only to the entities specified. {#ENTITY_TYPE}_{}
+
   deleted             : {type: Boolean, default: false}
 
-  transactions: transactions
+  transactions        : transactions
 }
 
 #indexes
@@ -516,11 +705,13 @@ Stream.index {"where.org.type": 1, "where.org.id": 1}
 # TAG ##############
 ####################
 Tag = new Schema {
-  name: {type: String, required: true}
-  #category: {type: String, required: true}
-
+  name  : {type: String, required: true}
+  type  : {type: String, required: true, enum: choices.tags.types._enum}
+  count : {type: Number}
   transactions: transactions
 }
+
+Tag.index {type: 1, name:1}, {unique: true}
 
 
 ############
@@ -533,47 +724,29 @@ EventDateRange = new Schema {
 
 Event = new Schema {
   entity: {
-    type      : {type: String, required: true, enum: choices.entities._enum}
-    id        : {type: ObjectId, required: true}
-    name      : {type: String}
+    type        : {type: String, required: true, enum: choices.entities._enum}
+    id          : {type: ObjectId, required: true}
+    name        : {type: String}
   }
 
-  locationId  : {type: ObjectId}
-  location    : {
-    name      : {type: String}
-    street1   : {type: String, required: true}
-    street2   : {type: String}
-    city      : {type: String, required: true}
-    state     : {type: String, required: true}
-    zip       : {type: Number, required: true}
-    country   : {type: String, enum: countries.codes, required: true, default: "us"}
-    phone     : {type: String}
-    fax       : {type: String}
-    lat       : {type: Number}
-    lng       : {type: Number}
-  }
+  locationId    : {type: ObjectId}
+  location      : location
 
   dates: {
-    requested : {type: Date, required: true}
-    responded : {type: Date, required: true}
-    actual    : {type: Date, required: true}
+    requested   : {type: Date, required: true}
+    responded   : {type: Date, required: true}
+    actual      : {type: Date, required: true}
   }
 
-  hours       : [EventDateRange]
-  pledge      : {type: Number, min: 0, max: 100, required: true}
-  externalUrl : {type: String, validate: Url}
-  rsvp        : [ObjectId]
-  rsvpUsers   : {}
+  hours         : [EventDateRange]
+  pledge        : {type: Number, min: 0, max: 100, required: true}
+  externalUrl   : {type: String, validate: Url}
+  rsvp          : [ObjectId]
+  rsvpUsers     : {}
 
-  transactions: {
-    ids       : [ObjectId]
-    failed    : [ObjectId]
-    log       : [Transaction]
-    temp      : [Transaction]
-    locked    : {type: Boolean}
-    state     : {type: String, enum: choices.transactions.states._enum}
-  }
+  transactions  : transactions
 }
+
 
 #####################
 # Events Requests ###
@@ -596,24 +769,22 @@ EventRequest = new Schema {
     responded           : {type: Date}
   }
 
-  transactions: transactions
+  transactions          : transactions
 }
+
 
 #########################
 # BusinessTransaction ###
 #########################
 BusinessTransaction = new Schema {
-  userEntity: { # Not required since they may not registered
+  userEntity: { # Not required since they may not be registered
     type                : {type: String, enum: choices.entities._enum}
     id                  : {type: ObjectId}
     name                : {type: String}
+    screenName          : {type: String}
   }
 
-  organizationEntity: {
-    type                : {type: String, required: true, enum: choices.entities._enum}
-    id                  : {type: ObjectId, required: true}
-    name                : {type: String}
-  }
+  organizationEntity    : organization
 
   locationId            : {type: ObjectId, required: true}
   registerId            : {type: String, required: true}
@@ -622,7 +793,9 @@ BusinessTransaction = new Schema {
   date                  : {type: Date, required: true}
   time                  : {type: Date, required: true}
   amount                : {type: Number, required: true}
-  donationAmount        : {type: Number}
+  donationAmount        : {type: Number, required: true, default: 0}
+
+  transactions          : transactions
 }
 
 
@@ -631,16 +804,68 @@ BusinessTransaction = new Schema {
 #######################
 BusinessRequest = new Schema {
   userEntity: {
-    type                : {type: String, required: true, enum: choices.entities._enum}
-    id                  : {type: ObjectId, required: true}
+    type                : {type: String, required: false, enum: choices.entities._enum}
+    id                  : {type: ObjectId, required: false}
     name                : {type: String}
   }
+  loggedin              : {type: Boolean, required: true, default: true}
   businessName          : {type: String, require: true}
   date: {
     requested           : {type: Date, default: Date.now}
     read                : {type: Date}
   }
 }
+
+
+##############
+# REFERRAL ###
+##############
+Referral = new Schema {
+  type                  : {type: String, enum: choices.referrals.types._enum, required: true}
+
+  entity: {
+    type                : {type: String, required: true, enum: choices.entities._enum}
+    id                  : {type: ObjectId, required: true}
+  }
+  by: {
+    type                : {type: String, required: true, enum: choices.entities._enum}
+    id                  : {type: ObjectId, required: true}
+  }
+
+  incentives: {
+    referrer            : {type:Number, required: true, default: 0.0}
+    referred            : {type:Number, required: true, default: 0.0}
+  }
+
+  #if type is choices.referrals.types.STICKER then we have this sub document
+  stickers: {
+    range: {
+      start             : {type: Number}
+      stop              : {type: Number}
+    }
+    eventId             : {type: ObjectId}
+  }
+
+  #if type is choices.referrals.types.LINK then we have this sub document
+  link: {
+    code                : {type: String}
+    url                 : {type: String, validate: Url}
+    type                : {type: String, enum: choices.referrals.links.types._enum}
+    visits              : {type: Number}
+  }
+  signups               : {type: Number, required: true, default:0}
+  referredUsers         : [Entity]
+}
+
+#Indexes
+Referral.index {type: 1, 'entity.type': 1, 'entity.id': 1, 'link.url': 1}
+
+Referral.index {type: 1, 'stickers.range.start': 1, 'stickers.range.stop': 1}
+Referral.index {type: 1, 'stickers.eventId': 1}
+
+Referral.index {type: 1, 'entity.type': 1, 'entity.id':1, 'stickers.eventId': 1}
+Referral.index {type: 1, 'link.code': 1}
+Referral.index {type: 1, 'link.url': 1}
 
 
 ##########
@@ -662,7 +887,7 @@ Statistic = new Schema {
   consumerId              : {type: ObjectId, required: true}
   data                    : {} #store counts, totals, dates, etc
 
-  transactions: transactions
+  transactions            : transactions
 }
 
 Statistic.index {'org.type': 1, 'org.id':1, consumerId: 1}, {unique: true}
@@ -674,7 +899,8 @@ Statistic.index {'org.type': 1, 'org.id':1, consumerId: 1, "tapIns.lastVisited":
 Statistic.index {'org.type': 1, 'org.id':1, consumerId: 1, "polls.totalAnswered": 1}
 Statistic.index {'org.type': 1, 'org.id':1, consumerId: 1, "polls.lastAnsweredDate": 1}
 
-
+exports.DBTransaction         = mongoose.model 'DBTransaction', DBTransaction
+exports.Sequence              = mongoose.model 'Sequence', Sequence
 exports.Consumer              = mongoose.model 'Consumer', Consumer
 exports.Client                = mongoose.model 'Client', Client
 exports.Business              = mongoose.model 'Business', Business
@@ -691,22 +917,27 @@ exports.BusinessTransaction   = mongoose.model 'BusinessTransaction', BusinessTr
 exports.BusinessRequest       = mongoose.model 'BusinessRequest', BusinessRequest
 exports.PasswordResetRequest  = mongoose.model 'PasswordResetRequest', PasswordResetRequest
 exports.Statistic             = mongoose.model 'Statistic', Statistic
+exports.Organization          = mongoose.model 'Organization', Organization
+exports.Referral              = mongoose.model 'Referral', Referral
 
 exports.schemas = {
-  Consumer: Consumer
-  Client: Client
-  Business: Business
-  Poll: Poll
-  Discussion: Discussion
-  Response: Response
-  Media: Media
-  ClientInvitation: ClientInvitation
-  Tag: Tag
-  EventRequest: EventRequest
-  Stream: Stream
-  Event: Event
-  BusinessTransaction: BusinessTransaction
-  BusinessRequest: BusinessRequest
-  PasswordResetRequest: PasswordResetRequest
-  Statistic: Statistic
+  Sequence             : Sequence
+  Consumer             : Consumer
+  Client               : Client
+  Business             : Business
+  Poll                 : Poll
+  Discussion           : Discussion
+  Response             : Response
+  Media                : Media
+  ClientInvitation     : ClientInvitation
+  Tag                  : Tag
+  EventRequest         : EventRequest
+  Stream               : Stream
+  Event                : Event
+  BusinessTransaction  : BusinessTransaction
+  BusinessRequest      : BusinessRequest
+  PasswordResetRequest : PasswordResetRequest
+  Statistic            : Statistic
+  Organization         : Organization
+  Referral             : Referral
 }

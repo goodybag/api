@@ -1,10 +1,10 @@
 exports = module.exports
 
+bcrypt = require "bcrypt"
 generatePassword = require "password-generator"
 hashlib = require "hashlib"
 util = require "util"
 async = require "async"
-wwwdude = require "wwwdude"
 
 globals = require "globals"
 loggers = require "./loggers"
@@ -14,13 +14,20 @@ tp = require "./transactions" #transaction processor
 
 logger = loggers.api
 
+configs = globals.configs
 utils = globals.utils
 choices = globals.choices
 defaults = globals.defaults
 errors = globals.errors
+transloadit = globals.transloadit
+guidGen = globals.guid
+fb = globals.facebook
+urlShortner = globals.urlShortner
 
 ObjectId = globals.mongoose.Types.ObjectId
 
+DBTransaction = db.DBTransaction
+Sequence = db.Sequence
 Client = db.Client
 Consumer = db.Consumer
 Business = db.Business
@@ -37,14 +44,38 @@ BusinessTransaction = db.BusinessTransaction
 BusinessRequest = db.BusinessRequest
 PasswordResetRequest = db.PasswordResetRequest
 Statistic = db.Statistic
-
+Organization = db.Organization
+Referral = db.Referral
 #TODO:
 #Make sure that all necessary fields exist for each function before sending the query to the db
 
+ ## API ##
 class API
   @model = null
   constructor: ()->
     #nothing to say
+
+  @_flattenDoc = (doc, startPath)->
+    flat = {}
+    #flatten function
+    flatten = (obj, path)->
+      if Object.isObject obj
+        path = if !path? then "" else path+"."
+        for key of obj
+          flatten obj[key], path+key
+      else if Object.isArray obj
+        path = if !path? then "" else path+"."
+        i = 0
+        while i<obj.length
+          flatten obj[i], path+i
+          i++
+      else
+        flat[path] = obj
+      return flat
+    #end flatten
+    return flatten doc, startPath
+
+  @_copyFields = utils.copyFields
 
   @_query: ()->
     return @model.find() #instance of query object
@@ -98,15 +129,32 @@ class API
 
   @del = @remove
 
-  @one: (id, callback)->
-    return @_one(id, callback)
+  # @one: (id, callback)->
+  @one: (id, fieldsToReturn, dbOptions, callback)->
+    return @_one(id, fieldsToReturn, dbOptions, callback)
 
-  @_one: (id, callback)->
-    @model.findOne {_id: id}, callback
+  @_one: (id, fieldsToReturn, dbOptions, callback)->
+    if Object.isString id
+      id = new ObjectId id
+    if Object.isFunction fieldsToReturn
+      #Fields to return must always be specified for consumers...
+      callback = fieldsToReturn
+      fieldsToReturn = {}
+      dbOptions = {safe:true}
+      # callback new errors.ValidationError {"fieldsToReturn","Database error, fields must always be specified."}
+      # return
+    if Object.isFunction dbOptions
+      callback = dbOptions
+      dbOptions = {safe:true}
+    @model.findById id, fieldsToReturn, dbOptions, callback
     return
 
-  @get: (options, callback)->
+  @get: (options, fieldsToReturn, callback)->
+    if Object.isFunction fieldsToReturn
+      callback = fieldsToReturn
+      fieldsToReturn = {} #all..
     query = @optionParser(options)
+    query.fields fieldsToReturn
     logger.debug query
     query.exec callback
     return
@@ -125,7 +173,11 @@ class API
 
   #TRANSACTIONS
   @createTransaction: (state, action, data, direction, entity)->
+    if Object.isString(entity.id)
+      entity.id = new ObjectId(entity.id)
+
     transaction = {
+      _id: new ObjectId() #We are putting this in here only because mongoose does for us. #CONSIDER REMOVING THE REGULAR ID FIELD AND ONLY USE THIS
       id: new ObjectId()
       state: state
       action: action
@@ -136,10 +188,7 @@ class API
       }
       data: data
       direction: direction
-      entity: {
-        type: entity.type
-        id: entity.id
-      }
+      entity: entity
     }
 
     return transaction
@@ -167,6 +216,34 @@ class API
     }
 
     @model.collection.findAndModify $query, [], $update, {safe: true, new: true}, callback
+
+  @removeTransaction: (documentId, transactionId, callback)->
+    if Object.isString(documentId)
+      documentId = new ObjectId(documentId)
+    if Object.isString(transactionId)
+      transactionId = new ObjectId(transactionId)
+
+    $update = {
+      "$pull": {"transactions.log": {id: transactionId} }
+    }
+
+    @model.collection.update {"_id": documentId}, $update, {safe: true, multi: true}, (error, count)->  #will return count of documents matched
+      if error?
+        logger.error error
+      callback(error, count)
+
+  @removeTransactionInvolvement: (transactionId, callback)->
+    if Object.isString(transactionId)
+      transactionId = new ObjectId(transactionId)
+
+    $update = {
+      "$pull": {"transactions.ids": transactionId}
+    }
+
+    @model.collection.update {"transactions.ids": transactionId}, $update, {safe: true, multi: true}, (error, count)->  #will return count of documents matched
+      if error?
+        logger.error error
+      callback(error, count)
 
   #TRANSACTION STATE
   #locking variable is to ask if this is a locking transaction or not (usually creates/updates are locking in our case)
@@ -213,7 +290,7 @@ class API
         $elemMatch: {
           "id": transactionId
           "state":{
-            $nin: [choices.transactions.states.PROCESSED, choices.transactions.states.ERROR]
+            $nin: [choices.transactions.states.PROCESSED, choices.transactions.states.ERROR] #purposefully keeping choices.transactions.state.PROCESSING out of this list
           }
         }
       }
@@ -270,9 +347,8 @@ class API
     Object.merge($update, modifierDoc)
     Object.merge($update.$set, $set)
 
-    console.log $update
-
-    @model.collection.findAndModify $query, [], $update, {new: true, safe: true}, callback
+    @model.collection.findAndModify $query, [], $update, {new: true, safe: true}, (error, doc)->
+      callback(error, doc)
 
   @__setTransactionError: (id, transactionId, locking, removeLock, errorObj, modifierDoc, callback)->
     if Object.isString(id)
@@ -312,6 +388,7 @@ class API
     Object.merge($update, modifierDoc)
     Object.merge($update.$set, $set)
 
+    logger.debug($update)
     @model.collection.findAndModify $query, [], $update, {new: true, safe: true}, callback
 
   @checkIfTransactionExists: (id, transactionId, callback)->
@@ -329,7 +406,463 @@ class API
     @model.findOne $query, callback
 
 
-class Consumers extends API
+## DBTransactions ##
+class DBTransactions extends API
+  @model: DBTransaction
+
+
+class Sequences extends API
+  @model: Sequence
+
+  @current: (key, callback)->
+    $fields = {}
+    $fields[key] = 1
+    @model.collection.findOne {_id: new ObjectId(0)}, {fields: $fields}, (error, doc)->
+      if error?
+        callback(error)
+      else if !doc?
+        callback({"sequence": "could not find sequence document"})
+      else
+        callback(null, doc[key])
+
+  @next: (key, count, callback)->
+    if Object.isFunction(count)
+      callback = count
+      count = 1
+
+    $inc = {}
+    $inc[key] = count
+
+    $update = {$inc: $inc}
+
+    $fields = {}
+    $fields[key]= 1
+
+    @model.collection.findAndModify {_id: new ObjectId(0)}, [], $update, {new: true, safe: true, fields: $fields, upsert: true}, (error, doc)->
+      if error?
+        callback(error)
+      else if !doc?
+        callback({"sequence": "could not find sequence document"})
+      else
+        callback(null, doc[key])
+
+
+class Users extends API
+  #start potential new API functions
+  #model.findById id, fields, options callback
+  #model.findOne
+  @_sendFacebookPicToTransloadit = (entityId, guid, picURL, callback)->
+    logger.debug ("callTransloadit")
+    client = new transloadit(configs.transloadit.authKey, configs.transloadit.authSecret)
+    params = {
+      auth: {
+        key: configs.transloadit.authKey
+      }
+      notify_url: 'http://b.goodybag.com/hooks/transloadit'
+      template_id: configs.transloadit.consumerFromURLTemplateId
+      steps: {
+        ':original':
+          robot: '/http/import'
+          url  : picURL
+        export85:
+          path: "consumers/"+entityId+"-85.png"
+        export128:
+          path: "consumers/"+entityId+"-128.png"
+      }
+    }
+    fields = {
+      mediaFor: "consumer"
+      entityId: entityId.toString()
+      guid: guid
+    }
+    client.send params, fields
+      ,(success)->
+        if callback?
+          callback null, true
+        return
+      ,(error)->
+        #callback new errors.TransloaditError('Uh oh, looks like there was a problem updating your profile picture.', error)
+        logger.error new errors.TransloaditError('Transloadit error on facebook login, updating profile picture', error)
+        if callback?
+          callback error
+        return
+    return
+
+  @_updatePasswordHelper = (id, password, callback)->
+    #this function is a helper to update a users password
+    #ussually a user has to enter their previous password or
+    #have a secure reset-password link to update their password.
+    #do not call this function directly.. w/out security.
+    self = this
+    @encryptPassword password, (error, hash)->
+      if error?
+        callback new errors.ValidationError "Invalid Password", {"password":"Invalid Password"} #error encrypting password, so fail
+        return
+      #password encrypted successfully
+      password = hash
+      self.update id, {password: hash}, callback
+      return
+
+  @one: (id, fieldsToReturn, dbOptions, callback)->
+    if Object.isString id
+      id = new ObjectId id
+    if Object.isFunction fieldsToReturn && !fieldsToReturn?
+      #Fields to return must always be specified for consumers...
+      callback new errors.ValidationError {"fieldsToReturn","Database error, fields must always be specified."}
+      dbOptions = {safe:true}
+      return
+      # callback = fieldsToReturn
+      # fields = {}
+    if Object.isFunction dbOptions
+      callback = dbOptions
+      dbOptions = {}
+    @model.findById id, fieldsToReturn, dbOptions, callback
+    return
+
+  @update: (id, doc, dbOptions, callback)->
+    if Object.isString id
+      id = new ObjectId id
+    if Object.isFunction dbOptions
+      callback = dbOptions
+      dbOptions = {safe:true}
+    #id typecheck is done in .update
+    where = {_id:id}
+    @model.update where, doc, dbOptions, callback
+    return
+
+  #end potential new API functions
+
+  @encryptPassword:(password, callback)->
+    bcrypt.gen_salt 10, (error, salt)=>
+      if error?
+        callback error
+        return
+      bcrypt.encrypt password+defaults.passwordSalt, salt, (error, hash)=>
+        if error?
+          callback error
+          return
+        callback null, hash
+        return
+      return
+    return
+
+  @validatePassword: (id, password, callback)->
+    if(Object.isString(id))
+      id = new ObjectId(id)
+
+    query = @_query()
+    query.where('_id', id)
+    query.fields(['password'])
+    query.findOne (error, user)->
+      if error?
+        callback error, user
+        return
+      else if user?
+        bcrypt.compare password+defaults.passwordSalt, user.password, (error, valid)->
+          if error?
+            callback (error)
+            return
+          else
+            if valid
+              callback(null, true)
+              return
+            else
+              callback(null, false)
+              return
+      else
+        callback new error.ValidationError "Invalid id", {"id", "invalid"}
+        return
+
+  @login: (email, password, fieldsToReturn, callback)->
+    if Object.isFunction fieldsToReturn
+      callback = fieldsToReturn
+      fieldsToReturn = {}
+    if !Object.isEmpty fieldsToReturn || fieldsToReturn.password!=1
+      #if the fieldsToReturn is not 'empty' - which would return all fields
+      #add the password field, bc is it is necessary to verify the password.
+      fieldsToReturn.password = 1
+      addedPasswordToFields = true #to determine whether to remove before executing the callback
+    if !fieldsToReturn.facebook? || fieldsToReturn["facebook.id"]!=1
+      fieldsToReturn["facebook.id"] = 1
+    query = @_query()
+    query.where('email', email)#.where('password', password)
+    query.fields(fieldsToReturn)
+    query.findOne (error, consumer)->
+      if error?
+        callback error, consumer
+        return
+      else if consumer?
+        if consumer.facebook? && consumer.facebook.id? #if facebook user
+          callback new errors.ValidationError "Please authenticate via Facebook", {"login":"invalid authentication mechanism - use facebook"}
+          return
+        bcrypt.compare password+defaults.passwordSalt, consumer.password, (error, success)->
+          if error? or !success
+            callback new errors.ValidationError "Invalid Password", {"login":"invalid password"}
+          else
+            if addedPasswordToFields? and addedPasswordToFields
+              delete consumer.password
+            callback null, consumer
+          return
+      else
+        callback new errors.ValidationError "Invalid Email Address", {"login":"invalid email address"}
+        return
+
+  @getByEmail: (email, fieldsToReturn, callback)->
+    if Object.isFunction fieldsToReturn
+      callback = fieldsToReturn
+      fieldsToReturn = {} #all fields
+    query = @_query()
+    query.where('email', email)
+    query.fields(fieldsToReturn)
+    query.findOne (error, user)->
+      if error?
+        callback error #db error
+      else
+        callback null, user #if no consumer with that email will return null
+      return
+    return
+
+  @updateWithPassword: (id, password, data, callback)->
+    self = this
+    if Object.isString(id)?
+      id = new ObjectId(id)
+    @validatePassword id, password, (error, success)->
+      if error?
+        logger.error error
+        e = new errors.ValidationError({"Invalid password, unable to save.","password":"Unable to validate password"})
+        callback(e)
+        return
+      else if !success #true/false
+        e = new errors.ValidationError("Incorrect password.", {"password":"Incorrect Password"})
+        callback(e)
+        return
+
+      async.series {
+        encryptPassword: (cb)->#only if the user is trying to update their password field
+          if data.password?
+            self.encryptPassword data.password, (error, hash)->
+              if error?
+                callback new errors.ValidationError "Invalid password, unable to save.", {"password":"Unable to encrypt password"} #error encrypting password, so fail
+                cb(error)
+                return
+              else
+                data.password = hash
+                cb(null)
+                return
+          else
+            cb(null)
+            return
+
+        updateDb: (cb)->
+          #password was valid so do what we need to now
+          query = self._query()
+          query.where('_id', id)
+          query.findOne (error, client)->
+            if error?
+              callback error
+              cb(error)
+              return
+            else if client?
+              for own k,v of data
+                client[k] = v
+              client.save callback
+              cb(null)
+              return
+            else #!client?
+              e = new errors.ValidationError "Incorrect password.",{'password':"Incorrect Password"} #invalid login error
+              callback(e)
+              cb(e)
+              return
+          return
+      },
+      (error, results)->
+        return
+    return
+
+  @updateMedia: (id, media, callback)->
+    self = this
+    #id typecheck is done in @update
+    #media.mediaId typecheck is done in validateMedia
+    Medias.validateMedia media, "square", (error, validatedMedia)->
+      if error?
+        callback error
+        return
+      set =
+        media: validatedMedia
+
+      self.update id, {$set:set}, (error, count)-> #error,count
+        if error?
+          callback error
+        if count==0
+          callback new errors.ValidationError {"id":"Consumer Id not found."}
+        else
+          callback null, set.media #send back the media object
+        return
+      return
+    return
+
+  @updateMediaWithFacebook: (id, fbid, callback)->
+    self = this
+    if Object.isString id
+      id = new ObjectId id
+
+    accessToken = ""
+    async.series
+      accessToken: (callback)->
+        self.model.findById id, {"facebook.access_token":1}, (error,user)->
+          if error?
+            callback error
+            return
+          #success
+          accessToken = user.facebook.access_token #sets access token to be used in the next step
+          callback null, accessToken
+          return
+      fbPicURL: (callback)->
+        fb.get ["me/picture"], accessToken, (error,fbData)-> #right now the batch call
+          if error?
+            callback error
+            return
+          picResponse = fbData[0]
+
+          if picResponse.headers[5].name == "Location" #hard-coded to get the Location header from the response headers
+            fbPicURL = picResponse.headers[5].value;
+          else
+            #since the above index is hard-coded, just in case the header index of Location changes
+            #search for the Location header
+            for i,v in picResponse.headers
+              if v.name == "Location"
+                fbPicURL = v.value
+          #facebook pic retrieved
+          if !fbPicURL? || fb.isDefaultProfilePic(fbPicURL,fbid)
+            callback new errors.ValidationError {"pic":"Since you have no facebook picture, we left your picture as the default goodybag picture."}
+            return
+          #user has fb pic
+          callback null, fbPicURL
+          return
+    ,(error, data)->
+      if error?
+        callback error
+        return
+      #success got accessToken and got fbPicURL
+      guid = guidGen.v1()
+      media ={
+        guid:  guid
+        thumb: data.fbPicURL
+        url: data.fbPicURL
+        mediaId: null
+      }
+      set = {
+        media: media
+      }
+      self.update {_id:id}, {$set:set}, (error,success)->
+        if error?
+          callback error
+          return
+        #media update success
+        self._sendFacebookPicToTransloadit id, guid, data.fbPicURL, (error, success)->
+          if error?
+            callback error
+          else
+            callback null, media
+          return
+        return
+    return
+  @updateMediaByGuid: (id, guid, media, mediaKey, callback)->
+    if(Object.isString(id))
+      id = new ObjectId(id)
+    if Object.isFunction mediaKey
+      callback = mediaKey
+      mediaKey = "media"
+
+    query = @_query()
+    query.where("_id", id)
+    set = {}
+    if Object.isArray mediaKey
+      #updating multiple media keys
+      query.where("media.guid", guid)
+      for val, i in mediaKey
+        if(Object.isString(media[i].mediaId))
+          media[i].mediaId = new ObjectId(media[i].mediaId)
+        set["#{mediaKey[i]}.thumb"] = media[i].thumb
+        set["#{mediaKey[i]}.url"] = media[i].url
+        set["#{mediaKey[i]}.mediaId"] = media[i].mediaId
+        set["#{mediaKey[i]}.guid"] = media[i].guid #reset
+    else
+      query.where("#{mediaKey}.guid", guid)
+      if(Object.isString(media.mediaId))
+        media.mediaId = new ObjectId(media.mediaId)
+      set["#{mediaKey}.thumb"] = media.thumb
+      set["#{mediaKey}.url"] = media.url
+      set["#{mediaKey}.mediaId"] = media.mediaId
+      set["#{mediaKey}.guid"] = media.guid #reset
+    query.update {$set:set}, (error, success)->
+      if error?
+        callback error #dberror
+      else
+        callback null, success
+      return
+    return
+
+  @delMedia: (id,callback)->
+    if Object.isString id
+      id = new ObjectId id
+    @model.update {_id:id}, {$set:{"permissions.media":false},$unset:{media:1}}, callback
+    return
+
+  #@updateEmail
+  @updateEmailRequest: (id, password, newEmail, callback)->
+    #id typecheck is done in @update
+    @getByEmail newEmail, (error, user)->
+      if error?
+        callback error
+        return
+      if user?
+        if id == user._id
+          callback new errors.ValidationError({"email":"That is your current email"})
+        else
+          callback new errors.ValidationError({"email":"Another user is already using this email"}) #email exists error
+        return
+    data = {}
+    data.changeEmail =
+      newEmail: newEmail
+      key: hashlib.md5(globals.secretWord + newEmail+(new Date().toString()))+'-'+generatePassword(12, false, /\d/)
+      expirationDate: Date.create("next week")
+    @updateWithPassword id, password, data, (error, count)-> #error,count
+      if count==0
+        callback new errors.ValidationError({"password":"Incorrect password."}) #assuming id is correct..
+        return
+      callback error, count>0
+      return
+    return
+
+  @updateEmailConfirm: (key, callback)->
+    query = @_query()
+    query.where('changeEmail.key', key)
+    query.fields("changeEmail")
+    query.findOne (error, user)->
+      if error?
+        callback error #dberror
+        return
+      if !user?
+        callback new errors.ValidationError({"key":"Invalid key, expired or already used."})
+        return
+      #user found
+      if(new Date()>user.changeEmail.expirationDate)
+        callback new errors.ValidationError({"key":"Key expired."})
+        query.update {$set:{changeEmail:null}}, (error, success)->
+          return #clear expired email request.
+        return
+      query.update {$set:{email:user.changeEmail.newEmail, changeEmail:null}}, (error, count)->
+        if error?
+          callback error #dberror
+          return
+        callback null, count>0
+        return
+      return
+    return
+
+
+class Consumers extends Users
   @model = Consumer
 
   # List all consumers (limit to 25 at a time for now - not taking in a limit arg on purpose)
@@ -345,80 +878,401 @@ class Consumers extends API
     query.only("_id", "screenName")
     query.in("_id", ids)
     query.exec callback
-
-  @facebookLogin: (accessToken, callback)->
-    self = this
-    accessToken = accessToken.split("&")
-    wwwClient = wwwdude.createClient({
-        contentParser: wwwdude.parsers.json
-    })
-    wwwClient.get("https://graph.facebook.com/me?access_token="+accessToken)
-    .on('success', (facebookData, res)->
-      if(facebookData.error?)
-        callback new errors.ValidationError {"facebook":facebookData.error.type+": "+facebookData.error.message}
-      else
-        fbid = facebookData.id
-        consumer = {
-          firstName: facebookData.first_name,
-          lastName:  facebookData.last_name,
-          email:     facebookData.email,
-          facebook: {
-              me           : facebookData,
-              access_token : accessToken,
-              id           : fbid
-          }
-        }
-        #self.model.update {"facebook.id": fbid}, {$set: consumer, $inc: {loginCount:1}}, {}, (error, success)->
-        self.model.collection.findAndModify {"facebook.id": fbid}, [], {$set: consumer, $inc: {loginCount:1}}, {new:true, safe:true}, (error, consumerUpdated)->
-          if error?
-            callback error
-          else if consumerUpdated? #if success>0
-            callback null, consumerUpdated #streamlined process for returning logins..
-          else
-            query = self._query()
-            query.where("email", facebookData.email) #email account with
-            query.where("facebook").exists(false)    #no facebook
-            query.findOne (error, consumerWithEmail)->
-              if error?
-                callback error
-              else if consumerWithEmail?
-                callback new errors.ValidationError {"email":"Account with email already exists, please enter password."}
-              else
-                #self.model.update {'facebook.id': fbid}, {$set: consumer, $inc: {loginCount:1}}, {}, (error, success)->
-                consumerModel = new self.model(consumer)
-                consumerModel.save consumer, (error, success)->
-                  if error?
-                    callback error
-                  else #success is true
-                    callback null, consumer #slow process...for new fb regs..
-                  return
-          return
-      return
-    ).on('error', (error, res)->
-      callback error
-      return
-    ).on('http-error', (data, res)->
-      if(data.error?)
-        callback new errors.ValidationError {"facebook":data.error.type+": "+data.error.message}
-      else
-        callback new errors.ValidationError {"http":"HTTP Error"}
-      return
-    )
     return
 
-  @register: (user, callback)->
-    @.add(user, callback)
+  @getByBarcodeId: (barcodeId, callback)->
+    query = @queryOne()
+    query.where("barcodeId", barcodeId)
+    query.exec callback
+    return
 
-  @login: (email, password, callback)->
-    query = @_query()
-    query.where('email', email).where('password', password)
-    query.findOne (error, consumer)->
-      if(error)
-        return callback error, consumer
-      else if consumer?
-        return callback error, consumer
+  @updateBarcodeId: (entity, barcodeId, callback)->
+    if Object.isString(entity.id)
+      entity.id = new ObjectId(entity.id)
+
+    if !barcodeId?
+      callback(null, false)
+      return
+    @update entity.id, {barcodeId: barcodeId}, (error, count)->
+      if error?
+        if error.code is 11000 or error.code is 11001
+          callback new errors.ValidationError "Barcode is already in use", {"barcodeId": "barcode is already in use"}
+          return
+        callback error
+        return
+      #success
+      success = count>0
+      callback null, success
+      BusinessTransactions.claimBarcodeId entity, barcodeId, (error, bt)->
+        return
+    return
+
+  @updateTapinsToFacebook: (uid, value, callback)->
+    if !value?
+      callback(null, false)
+      return
+    @update uid, {tapinsToFacebook: value}, (error)->
+      if error?
+        callback error
+        return
+      callback null
+    return
+
+  @register: (data, fieldsToReturn, callback)->
+    self = this
+    data.screenName = new ObjectId()
+    @encryptPassword data.password, (error, hash)->
+      if error?
+        callback new errors.ValidationError "Invalid Password", {"password":"Invalid Password"} #error encrypting password, so fail
+        return
       else
-        return callback new errors.ValidationError {"login":"invalid username/password"}
+        data.password = hash
+        data.referralCodes = {}
+        Sequences.next 'urlShortner', 2, (error, sequence)->
+          if error?
+            callback error #dberror
+            return
+          tapInCode = urlShortner.encode(sequence-1)
+          userCode = urlShortner.encode(sequence)
+          data.referralCodes.tapIn = tapInCode
+          data.referralCodes.user = userCode
+
+          self.add data, (error, consumer)->
+            if error?
+              if error.code is 11000
+                callback new errors.ValidationError "Email Already Exists", {"email":"Email Already Exists"} #email exists error
+              else
+                callback error
+            else
+              entity = {
+                type: choices.entities.CONSUMER
+                id: consumer._doc._id
+              }
+
+              Referrals.addUserLink(entity, "/", userCode)
+              Referrals.addTapInLink(entity, "/", tapInCode)
+
+              consumer = self._copyFields(consumer, fieldsToReturn)
+              callback error, consumer
+            return
+        return
+      return
+    return
+
+  @facebookLogin: (accessToken, fieldsToReturn, referralCode, callback)->
+    if Object.isFunction fieldsToReturn
+      callback = fieldsToReturn
+      fieldsToReturn = {}
+    self = this
+    accessToken = accessToken.split("&")[0]
+    #verify accessToken and get User Profile
+    urls = ["app","me","me/picture"]
+    fb.get urls, accessToken, (error,data)->
+      if error?
+        callback error
+        return
+      appResponse = data[0] #same order as url array..
+      meResponse = data[1]
+      picResponse = data[2]
+      if appResponse.code!=200
+        callback new errors.HttpError 'Error connecting with Facebook, try again later.', 'facebookBatch:'+urls[0], appResponse.code
+        return
+      if JSON.parse(appResponse.body).id != configs.facebook.appId
+        callback new errors.ValidationError {'accessToken':"Incorrect access token. Not for Goodybag's app."}
+      if meResponse.code!=200
+        callback new errors.HttpError 'Error connecting with Facebook, try again later.', 'facebookBatch:'+urls[1], appResponse.code
+        return
+      if picResponse.code!=302&&picResponse.code!=200&&picResponse.code!=301 #this should be a 302..
+        callback new errors.HttpError 'Error connecting with Facebook, try again later.', 'facebookBatch:'+urls[1], appResponse.code
+        return
+
+      meResponse.body = JSON.parse(meResponse.body)
+      fbid = meResponse.body.id
+      if picResponse.headers[5].name == "Location" #hard-coded to get the Location header from the response headers
+        fbPicURL = picResponse.headers[5].value;
+      else
+        #since the above index is hard-coded, just in case the header index of Location changes
+        #search for the Location header
+        for i,v in picResponse.headers
+          if v.name == "Location"
+            fbPicURL = v.value
+
+      facebookData =
+        me  : meResponse.body
+        pic : if !fbPicURL? || fb.isDefaultProfilePic(fbPicURL, fbid) then null else fbPicURL #check if pic is default fb pic, if it is ignore it. picResponse.body should just be a string of the url..
+      createOrUpdateUser(facebookData)
+      return
+
+    #create user if new, or update user where fbid
+    createOrUpdateUser = (facebookData)->
+      fbid = facebookData.me.id
+      consumer = {
+        firstName: facebookData.me.first_name,
+        lastName:  facebookData.me.last_name,
+        #email:     facebookData.me.email #this is set only for new users, bc users can edit their email
+      }
+      consumer['facebook.access_token'] = accessToken
+      consumer['facebook.id'] = facebookData.me.id
+      consumer['facebook.me'] = facebookData.me
+
+      consumer['profile.birthday'] = if facebookData.me.birthday? then utils.setDateToUTC(facebookData.me.birthday)
+      consumer['profile.gender']   = facebookData.me.gender
+      consumer['profile.location'] = if facebookData.me.location? then facebookData.me.location.name
+      consumer['profile.hometown'] = if facebookData.me.hometown? then facebookData.me.hometown.name
+      #consumer['profile.work']      = facebookData.me.work
+      #consumer['profile.education'] = facebookData.me.education
+
+      #find user with fbid or same email
+      self.model.findOne {$or:[{"facebook.id":facebookData.me.id}, {email:facebookData.me.email}]}, {_id:1,"permissions.media":1,"facebook.fbid":1}, null, (error,consumerAlreadyRegistered)->
+        if error?
+          callback error
+          return
+        else
+          callTransloadit = false
+          if consumerAlreadyRegistered?
+            #registered user found
+            if consumerAlreadyRegistered.permissions? && consumerAlreadyRegistered.permissions.media && facebookData.pic?
+              #user is showing (permissions) media, and fb pic is set (not default fb pic)
+              # update pic to new facbook pic
+              mediaGuid = guidGen.v1()
+              consumer.media = {
+                guid    : mediaGuid
+                url     : facebookData.pic
+                thumb   : facebookData.pic
+                mediaId : null
+              }
+              callTransloadit = true
+            if consumerAlreadyRegistered.facebook?
+              #if user found was registered via facebook
+              # save updated facebook data to user document
+              fieldsToReturnWithMediaPermission = fieldsToReturn
+              fieldsToReturnWithMediaPermission["permissions.media"] = 1
+              self.model.collection.findAndModify {'facebook.id': fbid}, [], {$set: consumer, $inc: {loginCount:1}}, {fields:fieldsToReturnWithMediaPermission,new:true,safe:true}, (error, returningFacebookUser)->
+                if returningFacebookUser?
+                  if !fieldsToReturn["permissions.media"]?
+                    delete consumers.permissions.media
+                    if Object.isEmpty consumers.permissions
+                      delete consumers.permissions
+                callback error, returningFacebookUser
+                #update profile pic with latest pic
+                if callTransloadit && !error?
+                  self._sendFacebookPicToTransloadit returningFacebookUser._id, mediaGuid, facebookData.pic
+                return
+            else
+              #user found was registered via email
+              # update user object with facebook fields
+              self.model.collection.findAndModify {'email': facebookData.me.email}, [], {$set: consumer, $inc: {loginCount:1}}, {fields:fieldsToReturn,new:true,safe:true}, (error, emailToFacebookUser)->
+                callback error, emailToFacebookUser
+                if callTransloadit && !error?
+                  self._sendFacebookPicToTransloadit emailToFacebookUser._id, mediaGuid, facebookData.pic
+                return
+            return
+          else
+            #previously registered user not found
+            #brand new user!
+            consumer.password = hashlib.md5(globals.secretWord + facebookData.me.email+(new Date().toString()))+'-'+generatePassword(12, false, /\d/)
+            consumer.screenName = new ObjectId()
+            #generate a random password...
+            self.encryptPassword consumer.password, (error, hash)->
+              if error?
+                callback new errors.ValidationError "Invalid Password", {"password":"Invalid Password"} #error encrypting password, so fail
+                return
+              #successful password encryption
+              consumer.password = hash
+              consumer.email = facebookData.me.email
+              consumer.facebook = {}
+              consumer.facebook.access_token = accessToken
+              consumer.facebook.id = facebookData.me.id
+              if facebookData.pic?
+                mediaGuid = guidGen.v1()
+                consumer.media = {
+                  guid    : mediaGuid
+                  url     : facebookData.pic
+                  thumb   : facebookData.pic
+                  mediaId : null
+                }
+                callTransloadit = true
+
+              consumer.referralCodes = {}
+              Sequences.next 'urlShortner', 2, (error, sequence)->
+                if error?
+                  callback error #dberror
+                  return
+                tapInCode = urlShortner.encode(sequence-1)
+                userCode = urlShortner.encode(sequence)
+                consumer.referralCodes.tapIn = tapInCode
+                consumer.referralCodes.user = userCode
+                #save new user
+                newUserModel = new self.model(consumer)
+                newUserModel.save (error, newUser)->
+                  if error?
+                    callback error #dberror
+                  else
+                    newUserFields = self._copyFields(newUser._doc, fieldsToReturn)
+                    callback null, newUserFields
+
+                    #create referral codes in the referral's collection
+                    entity = {
+                      type: choices.entities.CONSUMER
+                      id: newUserModel._doc._id
+                    }
+
+                    Referrals.addUserLink(entity, "/", userCode)
+                    Referrals.addTapInLink(entity, "/", tapInCode)
+
+                    if !utils.isBlank(referralCode)
+                      Referrals.signUp(referralCode, entity)
+
+                    if callTransloadit
+                      self._sendFacebookPicToTransloadit newUser._id, mediaGuid, facebookData.pic
+                  return
+                return
+              return
+          return
+
+    return #end @facebookLogin
+
+  @getProfile: (id, callback)->
+    fieldsToReturn = {
+      _id           : 1
+      firstName     : 1
+      lastName      : 1
+      email         : 1
+      profile       : 1
+      permissions   : 1
+    }
+    fieldsToReturn["facebook.id"] = 1 #if user has this then the user is a fbUser
+    facebookMeFields = {
+      work      : 1
+      education : 1
+    }
+    Object.merge fieldsToReturn, @_flattenDoc(facebookMeFields,"facebook.me")
+    @one id, fieldsToReturn, (error, consumer)->
+      if error?
+        callback error
+        return
+      callback null, consumer
+      return
+    return
+
+  @getPublicProfile: (id, callback)->
+    self = this
+    fieldsToReturn = {
+      _id           : 1
+      firstName     : 1
+      lastName      : 1
+      email         : 1
+      profile       : 1
+      permissions   : 1
+    }
+    fieldsToReturn["facebook.id"] = 1 #if user has this then the user is a fbUser
+    facebookMeFields = {
+      work      : 1
+      education : 1
+    }
+    Object.merge fieldsToReturn, @_flattenDoc(facebookMeFields,"facebook.me")
+    @one id, fieldsToReturn, (error, consumer)->
+      if error?
+        callback error
+        return
+      #user permissions to determine which fields to delete
+      if !consumer.permissions.email
+        delete consumer.email
+      consumer.profile  = self._copyFields(consumer.profile, consumer.permissions)
+      consumer.facebook = self._copyFields(consumer.facebook, consumer.permissions)
+      for field,idsToRemove of consumer.permissions.hiddenFacebookItems #object of remove id arrays
+        #if there are ids to remove, idsToRemove - array of ids to remove from facebook field
+        if(idsToRemove.length > 0)
+          facebookFieldItems = consumer.facebook[field] #array of all items for a facebook field
+          #check field items ids to see if they match any that need to be removed
+          for i,item in facebookFieldItems
+            if(item.id in idsToRemove)        #if id found in the array of ids to remove
+              facebookFieldItems.splice(i,1); #remove item from entry array
+              break;
+
+      callback null, consumer
+      return
+    return
+
+  @donate: (id, donationObj, callback)->
+    self = this
+    if Object.isString id
+      id = new ObjectId id
+    entityType = choices.entities.CONSUMER
+
+    @one id, {funds:1}, (error, entity)->
+      if error?
+        callback error
+        return
+      if !entity?
+        callback new errors.ValidationError "Entity id not found.", {"entity":"Entity not found."}
+        return
+      #found entity
+      totalAmount = 0;
+      charityIds = []
+      for charityId, amount of donationObj
+        console.log charityId
+        console.log amount
+        if Object.isString charityId
+          charityId = new ObjectId charityId
+        amount = parseFloat(amount)
+        if !isNaN(amount) && amount>0
+          charityIds.push charityId
+          totalAmount += amount
+          if entity.funds.remaining < (totalAmount)
+            callback new errors.ValidationError "Insufficient funds.", {"entity":"Insufficient funds."}
+            return
+        else
+          delete donationObj[charityId]
+      numDonations = charityIds.length
+      if numDonations == 0
+        callback new errors.ValidationError "No valid donations entered.", {"donation amounts":"Invalid donation amounts."}
+        return
+      #verify charities exist..and that the bizs are charities
+      transactions = []
+      transactionIds = []
+      Businesses.model.find {_id:{$in:charityIds},isCharity:true}, {_id:1}, {safe:true}, (error, charitiesVerified)->
+        if error?
+          callback error #dberror
+          return
+        if charitiesVerified.length < numDonations
+          callback new errors.ValidationError "Incorrect charity id found.", {'charityId', 'Invalid charityId.'}
+          return
+        #all charities found and verified
+        #create transactions
+        for charityId, amount of donationObj
+          charityEntity = {
+            type: choices.entities.BUSINESS,
+            id  : charityId
+          }
+          transactionData = {
+            amount: parseFloat(amount)
+          }
+          transaction = self.createTransaction(choices.transactions.states.PENDING, choices.transactions.actions.CONSUMER_DONATED, transactionData, choices.transactions.directions.OUTBOUND, charityEntity)
+          transactionIds.push transaction.id
+          transactions.push transaction
+
+        #update consumer, and start transactions
+        pushAll = {}
+        inc  = {}
+        pushAll["transactions.ids"] = transactionIds
+        pushAll["transactions.log"] = transactions
+        inc["funds.remaining"]   = -1*totalAmount
+        update = {
+          $pushAll : pushAll,
+          $inc  : inc
+        }
+        self.model.collection.findAndModify {_id:id}, [], update, {new:true, safe:true, fields:{_id:1,funds:1}}, (error, consumer)->
+          if error?
+            callback error
+            return
+          callback null, consumer
+          for transaction in transactions
+            tp.process(consumer, transaction)
+          return
+        return
+      return
+    return
 
   @updateHonorScore: (id, eventId, amount, callback)->
     if Object.isString(id)
@@ -432,7 +1286,6 @@ class Consumers extends API
   @deductFunds: (id, transactionId, amount, callback)->
     if Object.isString(id)
       id = new ObjectId(id)
-
     if Object.isString(transactionId)
       transactionId = new ObjectId(transactionId)
 
@@ -447,53 +1300,398 @@ class Consumers extends API
 
     @model.collection.findAndModify {_id: id, 'transactions.ids': {$ne: transactionId}}, [], {$addToSet: {"transactions.ids": transactionId}, $inc: {'funds.remaining': amount, 'funds.allocated': amount }}, {new: true, safe: true}, callback
 
-  @updatePassword: (id, password, callback)->
-    if Object.isString(id)
+  @updatePermissions: (id, data, callback)->
+    if Object.isString id
       id = new ObjectId(id)
-
-    query = {_id: id}
-    update = {$set: {password: password}}
-    options = {remove: false, new: true, upsert: false}
-    @model.collection.findAndModify query, [], update, options, (error, user)->
-      if error?
-        callback error
-        return
-      if !user?
-        callback new errors.ValidationError {"_id": "_id does not exist"}
-        return
-      if user?
-        callback error, user
+    if !data? && Object.keys(data).length > 1
+      callback new errors.ValidationError {"permissions":"You can only update one permission at a time"}
       return
 
+    where = {
+      _id: id
+    }
+    set = {}
+    push = {}
+    pull = {}
+    #pushAll = {}
+    consumerModel = new @model
+    permissionsKeys = Object.keys(consumerModel._doc.permissions)
+    permissionsKeys.remove("hiddenFacebookItems")
+    for k,v of data
+      permission = "permissions."+k
+      if !(k in permissionsKeys)
+        callback new errors.ValidationError {"permissionKey":"Unknown value."}
+        return
+    set[permission] = v=="true" or v==true
 
+    doc = {}
+    if !Object.isEmpty(set)
+      doc["$set"] = set
+    else
+      callback new errors.ValidationError {"data":"No new updates."}
+      return
+
+    @model.update where, doc, {safe:true}, callback
+    return
+
+  @updateHiddenFacebookItems: (id,data,callback)->
+    if Object.isString id
+      id = new ObjectId(id)
+    if !data?
+      callback new errors.ValidationError {"data":"No update data."}
+      return
+    if Object.keys(data).length > 1
+      callback new errors.ValidationError {"entry":"You can only update one entry at a time"}
+      return
+
+    where = {
+      _id: id
+    }
+    push = {}
+    pull = {}
+
+    facebookItemKeys = ["work","education"]
+    for entry,fbid of data
+      if !(entry in facebookItemKeys)
+        callback new errors.ValidationError {"facebookItemKey":"Unknown value ("+entry+")."}
+        return
+      if Object.isString fbid
+        if fbid.substr(0,1) == "-"
+          fbid = fbid.slice(1)
+          where["permissions.hiddenFacebookItems."+entry] = fbid
+          pull["permissions.hiddenFacebookItems."+entry] = fbid #id to unhide
+        else
+          if entry == "work"
+            where["facebook.me.work.employer.id"] = fbid
+          else if entry == "education"
+            where["facebook.me.education.school.id"] = fbid
+          push["permissions.hiddenFacebookItems."+entry] = fbid #id to hide
+      else
+        callback new errors.ValidationError {"fbid":"Invalid value (must be a string)."}
+        return
+
+    doc = {}
+    if !Object.isEmpty(push)
+      doc["$push"] = push
+    else if !Object.isEmpty(pull)
+      doc["$pull"] = pull
+    else
+      callback new errors.ValidationError {"data":"No new updates."}
+      return
+    @model.update where, doc, {safe:true}, callback
+    return
+
+  #Consumer profile functions
+  @addRemoveWork: (op,id,data,callback)->
+    if Object.isString id
+      id = new ObjectId id
+    if op == "add"
+      where = {
+        _id : id
+        "profile.work.name":{$ne:data.name}
+      }
+      doc = {
+        $push: {
+          "profile.work": data
+        }
+      }
+    else if op == "remove"
+      where = {
+        _id : id
+      }
+      doc = {
+        $pull: {
+          "profile.work": data
+        }
+      }
+    else
+      callback new errors.ValidationError {"op":"Invalid value."}
+      return
+    this.model.update where, doc, (error, success)->
+      if success==0
+        callback new errors.ValidationError "Whoops, looks like you already added that company.", {"name":"Company with that name already added."}
+      else
+        callback error, success
+      return
+    return
+
+  @addRemoveEducation: (op,id,data,callback)->
+    if Object.isString id
+      id = new ObjectId id
+    if op == "add"
+      where = {
+        _id : id
+        "profile.education.name":{$ne:data.name}
+      }
+      doc = {
+        $push: {
+          "profile.education": data
+        }
+      }
+    else if op == "remove"
+      where = {
+        _id : id
+      }
+      doc = {
+        $pull: {
+          "profile.education": data
+        }
+      }
+    else
+      callback new errors.ValidationError {"op":"Invalid value."}
+      return
+    @model.update where, doc, (error, success)->
+      if success==0
+        callback new errors.ValidationError "Whoops, looks like you already added that school.", {"name":"School with that name already added."}
+      else
+        callback error, success
+      return
+    return
+
+  @addRemoveInterest: (op,id,data,callback)->
+    if Object.isString id
+      id = new ObjectId id
+    if op == "add"
+      where = {
+        _id : id
+        "profile.interests.name":{$ne:data.name}
+      }
+      doc = {
+        $push: {
+          "profile.interests": data
+        }
+      }
+    else if op == "remove"
+      where = {
+        _id : id
+      }
+      doc = {
+        $pull: {
+          "profile.interests": data
+        }
+      }
+    else
+      callback new errors.ValidationError {"op":"Invalid value."}
+      return
+    @model.update where, doc, (error, success)->
+      if success==0
+        callback new errors.ValidationError "Whoops, looks like you already added that interest.", {"name":"Interest already added."}
+      else
+        callback error, success
+      return
+    return
+
+  @updateProfile: (id,data,callback)->
+    if Object.isString id
+      id = new ObjectId id
+    where = {
+      _id : id
+    }
+
+    consumerModel = new @model
+    nonFacebookProfileKeys = Object.keys(consumerModel._doc.permissions)
+    nonFacebookProfileKeys.remove("aboutme") #allowed to be edit for both fb and nonfb users
+    for key of data
+      if key in nonFacebookProfileKeys
+        where["facebook.id"] = {$exists:false}
+
+    data = @_flattenDoc data, "profile"
+    @model.update where, {$set:data}, (error, count)->
+      if count==0
+        callback new errors.ValidationError {"user":"Facebook User: to update your information edit your profile on facebook."}
+        return
+      callback error, count
+      return
+    return
+
+  @addRemoveAffiliation: (op, id, affiliationId, callback)->
+    if Object.isString id
+      id = new ObjectId id
+    if Object.isString affiliationId
+      affiliationId = new ObjectId affiliationId
+
+    if op == "add"
+      where = {
+        _id : id
+        "profile.affiliations": {$ne:affiliationId}
+      }
+      doc = {
+        $set: { #this is temporary ... this will eventually be $push..
+          "profile.affiliations": [affiliationId]
+        }
+        # $push: {
+        #   "profile.affiliations": affiliationId
+        # }
+      }
+    else if op == "remove"
+      where = {
+        _id : id
+      }
+      doc = {
+        $set: {
+          "profile.affiliations": []
+        }
+        # $pull: {
+        #   "profile.affiliations": affiliationId
+        # }
+      }
+    else
+      callback new errors.ValidationError {"op":"Invalid value."}
+      return
+    @model.update where, doc, (error, success)->
+      callback error, success
+      # if success==0
+      #   callback new errors.ValidationError "Whoops, looks like you already added that affiliation.", {"name":"Affiliation already added."}
+      # else
+      #   callback error, success
+      # return
+    return
+
+  @addFunds: (id, amount, callback)->
+    amount = parseFloat(amount)
+    if amount <0
+      callback({message: "amount cannot be negative"})
+      return
+
+    $update = {$inc: {"funds.remaining": amount, "funds.allocated": amount} }
+
+    @model.collection.update {_id: id}, $update, {safe: true}, callback
+
+  @setTransactonPending: @__setTransactionPending
+  @setTransactionProcessing: @__setTransactionProcessing
+  @setTransactionProcessed: @__setTransactionProcessed
+  @setTransactionError: @__setTransactionError
+
+
+## Clients ##
 class Clients extends API
   @model = Client
 
-  @register: (data, callback)->
-    #if !utils.mustContain(data, ['email','firstname', 'lastname', 'password'])
-    #  return callback(new Error("at least one required field is missing."))
+  @_updatePasswordHelper = (id, password, callback)->
+    #this function is a helper to update a users password
+    #ussually a user has to enter their previous password or
+    #have a secure reset-password link to update their password.
+    #do not call this function directly.. w/out security.
     self = this
+    @encryptPassword password, (error, hash)->
+      if error?
+        callback new errors.ValidationError "Invalid Password", {"password":"Invalid Password"} #error encrypting password, so fail
+        return
+      #password encrypted successfully
+      password = hash
+      self.update id, {password: hash}, callback
+      return
+
+  @register: (data, fieldsToReturn, callback)->
+    self = this
+    data.screenName = new ObjectId()
+    @encryptPassword data.password, (error, hash)->
+      if error?
+        callback new errors.ValidationError "Invalid Password", {"password":"Invalid Password"} #error encrypting password, so fail
+        return
+      else
+        data.password = hash
+        data.referralCodes = {}
+        Sequences.next 'urlShortner', 2, (error, sequence)->
+          if error?
+            callback error #dberror
+            return
+          tapInCode = urlShortner.encode(sequence-1)
+          userCode = urlShortner.encode(sequence)
+          data.referralCodes.tapIn = tapInCode
+          data.referralCodes.user = userCode
+
+          self.add data, (error, client)->
+            if error?
+              if error.code is 11000
+                callback new errors.ValidationError "Email Already Exists", {"email":"Email Already Exists"} #email exists error
+              else
+                callback error
+            else
+              client = self._copyFields(client, fieldsToReturn)
+              callback error, client
+            return
+        return
+      return
+    return
+
+  @validatePassword: (id, password, callback)->
+    if(Object.isString(id))
+      id = new ObjectId(id)
+
     query = @_query()
-    query.where('email', data.email)
+    query.where('_id', id)
+    query.fields(['password'])
     query.findOne (error, client)->
       if error?
-        callback error #db error
-      else if !client?
-        self.add(data, callback) #registration success
+        callback error, client
+        return
       else if client?
-        callback new errors.ValidationError {"email":"Email Already Exists"} #email exists error
-      return
+        bcrypt.compare password+defaults.passwordSalt, client.password, (error, valid)->
+          if error?
+            callback (error)
+            return
+          else
+            if valid
+              callback(null, true)
+              return
+            else
+              callback(null, false)
+              return
+      else
+        callback new error.ValidationError "Invalid id", {"id", "invalid"}
+        return
+
+  @encryptPassword:(password, callback)->
+    bcrypt.gen_salt 10, (error, salt)=>
+      if error?
+        callback error
+        return
+      bcrypt.encrypt password+defaults.passwordSalt, salt, (error, hash)=>
+        if error?
+          callback error
+          return
+        callback null, hash
+        return
+
+  @register: (data, callback)->
+    self = this
+    @encryptPassword data.password, (error, hash)->
+      if error?
+        callback new errors.ValidationError "Invalid Password", {"password":"Invalid Password"} #error encrypting password, so fail
+        return
+      else
+        data.password = hash
+        self.add data, (error, client)->
+          if error?
+            if error.code is 11000
+              callback new errors.ValidationError "Email Already Exists", {"email":"Email Already Exists"} #email exists error
+              return
+            else
+              callback error
+              return
+          else
+            callback error, client
+            return
 
   @login: (email, password, callback)->
     query = @_query()
-    query.where('email', email).where('password', password)
+    query.where('email', email)#.where('password', password)
     query.findOne (error, client)->
-      if(error)
-        return callback error, client
+      if error?
+        callback error, client
+        return
       else if client?
-        return callback error, client
+        bcrypt.compare password+defaults.passwordSalt, client.password, (error, success)->
+          if error? or !success
+            callback new errors.ValidationError "Incorrect Password.", {"login":"passwordincorrect"} #do not update this error without updating the frontend javascript
+            return
+          else
+            callback error, client
+            return
       else
-        return callback new Error("invalid username/password")
+        callback new errors.ValidationError "Email address not found.", {"login":"emailnotfound"} #do not update this erro without updating the frontend javascript
+        return
 
   @getBusinessIds: (id, callback)->
     query = Businesses.model.find()
@@ -509,14 +1707,18 @@ class Clients extends API
           ids.push business.id
         callback null, ids
 
-  @getByEmail: (email, callback)->
+  @getByEmail: (email, fieldsToReturn, callback)->
+    if Object.isFunction fieldsToReturn
+      callback = fieldsToReturn
+      fieldsToReturn = {} #all fields
     query = @_query()
     query.where('email', email)
-    query.findOne (error, client)->
+    query.fields(fieldsToReturn)
+    query.findOne (error, user)->
       if error?
         callback error #db error
       else
-        callback null, client #if no client with that email will return null
+        callback null, user #if no consumer with that email will return null
       return
     return
 
@@ -544,90 +1746,154 @@ class Clients extends API
       return
     return
 
-  @updateEmail: (clientId, password, newEmail, callback)->
-    if(Object.isString(clientId))
-      clientId = new ObjectId( clientId)
-    Clients.getByEmail newEmail, (error, client)->
+  @updateEmail: (id, password, newEmail, callback)->
+    if(Object.isString(id))
+      id = new ObjectId(id)
+
+    async.parallel {
+      validatePassword: (cb)->
+        Clients.validatePassword id, password, (error, success)->
+          if error?
+            e = new errors.ValidationError("Unable to validate password",{"password":"Unable to validate password"})
+            callback(e)
+            cb(e)
+            return
+          else
+            if !success #true/false
+              e = new errors.ValidationError("Incorrect Password.",{"password":"Incorrect Password"})
+              callback(e)
+              cb(e)
+              return
+            else
+              cb(null)
+              return
+
+      checkExists: (cb)->
+        Clients.getByEmail newEmail, (error, client)->
+          if error? #db error
+            callback(error)
+            cb(error)
+            return
+          else if client? #email address already in use by a user
+            if client._id == id
+              e = new errors.ValidationError("That is your current email",{"email": "That is your current email"})
+              callback(e)
+              cb(e)
+              return
+            else
+              e = new errors.ValidationError("Another user is already using this email",{"email": "Another user is already using this email"}) #email exists error
+              callback(e)
+              cb(e)
+              return
+          else #doesn't exist, so proceed
+            cb(null)
+            return
+
+    },
+    (error, results)->
       if error?
-        callback error
         return
-      if client?
-        if client._id == clientId
-          callback new errors.ValidationError({"email":"That is your current email"})
-        else
-          callback new errors.ValidationError({"email":"Another user is already using this email"}) #email exists error
-        return
+
+      #the new email address requires verification
       query = Clients._query()
-      query.where("_id",clientId)
-      query.where("password",password)
-      changeEmailKey = hashlib.md5(globals.secretWord + newEmail+(new Date().toString()))+'-'+generatePassword(12, false, /\d/)
+      query.where("_id", id)
+      key = hashlib.md5(globals.secretWord + newEmail+(new Date().toString()))+'-'+generatePassword(12, false, /\d/)
       set = {
         changeEmail: {
           newEmail: newEmail
-          key: changeEmailKey
+          key: key
           expirationDate: Date.create("next week")
         }
       }
       query.update {$set:set}, (error, success)->
         if error?
-          callback error
-          return
-        if !success
-          callback new errors.ValidationError({"password":"Incorrect Password."})
-          return
-        url = "https://goodybag.com/#!/change-email/" + changeEmailKey
-        message = '<p>We got your request! Now let\'s get that email updated. Click or go here:</p>'
-        message += "<p><a href=\"#{ url }\">#{ url }</a></p>"
-        utils.sendMail {
-            sender: 'info@goodybag.com',
-            to: newEmail,
-            reply_to: 'info@goodybag.com',
-            subject: "Change Email Request",
-            html: message,
-          }, (error, emailSent)->
-            if error?
-              callback new errors.EmailError("Confirmation email failed to send.","ChangeEmail")
-              return
-            callback null, success
+          if error.code is 11000
+            callback new errors.ValidationError "Email Already Exists", {"email": "Email Already Exists"} #email exists error
             return
-      return
-    return
+          else
+            callback error
+            return
+        else if !success
+          callback new errors.ValidationError "User Not Found", {"user": "User Not Found"} #email exists error
+          return
+        else
+          callback(null, key)
+          return
 
-  @updateEmailComplete: (key, callback)->
+  @updateEmailComplete: (key, email, callback)->
     query = @_query()
     query.where('changeEmail.key', key)
-    query.fields("changeEmail")
-    query.findOne (error, client)->
+    query.where('changeEmail.newEmail', email)
+    query.update {$set:{email:email}, $unset: {changeEmail: 1}}, (error, success)->
       if error?
-        callback error #dberror
-        return
-      if !client? || !client.changeEmail?
-        callback new errors.ValidationError({"key":"Invalid key or already used."})
-        return
-      #client found
-      if(new Date()>client.changeEmail.expirationDate)
-        callback new errors.ValidationError({"key":"Key expired."})
-        return
-      query.update {$set:{email:client.changeEmail.newEmail, changeEmail:null}}, (error, success)->
-        if error?
-          callback error #dberror
+        if error.code is 11000
+          callback new errors.ValidationError "Email Already Exists", {"email": "Email Already Exists"} #email exists error
         else
-          callback null, success
-
-  @updateWithPassword: (id, password, options, callback)->
-    query = @_query()
-    query.where('_id', id).where('password', password)
-    query.where('password', password)
-    query.findOne (error, client)->
-      if error?
-        callback error
-      else if client?
-        for own k,v of options
-          client[k] = v
-        client.save callback
-      else
-        callback new errors.ValidationError {'password':"Wrong Password"} #invalid login error
+          callback error
+        return
+      if success==0
+        callback "Invalid key, expired or already used.", new errors.ValidationError({"key":"Invalid key, expired or already used."})
+        return
+      #success
+      callback null, success
       return
+
+  @updateWithPassword: (id, password, data, callback)->
+    if Object.isString(id)?
+      id = new ObjectId(id)
+
+    @validatePassword id, password, (error, success)->
+      if error?
+        logger.error error
+        e = new errors.ValidationError({"password":"Unable to validate password"})
+        callback(e)
+        return
+      else if !success?
+        e = new errors.ValidationError({"password":"Invalid Password"})
+        callback(e)
+        return
+
+      async.series {
+        encryptPassword: (cb)->#only if the user is trying to update their password field
+          if data.password?
+            Clients.encryptPassword data.password, (error, hash)->
+              if error?
+                callback new errors.ValidationError "Invalid Password", {"password":"Invalid Password"} #error encrypting password, so fail
+                cb(error)
+                return
+              else
+                data.password = hash
+                cb(null)
+                return
+          else
+            cb(null)
+            return
+
+        updateDb: (cb)->
+          #password was valid so do what we need to now
+          query = Clients._query()
+          query.where('_id', id)
+          query.findOne (error, client)->
+            if error?
+              callback error
+              cb(error)
+              return
+            else if client?
+              for own k,v of data
+                client[k] = v
+              client.save callback
+              cb(null)
+              return
+            else
+              e = new errors.ValidationError {'password':"Wrong Password"} #invalid login error
+              callback(e)
+              cb(e)
+              return
+          return
+      },
+      (error, results)->
+        return
+    return
 
   @updatePassword: (id, password, callback)->
     if Object.isString(id)
@@ -647,7 +1913,13 @@ class Clients extends API
         callback error, user
       return
 
+  @setTransactonPending: @__setTransactionPending
+  @setTransactionProcessing: @__setTransactionProcessing
+  @setTransactionProcessed: @__setTransactionProcessed
+  @setTransactionError: @__setTransactionError
 
+
+## Businesses ##
 class Businesses extends API
   @model = Business
 
@@ -656,6 +1928,8 @@ class Businesses extends API
     query = @_optionParser(options, q)
     query.in('clients', [options.clientId]) if options.clientId?
     query.where 'locations.tapins', true if options.tapins?
+    query.where 'isCharity', true if options.charity?
+    query.where 'type', options.type if options.type?
     return query
 
   @add = (clientId, data, callback)->
@@ -843,6 +2117,38 @@ class Businesses extends API
     query.where('locations.tapins', true)
     query.exec callback
 
+  @addFunds: (id, amount, callback)->
+    amount = parseFloat(amount)
+    if amount <0
+      callback({message: "amount cannot be negative"})
+      return
+
+    $update = {$inc: {"funds.remaining": amount, "funds.allocated": amount} }
+
+    @model.collection.update {_id: id}, $update, {safe: true}, callback
+
+class
+
+class Organizations extends API
+  @model = Organization
+
+  @search = (name, type, callback)->
+    re = new RegExp("^"+name+".*", 'i')
+    query = @_query()
+    if name? and !name.isBlank()
+      query.where('name', re)
+    if type in choices.organizations.types._enum
+      query.where('type', type)
+    query.limit(100)
+    query.exec callback
+
+  @setTransactonPending: @__setTransactionPending
+  @setTransactionProcessing: @__setTransactionProcessing
+  @setTransactionProcessed: @__setTransactionProcessed
+  @setTransactionError: @__setTransactionError
+
+
+## Campaigns ##
 class Campaigns extends API
   @updateMedia: (entityType, entityId, guid, data, mediaKey, callback)->
     if(Object.isString(entityId))
@@ -872,6 +2178,8 @@ class Campaigns extends API
       return
     return
 
+
+## Polls ##
 class Polls extends Campaigns
   @model = Poll
 
@@ -879,16 +2187,18 @@ class Polls extends Campaigns
   #@updateMedia
 
   #options: name, businessid, type, businessname,showstats, answered, start, end, outoffunds
-  @optionParser = (options, q) ->
+  @optionParser = (options, q)->
     query = @_optionParser options, q
     query.where('entity.type', options.entityType) if options.entityType?
     query.where('entity.id', options.entityId) if options.entityId?
+    query.where('dates.start').gte(options.start) if options.start?
     # query.where('dates.end').gte(options.start) if options.end?
     query.where('transaction.state', state) if options.state?
     return query
 
   # @add = (data, amount, event, callback)-> #come back to this one, first transactions need to work
   @add: (data, amount, callback)->
+    self = this
     if Object.isString(data.entity.id)
       data.entity.id = new ObjectId data.entity.id
     if data.mediaQuestion and Object.isString(data.mediaQuestion.mediaId) and data.mediaQuestion.mediaId.length>0
@@ -896,129 +2206,169 @@ class Polls extends Campaigns
     if data.mediaResults? and Object.isString(data.mediaResults.mediaId) and data.mediaResults.mediaId.length>0
       data.mediaResults.mediaId = new ObjectId data.mediaResults.mediaId
 
-    instance = new @model(data)
+    #find Entity, and check if they have enough funds
+    switch data.entity.type
+      when choices.entities.CLIENT
+        entityClass = Clients
+      when choices.entities.CONSUMER
+        entityClass = Consumers
 
-    transactionData = {
-      amount: amount
-    }
-
-    transaction = @createTransaction(choices.transactions.states.PENDING, choices.transactions.actions.POLL_CREATED, transactionData, choices.transactions.directions.INBOUND, instance.entity)
-
-    instance.transactions.state = choices.transactions.states.PENDING #soley for reading purposes
-    instance.transactions.locked = true
-    instance.transactions.ids = [transaction.id]
-    instance.transactions.log = [transaction]
-
-    #instance.events = @_createEventsObj event
-    instance.save (error, poll)->
-      logger.debug error
-      logger.debug poll
-      callback error, poll
+    entityClass.one data.entity.id, {funds:1}, (error, entity)->
       if error?
-        logger.debug "error"
-      else
-        tp.process(poll, transaction)
+        callback error
+        return
+      if !entity?
+        callback new errors.ValidationError "Entity id not found.", {"entity":"Entity not found."}
+        return
+      #found entity
+      if (entity.funds.remaining < (data.funds.perResponse*data.responses.max))
+        callback new errors.ValidationError "Insufficient funds.", {"entity":"Insufficient funds"}
+        return
+      #User has enough funds.
+      instance = new self.model(data)
+
+      transactionData = {
+        amount: amount
+      }
+
+      transaction = self.createTransaction(choices.transactions.states.PENDING, choices.transactions.actions.POLL_CREATED, transactionData, choices.transactions.directions.INBOUND, instance._doc.entity)
+
+      instance.transactions.state = choices.transactions.states.PENDING #soley for reading purposes
+      instance.transactions.locked = true
+      instance.transactions.ids = [transaction.id]
+      instance.transactions.log = [transaction]
+
+      #instance.events = @_createEventsObj event
+      instance.save (error, poll)->
+        logger.debug error
+        logger.debug poll
+        callback error, poll._doc
+        if error?
+          logger.debug "error"
+        else
+          tp.process(poll._doc, transaction)
+        return
       return
     return
 
-  @update: (pollId, data, newAllocated, perResponse, callback)->
+  @update: (entityType, entityId, pollId, data, newAllocated, perResponse, callback)->
     self = this
-
     instance = new @model(data)
 
     if Object.isString(pollId)
       pollId = new ObjectId(pollId)
-    if Object.isString(data.entity.id)
-      data.entity.id = new ObjectId(data.entity.id)
-    entityType = data.entity.type
-    entityId = data.entity.id
+    if Object.isString(entityId)
+      entityId = new ObjectId(entityId)
 
-    #Set the fields you want updated now, not afte the update
-    #for the ones that you want set after the update put those
-    #in the transactionData and make thsoe changes in the
-    #setTransactionProcessed function
-
-    updateDoc = {
-      entity: {
-        type          : data.entity.type
-        id            : data.entity.id
-        name          : data.entity.name
-      }
-
-      lastModifiedBy: {
-        type          : data.lastModifiedBy.type
-        id            : data.lastModifiedBy.id
-      }
-
-      name            : data.name
-      type            : data.type
-      question        : data.question
-      choices         : data.choices
-      numChoices      : parseInt(data.numChoices)
-      responses: {
-        remaining     : parseInt(data.responses.max)
-        max           : parseInt(data.responses.max)
-        log           : data.responses.log
-        dates         : data.responses.dates
-        choiceCounts  : data.responses.choiceCounts
-      }
-      showStats       : data.showStats
-      displayName     : data.displayName
-      displayMediaQuestion    : data.displayMediaQuestion
-      displayMediaResults    : data.displayMediaResults
-
-      mediaQuestion : data.mediaQuestion
-      mediaResults  : data.mediaResults
-    }
-
-
-    entity = {
-      type: data.entity.type
-      id: data.entity.id
-    }
-
-    transactionData = {
-      newAllocated: newAllocated
-      perResponse: perResponse
-    }
-    transaction = self.createTransaction choices.transactions.states.PENDING, choices.transactions.actions.POLL_UPDATED, transactionData, choices.transactions.directions.INBOUND, entity
-
-    $set = {
-      "dates.start": new Date(data.dates.start) #this is so that we don't lose the create date
-      "transactions.locked": true #THIS IS A LOCKING TRANSACTION, SO IF ANYONE ELSE TRIES TO DO A LOKCING TRANSACTION IT WILL NOT HAPPEN (AS LONG AS YOU CHECK FOR THAT)
-      "transactions.state": choices.transactions.states.PENDING
-    }
-    $push = {
-      "transactions.ids": transaction.id
-      "transactions.log": transaction
-    }
-
-    logger.info data
-
-    for own k,v of updateDoc
-      console.log k
-      $set[k] = v
-
-    $update = {
-      $set: $set
-      $push: $push
-    }
-
-    console.log $update
-
-    @model.collection.findAndModify {_id: pollId, "entity.type":entityType, "entity.id":entityId, "transactions.locked": false}, [], $update, {safe: true, new: true}, (error, poll)->
+    #find Entity, and check if they have enough funds
+    switch entityType
+      when choices.entities.CLIENT
+        entityClass = Clients
+      when choices.entities.CONSUMER
+        entityClass = Consumers
+    entityClass.one entityId, {funds:1}, (error, entity)->
       if error?
-        callback error, null
-      else if !poll?
-        callback new errors.ValidationError({"poll":"Poll does not exist or Access Denied."})
-      else
-        callback null, poll
-        tp.process(poll, transaction)
+        callback error
+        return
+      if !entity?
+        callback new errors.ValidationError "Entity id not found.", {"entity":"Entity not found."}
+        return
+      #found entity
+      if (entity.funds.remaining < (data.funds.perResponse*data.responses.max))
+        callback new errors.ValidationError "Insufficient funds.", {"entity":"Insufficient funds"}
+        return
+      #User has enough funds.
+
+      #Set the fields you want updated now, not afte the update
+      #for the ones that you want set after the update put those
+      #in the transactionData and make thsoe changes in the
+      #setTransactionProcessed function
+
+      $set = {
+        entity: {
+          type          : entityType
+          id            : entityId
+          name          : data.entity.name
+        }
+
+        lastModifiedBy: {
+          type          : data.lastModifiedBy.type
+          id            : data.lastModifiedBy.id
+        }
+
+        name            : data.name
+        type            : data.type
+        question        : data.question
+        choices         : data.choices
+        numChoices      : parseInt(data.numChoices)
+        responses: {
+          remaining     : parseInt(data.responses.max)
+          max           : parseInt(data.responses.max)
+          log           : data.responses.log
+          dates         : data.responses.dates
+          choiceCounts  : data.responses.choiceCounts
+        }
+        showStats       : data.showStats
+        displayName     : data.displayName
+        displayMediaQuestion    : data.displayMediaQuestion
+        displayMediaResults    : data.displayMediaResults
+
+        mediaQuestion : data.mediaQuestion
+        mediaResults  : data.mediaResults
+      }
+      #flat properties so that they dont overwrite their entire subdoc
+      $set["dates.start"]= new Date(data.dates.start) #this is so that we don't lose the create date
+      $set["transactions.locked"]= true #THIS IS A LOCKING TRANSACTION, SO IF ANYONE ELSE TRIES TO DO A LOKCING TRANSACTION IT WILL NOT HAPPEN (AS LONG AS YOU CHECK FOR THAT)
+      $set["transactions.state"]= choices.transactions.states.PENDING
+
+      #TRANSACTION updates
+      transactionEntity = {
+          type          : entityType
+          id            : entityId
+      }
+      transactionData = {
+        newAllocated: newAllocated
+        perResponse: perResponse
+      }
+      transaction = self.createTransaction choices.transactions.states.PENDING, choices.transactions.actions.POLL_UPDATED, transactionData, choices.transactions.directions.INBOUND, transactionEntity
+
+      $push = {
+        "transactions.ids": transaction.id
+        "transactions.log": transaction
+      }
+
+      $update = {
+        $set: $set
+        $push: $push
+      }
+
+      where = {
+        _id: pollId,
+        "entity.type":entityType,
+        "entity.id":entityId,
+        "transactions.locked": false,
+        "deleted": false
+        $or : [
+          {"dates.start": {$gt:new Date()}, "transactions.state": choices.transactions.states.PROCESSED},
+          {"transactions.state": choices.transactions.states.ERROR}
+        ]
+      }
+      self.model.collection.findAndModify where, [], $update, {safe: true, new: true}, (error, poll)->
+        if error?
+          callback error, null
+        else if !poll?
+          callback new errors.ValidationError({"poll":"Poll does not exist or not editable."})
+        else
+          callback null, poll
+          tp.process(poll, transaction)
+        return
+      return
     return
+
 
   @list: (entityType, entityId, stage, options, callback)->
     #options: count(boolean)-to return just the count, skip(int), limit(int)
-    query = @optionParser options
+    query = @_query()
     query.where("entity.type", entityType)
     query.where("entity.id", entityId)
     switch stage
@@ -1086,7 +2436,10 @@ class Polls extends Campaigns
             "funds.allocated"     : 1
         }
     if !options.count
+      query.sort("dates.start", -1)
       query.fields(fieldsToReturn);
+      query.skip(options.skip || 0)
+      query.limit(options.limit || 25)
       query.exec callback
     else
       query.count callback
@@ -1123,7 +2476,18 @@ class Polls extends Campaigns
       $push: $push
     }
 
-    @model.collection.findAndModify {"entity.type":entityType, "entity.id":entityId, _id: pollId, "transactions.locked": false, "deleted": false}, [], $update, {safe: true, new: true}, (error, poll)->
+    where = {
+      _id: pollId,
+      "entity.type":entityType,
+      "entity.id":entityId,
+      "transactions.locked": false,
+      "deleted": false
+      $or : [
+        {"dates.start": {$gt:new Date()}, "transactions.state": choices.transactions.states.PROCESSED},
+        {"transactions.state": choices.transactions.states.ERROR}
+      ]
+    }
+    @model.collection.findAndModify where, [], $update, {safe: true, new: true}, (error, poll)->
       if error?
         logger.error "POLLS - DELETE: unable to findAndModify"
         logger.error error
@@ -1196,7 +2560,6 @@ class Polls extends Campaigns
             cb()
 
       save: (cb)->
-
         inc = new Object()
         set = new Object()
         push = new Object()
@@ -1339,6 +2702,7 @@ class Polls extends Campaigns
     query.where('dates.start').lte(new Date())            #poll has started
     # query.where('dates.end').gt(new Date())               #poll has not ended
     query.where('transactions.state',choices.transactions.states.PROCESSED)    #poll is processed (paid for) and ready to launch
+    query.where('deleted').ne(true)
     query.limit(1)                                        #you only want the next ONE
 
     query.fields({
@@ -1386,6 +2750,7 @@ class Polls extends Campaigns
   @setTransactionError: @__setTransactionError
 
 
+## Discussions ##
 class Discussions extends Campaigns
   @model = Discussion
 
@@ -1403,14 +2768,33 @@ class Discussions extends Campaigns
 
     return query
 
-  @test: (callback)->
-    query = @_query()
-    query.where('dates.start').gt(new Date())
-    query.where('dates.start').$lte(new Date('2012-02-03 00:00:00'))
-    query.exec callback
+  @add = (data, amount, callback)->
+    instance = new @model(data)
+    if data.tags?
+      Tags.addAll data.tags
+    transactionData = {
+      amount: amount
+    }
+
+    transaction = @createTransaction(choices.transactions.states.PENDING, choices.transactions.actions.DISCUSSION_CREATED, transactionData, choices.transactions.directions.INBOUND, instance._doc.entity)
+
+    instance.transactions.locked = true
+    instance.transactions.ids = [transaction.id]
+    instance.transactions.log = [transaction]
+
+    instance.save (error, discussion)->
+      callback error, discussion
+      if error?
+        return
+      else
+        tp.process(discussion._doc, transaction)
     return
 
-  @update: (entityType, entityId, discussionId, data, callback)->
+  @update: (entityType, entityId, discussionId, newAllocated, data, callback)->
+    self = this
+
+    instance = new @model(data)
+
     if Object.isString(entityId)
       entityId = new ObjectId(entityId)
     if Object.isString(discussionId)
@@ -1418,48 +2802,142 @@ class Discussions extends Campaigns
     if data.media? and Object.isString(data.media.mediaId) and data.media.mediaId.length>0
       data.media.mediaId = new ObjectId(data.media.mediaId)
 
-    @getByEntity entityType, entityId, discussionId, (error, discussion)->
-      if error?
-        callback error, discussion
-      else
-        if (discussion.dates.start <= new Date())
-          callback {name: "DateTimeError", message: "Can not edit a discussion that is in progress or has completed."}, null
-        else
-          for own k,v of data
-            discussion[k] = v
-          logger.debug "discusison"
-          logger.debug "discusison"
-          logger.debug "discusison"
-          logger.debug discussion
-          discussion.save callback
-      return
-    return
+    if data.tags?
+      Tags.addAll data.tags, choices.tags.types.DISCUSSIONS
+    #Set the fields you want updated now, not afte the update
+    #for the ones that you want set after the update put those
+    #in the transactionData and make thsoe changes in the
+    #setTransactionProcessed function
 
-  @add = (data, amount, callback)->
-    instance = new @model(data)
+    $set = {
+      entity: {
+        type          : entityType
+        id            : entityId
+        name          : data.entity.name
+      }
 
+      lastModifiedBy: {
+        type: data.lastModifiedBy.type
+        id: data.lastModifiedBy.id
+      }
+
+      name            : data.name
+      question        : data.question
+      details         : data.details
+      tags            : data.tags
+      displayMedia    : data.displayMedia
+      media           : data.media
+    }
+     #this is flattened so that it does not overwrite the entire dates subdocument
+    $set["dates.start"] = new Date(data.dates.start)
+
+
+    # We don't do a transaction for discussion creation right now because they are a fixed amount at the moment
+    # this will change when we implement the consumer side
+    entity = {
+      type: entityType
+      id: entityId
+    }
     transactionData = {
-      amount: amount
+      newAllocated: newAllocated
+    }
+    transaction = self.createTransaction choices.transactions.states.PENDING, choices.transactions.actions.DISCUSSION_UPDATED, transactionData, choices.transactions.directions.INBOUND, entity
+
+    $set["transactions.locked"] = true #THIS IS A LOCKING TRANSACTION, SO IF ANYONE ELSE TRIES TO DO A LOKCING TRANSACTION IT WILL NOT HAPPEN (AS LONG AS YOU CHECK FOR THAT)
+    $set["transactions.state"] = choices.transactions.states.PENDING
+
+    $push = {
+      "transactions.ids": transaction.id
+      "transactions.log": transaction
     }
 
-    transaction = @createTransaction(choices.transactions.states.PENDING, choices.transactions.actions.DISCUSSION_CREATED, transactionData, choices.transactions.directions.INBOUND, instance.entity)
+    logger.info data
 
-    instance.transactions.locked = true
-    instance.transactions.ids = [transaction.id]
-    instance.transactions.log = [transaction]
-
-    console.log instance.transactions.log
-    instance.save (error, discussion)->
-      callback error, discussion
+    $update = {
+      $set: $set
+      $push: $push
+    }
+    where = {
+      _id: discussionId,
+      "entity.type":entityType,
+      "entity.id":entityId,
+      "transactions.locked": false,
+      "deleted": false
+      $or : [
+        {"dates.start": {$gt:new Date()}, "transactions.state": choices.transactions.states.PROCESSED},
+        {"transactions.state": choices.transactions.states.ERROR}
+      ]
+    }
+    @model.collection.findAndModify where, [], $update, {safe: true, new: true}, (error, discussion)->
       if error?
-        return
+        callback error, null
+      else if !discussion?
+        callback new errors.ValidationError({"discussion":"Discussion does not exist or Access Denied."})
       else
+        callback null, discussion
         tp.process(discussion, transaction)
     return
 
-  @list: (entityType, entityId, stage, options, callback)->
+
+  @del: (entityType, entityId, discussionId, lastModifiedBy, callback)->
+    self = this
+    if Object.isString(entityId)
+      entityId = new ObjectId(entityId)
+    if Object.isString(discussionId)
+      discussionId = new ObjectId(discussionId)
+    if Object.isString(lastModifiedBy.id)
+      lastModifiedBy.id = new ObjectId(lastModifiedBy.id)
+
+    entity = {}
+    transactionData = {}
+    transaction = self.createTransaction choices.transactions.states.PENDING, choices.transactions.actions.DISCUSSION_DELETED, transactionData, choices.transactions.directions.OUTBOUND, entity
+
+    $set = {
+      "deleted": true
+      "transactions.locked": true #THIS IS A LOCKING TRANSACTION, SO IF ANYONE ELSE TRIES TO DO A LOKCING TRANSACTION IT WILL NOT HAPPEN (AS LONG AS YOU CHECK FOR THAT)
+      "transactions.state": choices.transactions.states.PENDING
+
+      "lastModifiedBy.type": lastModifiedBy.type
+      "lastModifiedBy.id": lastModifiedBy.id
+    }
+    $push = {
+      "transactions.ids": transaction.id
+      "transactions.log": transaction
+    }
+
+    $update = {
+      $set: $set
+      $push: $push
+    }
+
+    where = {
+      _id: discussionId,
+      "entity.type":entityType,
+      "entity.id":entityId,
+      "transactions.locked": false,
+      "deleted": false
+      $or : [
+        {"dates.start": {$gt:new Date()}, "transactions.state": choices.transactions.states.PROCESSED},
+        {"transactions.state": choices.transactions.states.ERROR}
+      ]
+    }
+    @model.collection.findAndModify where, [], $update, {safe: true, new: true}, (error, discussion)->
+      if error?
+        logger.error "DISCUSSIONS - DELETE: unable to findAndModify"
+        logger.error error
+        callback error, null
+      else if !discussion?
+        logger.warn "DISCUSSIONS - DELETE: no document found to modify"
+        callback new errors.ValidationError({"discussion":"Discussion does not exist or Access Denied."})
+      else
+        logger.info "DISCUSSIONS - DELETE: findAndModify succeeded, transaction starting"
+        callback null, discussion
+        tp.process(discussion, transaction)
+    return
+
+  @listCampaigns: (entityType, entityId, stage, options, callback)->
     #options: count(boolean)-to return just the count, skip(int), limit(int)
-    query = @_optionParser options
+    query = @_query()
     query.where("entity.type", entityType)
     query.where("entity.id", entityId)
     switch stage
@@ -1526,57 +3004,545 @@ class Discussions extends Campaigns
     if !options.count
       query.sort("dates.start", -1)
       query.fields(fieldsToReturn)
-      if options.last?
-        query.where('dates.start').$lte(new Date(options.last))
+      query.skip(options.skip)
       query.limit(options.limit)
       query.exec callback
     else
       query.count callback
     return
 
-  @del: (entityType, entityId, discussionId, callback)->
-    self = this
-    if Object.isString(entityId)
-      entityId = new ObjectId(entityId)
+  ### _list_ ###
+  #
+  # - **sort** _String, enum: choices.discussions.sort, default: choices.discussions.sort.dateDescending
+  # - **limit** _Number, default: 25_ limit number of discussions returned
+  # - **skip** _Number, default: 0_ an offset for number of discussions returned
+  #
+  # **callback** error, discussions
+  @list: (options, callback)->
+    if Object.isFunction(options)
+      callback = options
+      options = {}
+
+    options.limit = options.limit || 25
+    options.skip = options.skip || 0
+
+    if options.sort? and options.sort in choices.discussions.sorts._enum
+      sort = options.sort
+    else
+      options.sort = choices.discussions.sorts.DATE_DESCENDING
+
+    $query = {
+      "dates.start"           : {$lte: new Date()}
+      , $or                   : [{deleted: false}, {deleted: {$exists: false}}]
+      , "transactions.state"  : choices.transactions.states.PROCESSED
+      , "transactions.locked" : {$ne: true}
+    }
+
+    $sort = {}
+    switch sort
+      when choices.discussions.sorts.DATE_ASCENDING
+        $sort = {'dates.start': 1}
+      when choices.discussions.sorts.DATE_DESCENDING
+        $sort = {'dates.start': -1}
+      when choices.discussions.sorts.RECENTLY_POPULAR_7
+        $query["dates.start"].$gte = Date.create().addWeeks(-1)
+        $sort = {'dates.start': -1}
+        $sort = {'responseCount': 1}
+      when choices.discussions.sorts.RECENTLY_POPULAR_14
+        $query["dates.start"].$gte = Date.create().addWeeks(-2)
+        $sort = {'dates.start': -1, 'responseCount': 1}
+      when choices.discussions.sorts.RECENTLY_POPULAR_1
+        $query["dates.start"].$gte = Date.create().addDays(-1)
+        $sort = {'dates.start': -1, 'responseCount': 1}
+
+    $fields = {
+      question          : 1
+      , tags            : 1
+      , media           : 1
+      , thanker         : 1
+      , donors          : 1
+      , donationAmounts : 1
+      , dates           : 1
+      , funds           : 1
+      , donationCount   : 1
+      , thankCount      : 1
+    }
+
+    cursor = @model.collection.find $query, $fields, (err, cursor)->
+      if error?
+        callback(error)
+        return
+      cursor.limit(options.limit)
+      cursor.skip(options.skip)
+      cursor.sort($sort)
+      cursor.toArray (error, discussions)->
+        callback(error, discussions)
+
+  ### _get_ ###
+  #
+  # **discussionId** _String/ObjectId_ id of discussion
+  #
+  # **responseOptions**
+  #
+  # - **limit** _Number, default: 10_ limit of responses
+  # - **skip** _Number, default: 0_  responses to skip
+  #
+  # **callback** error, discussion
+  @get: (discussionId, responseOptions, callback)->
     if Object.isString(discussionId)
       discussionId = new ObjectId(discussionId)
 
-    entity = {}
-    transactionData = {}
-    transaction = self.createTransaction choices.transactions.states.PENDING, choices.transactions.actions.POLL_DELETED, transactionData, choices.transactions.directions.OUTBOUND, entity
+    if Object.isFunction(responseOptions)
+      callback = responseOptions
+      responseOptions = {}
 
-    $set = {
-      "deleted": true
-      "transactions.locked": true #THIS IS A LOCKING TRANSACTION, SO IF ANYONE ELSE TRIES TO DO A LOKCING TRANSACTION IT WILL NOT HAPPEN (AS LONG AS YOU CHECK FOR THAT)
-      "transactions.state": choices.transactions.states.PENDING
-    }
-    $push = {
-      "transactions.ids": transaction.id
-      "transactions.log": transaction
-    }
+    responseOptions.limit = responseOptions.limit || 10
+    responseOptions.skip = responseOptions.skip || 0
 
-    $update = {
-      $set: $set
-      $push: $push
+    $query = {
+      "dates.start"           : {$lte: new Date()}
+      , deleted               : {$ne: true}
+      , "transactions.state"  : choices.transactions.states.PROCESSED
+      , "transactions.locked" : {$ne: true}
     }
 
-    @model.collection.findAndModify {"entity.type":entityType, "entity.id":entityId, _id: discussionId, "transactions.locked": false, "deleted": false}, [], $update, {safe: true, new: true}, (error, discussion)->
-      if error?
-        logger.error "DISCUSSIONS - DELETE: unable to findAndModify"
-        logger.error error
-        callback error, null
-      else if !discussion?
-        logger.warn "DISCUSSIONS - DELETE: no document found to modify"
-        callback new errors.ValidationError({"discussion":"Discussion does not exist or Access Denied."})
-      else
-        logger.info "DISCUSSIONS - DELETE: findAndModify succeeded, transaction starting"
-        callback null, discussion
-        tp.process(discussion, transaction)
-    return
+    $fields = {
+      question          : 1
+      , tags            : 1
+      , media           : 1
+      , thanker         : 1
+      , donors          : 1
+      , donationAmounts : 1
+      , dates           : 1
+      , funds           : 1
+      , donationCount   : 1
+      , thankCount      : 1
+      , responses       : {$slice:[responseOptions.skip, responseOptions.skip + responseOptions.limit]}
+    }
+
+    @model.collection.findOne $query, $fields, (error, discussion)->
+      callback(error, discussion)
+
+  ### _getResponses_ ###
+  # **discussionId** _String/ObjectId_ Id of discussion
+  #
+  # **responseOptions**
+  #
+  # - **limit** _Number, default: 10_ limit of responses
+  # - **skip** _Number, default: 0_  responses to skip
+  #
+  # **callback** error, discussion
+  @getResponses: (discussionId, responseOptions, callback)->
+    if Object.isString(discussionId)
+      discussionId = new ObjectId(discussionId)
+
+    if Object.isFunction(responseOptions)
+      callback = responseOptions
+      responseOptions = {}
+
+    responseOptions.limit = responseOptions.limit || 10
+    responseOptions.skip = responseOptions.skip || 0
+
+    $query = {
+      "dates.start"           : {$lte: new Date()}
+      , deleted               : {$ne: true}
+      , "transactions.state"  : choices.transactions.states.PROCESSED
+      , "transactions.locked" : {$ne: true}
+    }
+
+    $fields = {
+      _id: 1
+      , responses       : {$slice:[responseOptions.skip, responseOptions.skip + responseOptions.limit]}
+    }
+
+    @model.collection.findOne $query, $fields, (error, discussion)->
+      callback(error, discussion.responses)
 
   @getByEntity: (entityType, entityId, discussionId, callback)->
     @model.findOne {_id: discussionId, 'entity.type': entityType ,'entity.id': entityId}, callback
     return
+
+  ### _thank_ ###
+  # **discussionId** _String/ObjectId_ Id of discussion <br />
+  # **responseId** _String/ObjectId_ Id of response in discussion <br />
+  # **thankerEntity** _Object_ an entity object containing at least `type` and `id` <br />
+  # **amount** _Float_ the amount that the user wishes to thank the respondant <br />
+  # **callback** error, numDocsModified
+  @thank: (discussionId, responseId, thankerEntity, amount, callback)-> #take money out of my own funds and give to another user, update discussion
+    if Object.isString(discussionId)
+      discussionId = new ObjectId(discussionId)
+    if Object.isString(responseId)
+      responseId = new ObjectId(responseId)
+    if Object.isString(thankerEntity.id)
+      thankerEntity.id = new ObjectId(thankerEntity.id)
+
+    amount = parseFloat(amount)
+    if amount<0
+      callback(new errors.ValidationError("discussion": "can not thank a negative amount"))
+
+    thankerApiClass = null
+    if thankerEntity.type is choices.entities.CONSUMER
+      thankerApiClass = Consumers
+    else if thankerEntity.type is choices.entities.BUSINESS
+      thankerApiClass = Businesses
+    else
+      callback new errors.ValidationError({"discussion":"Entity type: #{thankerEntity.type} is invalid or unsupported"})
+      return
+
+    fieldsToReturn = {}
+    fieldsToReturn["responseEntities.#{responseId.toString()}"] = 1
+
+    entityThanked = null
+    async.series {
+      getResponseEntity: (cb)=>
+        @model.collection.findOne {_id: discussionId}, fieldsToReturn, (error, discussion)->
+          if error?
+            cb error
+            return
+          else if !discussion?
+            cb new errors.ValidationError("discussion": "response doesn't exist")
+            return
+          else
+            entityThanked = discussion.responseEntities["#{responseId.toString()}"]
+            cb()
+            return
+      save: (cb)=>
+        transactionData = {
+          amount: amount
+          thankerEntity: thankerEntity
+          discussionId: discussionId
+          responseId: responseId
+          timestamp: new Date()
+        }
+
+        transaction = @createTransaction(choices.transactions.states.PENDING, choices.transactions.actions.DISCUSSION_THANKED, transactionData, choices.transactions.directions.OUTBOUND, entityThanked)
+
+        $set = {}
+        $push = {
+          "transactions.ids": transaction.id
+          "transactions.log": transaction
+        }
+
+        $inc = {
+          "funds.remaining": -1*amount
+        }
+
+        $update = {$push: $push, $set: $set, $inc: $inc}
+
+        fieldsToReturn = {_id: 1}
+
+        thankerApiClass.model.collection.findAndModify {_id: thankerEntity.id, "funds.remaining": {$gte: amount}}, [], $update, {safe: true, fields: fieldsToReturn}, (error, doc)->
+          if error?
+            cb error
+          else if !doc?
+            cb new errors.ValidationError({"funds.remaining":"insufficient funds remaining"})
+          else
+            callback(null, 1) #1 for number of documents updated (no need to return document)
+            tp.process(doc, transaction)
+            cb()
+    },
+    (error, results)=>
+      if error?
+        callback(error)
+
+  ### _donate_ ###
+  # **discussionId** _String/ObjectId_ Id of discussion <br />
+  # **entity** _Object_ an entity object containing at least `type` and `id` <br />
+  # **amount** _Float_ the amount that the user wishes to thank the respondant <br />
+  # **callback** error, numDocsModified
+  @donate: (discussionId, entity, amount, callback)->
+    if Object.isString(discussionId)
+      discussionId = new ObjectId(discussionId)
+    if Object.isString(entity.id)
+      entity.id = new ObjectId(entity.id)
+
+    amount = parseFloat(amount)
+    if amount<0
+      callback(new errors.ValidationError("discussion": "can not donate negative funds"))
+
+    transactionData = {
+      amount: amount
+      timestamp: new Date()
+    }
+    transaction = @createTransaction(choices.transactions.states.PENDING, choices.transactions.actions.DISCUSSION_DONATED, transactionData, choices.transactions.directions.INBOUND, entity)
+
+    $set = {}
+    $push = {
+      "transactions.ids": transaction.id
+      "transactions.log": transaction
+    }
+    $update = {$push: $push, $set: $set}
+
+    fieldsToReturn = {_id: 1 }
+    @model.collection.findAndModify {_id: discussionId}, [], $update, {safe: true, fields: fieldsToReturn}, (error, discussion)->
+      if error?
+        callback(error)
+      else if !discussion?
+        callback new errors.ValidationError({"discussion":"Discussion does not exist or is not editable."})
+      else
+        callback(null, 1) #1 for number of documents updated (no need to return document)
+        tp.process(discussion, transaction)
+
+  ### distributeDonation ###
+  # **discussionId** _String/ObjectId_ Id of discussion <br />
+  # **responseId** _String/ObjectId_ Id of response in discussion <br />
+  # **donorEntity** _Object_ an entity object containing at least `type` and `id` <br />
+  # **amount** _Float_ the amount that the user wishes to donate into the discussions <br />
+  # **callback** error, numDocsModified
+  @distributeDonation: (discussionId, responseId, donorEntity, amount, callback)-> #distribute the amount that the donorEntity has donated to a particular response
+    if Object.isString(discussionId)
+      discussionId = new ObjectId(discussionId)
+    if Object.isString(responseId)
+      responseId = new ObjectId(responseId)
+    if Object.isString(donorEntity.id)
+      donorEntity.id = new ObjectId(donorEntity.id)
+
+    amount = parseFloat(amount)
+    if amount<0
+      callback(new errors.ValidationError("discussion": "can not distribute negative funds"))
+
+    fieldsToReturn = {}
+    fieldsToReturn["responseEntities.#{responseId.toString()}"] = 1
+
+    doneeEntity = null
+    async.series {
+      getResponseEntity: (cb)=>
+        @model.collection.findOne {_id: discussionId}, fieldsToReturn, (error, discussion)->
+          if error?
+            cb error
+            return
+          else if !discussion?
+            cb new errors.ValidationError("discussion": "response doesn't exist")
+            return
+          else
+            doneeEntity = discussion.responseEntities["#{responseId.toString()}"]
+            cb()
+            return
+      save: (cb)=>
+        transactionData = {
+          amount: amount
+          donorEntity: donorEntity
+          discussionId: discussionId
+          responseId: responseId
+          timestamp: new Date()
+        }
+
+        transaction = @createTransaction(choices.transactions.states.PENDING, choices.transactions.actions.DISCUSSION_DONATION_DISTRIBUTED, transactionData, choices.transactions.directions.OUTBOUND, doneeEntity)
+
+        $set = {}
+        $push = {
+          "transactions.ids": transaction.id
+          "transactions.log": transaction
+        }
+
+        $inc = {
+          "funds.remaining": -1*amount
+        }
+
+        $update = {$push: $push, $set: $set, $inc: $inc}
+
+        fieldsToReturn = {_id: 1}
+
+        $query = {_id: discussionId}
+        $query["donationAmounts.#{donorEntity.type}_#{donorEntity.id}.remaining"] = {$gte: amount}
+
+        logger.debug $query
+        logger.debug $update
+        @model.collection.findAndModify $query, [], $update, {safe: true, fields: fieldsToReturn}, (error, doc)->
+          if error?
+            cb error
+          else if !doc?
+            cb new errors.ValidationError({"funds.remaining":"insufficient funds remaining"})
+          else
+            callback(null, 1) #1 for number of documents updated (no need to return document)
+            tp.process(doc, transaction)
+            cb()
+    },
+    (error, results)=>
+      if error?
+        callback(error)
+
+  ### _respond_ ###
+  # **discussionId** _String/ObjectId_ Id of discussion <br />
+  # **entity** _Object_ an entity object containing at least `type` and `id` <br />
+  # **content** _String_ the content of the response <br />
+  # **callback** error, numDocsModified
+  @respond: (discussionId, entity, content, callback)->
+    if Object.isString(discussionId)
+      discussionId = new ObjectId(discussionId)
+    if Object.isString(entity.id)
+      entity.id = new ObjectId(entity.id)
+
+    response = {
+      _id               : new ObjectId()
+      entity            : entity
+      content           : content
+
+      commentCount      : 0
+
+      dates: {
+        created         : new Date()
+        lastModified    : new Date()
+      }
+    }
+
+    $push = {
+      responses: response
+    }
+
+    $set = {}
+    $set["responseEntities.#{response._id.toString()}"] = entity
+
+    $inc = {
+      responseCount: 1
+    }
+
+    $update = {$push: $push, $inc: $inc, $set: $set}
+
+    @model.collection.update {_id: discussionId}, $update, {safe: true}, callback
+
+  ### _comment_ ###
+  # **discussionId** _String/ObjectId_ Id of discussion <br />
+  # **responseId** _String/ObjectId_ Id of response in discussion <br />
+  # **entity** _Object_ an entity object containing at least `type` and `id` <br />
+  # **content** _String_ the content of the comment <br />
+  # **callback** error, numDocsModified
+  @comment: (discussionId, responseId, entity, content, callback)->
+    if Object.isString(discussionId)
+      discussionId = new ObjectId(discussionId)
+    if Object.isString(responseId)
+      responseId = new ObjectId(responseId)
+    if Object.isString(entity.id)
+      entity.id = new ObjectId(entity.id)
+
+      comment = {
+        _id               : new ObjectId()
+        entity            : entity
+        content           : content
+
+        dates: {
+          created         : new Date()
+          lastModified    : new Date()
+        }
+      }
+
+      $push = {"responses.$.comments": comment}
+      $inc = {"responses.$.commentCount": 1}
+
+      $update = {$push: $push, $inc: $inc}
+      @model.collection.update {_id: discussionId, "responses._id": responseId}, $update, {safe: true}, callback
+
+  ### _voteUp_ ###
+  # **discussionId** _String/ObjectId_ Id of discussion <br />
+  # **responseId** _String/ObjectId_ Id of response in discussion <br />
+  # **entity** _Object_ an entity object containing at least `type` and `id` <br />
+  # **callback** error
+  @voteUp: (discussionId, responseId, entity, callback)->
+    @_vote(discussionId, responseId, entity, choices.votes.UP, callback)
+
+  ### _voteDown_ ###
+  # **discussionId** _String/ObjectId_ Id of discussion <br />
+  # **responseId** _String/ObjectId_ Id of response in discussion <br />
+  # **entity** _Object_ an entity object containing at least `type` and `id` <br />
+  # **callback** error
+  @voteDown: (discussionId, responseId, entity, callback)->
+    @_vote(discussionId, responseId, entity, choices.votes.DOWN, callback)
+
+  ### _\_vote_ ###
+  # **discussionId** _String/ObjectId_ Id of discussion <br />
+  # **responseId** _String/ObjectId_ Id of response in discussion <br />
+  # **entity** _Object_ an entity object containing at least `type` and `id` <br />
+  # **direction** _String, enum: choices.votes_ <br />
+  # **callback** error
+  @_vote: (discussionId, responseId, entity, direction, callback)->
+    if Object.isString(discussionId)
+      discussionId = new ObjectId(discussionId)
+    if Object.isString(responseId)
+      responseId = new ObjectId(responseId)
+    if Object.isString(entity.id)
+      entity.id = new ObjectId(entity.id)
+
+    d = "up"
+    score = 1
+    opposite = choices.votes.DOWN
+    if direction is choices.votes.DOWN
+      d = "down"
+      score = -1
+      opposite = choices.votes.UP
+
+    #if the user has voted the opposite, undo that
+    @_undoVote discussionId, responseId, entity, opposite, (error, data)->
+      return
+
+    entity._id = new ObjectId() #we do this because mongoose does it to every document array
+
+    $query = {_id: discussionId, "responses._id": responseId}
+
+    $inc = {"votes.count":1, "votes.score": score, "responses.$.votes.count": 1}
+    $set = {}
+    $push = {}
+
+    $query["responses.votes.#{d}.by.id"] = {$ne: entity.id} #not already set
+    $inc["responses.$.votes.#{d}.count"] = 1
+    $inc["votes.#{d}"] = 1
+    $push["responses.$.votes.#{d}.by"] = entity
+    $set["responses.$.votes.#{d}.ids.#{entity.type}_#{entity.id.toString()}"] = 1
+
+    $update = {$inc: $inc, $push: $push, $set: $set}
+
+    @model.collection.update $query, $update, {safe: false}, callback
+
+
+  ### _undoVoteUp_ ###
+  # **discussionId** _String/ObjectId_ Id of discussion <br />
+  # **responseId** _String/ObjectId_ Id of response in discussion <br />
+  # **entity** _Object_ an entity object containing at least `type` and `id` <br />
+  # **callback** error
+  @undoVoteUp: (discussionId, responseId, entity, callback)->
+    @_undoVote(discussionId, responseId, entity, choices.votes.UP, callback)
+
+  ### _undoVoteDown_ ###
+  # **discussionId** _String/ObjectId_ Id of discussion <br />
+  # **responseId** _String/ObjectId_ Id of response in discussion <br />
+  # **entity** _Object_ an entity object containing at least `type` and `id` <br />
+  # **callback** error
+  @undoVoteDown: (discussionId, responseId, entity, callback)->
+    @_undoVote(discussionId, responseId, entity, choices.votes.DOWN, callback)
+
+  ### _\_undoVote_ ###
+  # **discussionId** _String/ObjectId_ Id of discussion <br />
+  # **responseId** _String/ObjectId_ Id of response in discussion <br />
+  # **entity** _Object_ an entity object containing at least `type` and `id` <br />
+  # **direction** _String, enum: choices.votes_ <br />
+  # **callback** error
+  @_undoVote: (discussionId, responseId, entity, direction, callback)->
+    if Object.isString(discussionId)
+      discussionId = new ObjectId(discussionId)
+    if Object.isString(responseId)
+      responseId = new ObjectId(responseId)
+    if Object.isString(entity.id)
+      entity.id = new ObjectId(entity.id)
+
+    d = "up"
+    score = -1
+    if direction is choices.votes.DOWN
+      d = "down"
+      score = 1
+
+    $query = {_id: discussionId, "responses._id": responseId}
+    $pull = {}
+    $inc = {"votes.count": -1, "votes.score": score, "responses.$.votes.count": -1}
+    $unset = {}
+
+    $query["responses.votes.#{d}.by.id"] = entity.id
+    $pull["responses.$.votes.#{d}.by"] = {type: entity.type, id: entity.id}
+    $inc["responses.$.votes.#{d}.count"] = -1
+    $inc["votes.#{d}"] = -1
+    $unset["responses.$.votes.#{d}.ids.#{entity.type}_#{entity.id.toString()}"] = 1
+
+    $update = {$inc: $inc, $pull: $pull, $unset: $unset}
+
+    @model.collection.update $query, $update, {safe: false}, callback
 
   @setTransactonPending: @__setTransactionPending
   @setTransactionProcessing: @__setTransactionProcessing
@@ -1584,16 +3550,50 @@ class Discussions extends Campaigns
   @setTransactionError: @__setTransactionError
 
 
-class Responses extends API
-  @model = Response
-
-  @count = (entityType, businessId, discussionId, callback)->
-    @model.count {'entity.id':businessId, 'entity.type':entityType, discussionId: discussionId}, (error, count)->
-      callback error, count
-
-
+## Medias ##
 class Medias extends API
   @model = Media
+
+  #validate Media Objects for other collections
+  @validateMedia: (media, imageType, callback)->
+    if !media?
+      callback new errors.ValidationError {"media":"Media is null."}
+      return
+    if media.mediaId? and (!media.url? or !media.thumb?) #new mediaId and no urls -> look up urls
+      #mediaId typecheck is done in one
+      Medias.one media.mediaId, (error, data)->
+        if error?
+          callback error #callback
+          return
+        else if data.length==0
+          callback new errors.ValidationError({"mediaId":"Invalid MediaId"})
+          return
+        if imageType=="square"
+          media.mediaId = data.mediaId #type objectId
+          media.thumb = data.sizes.s85
+          media.url   = data.sizes.s128
+          delete media.guid
+        else if imageType=="landscape"
+          media.mediaId = data.mediaId #type objectId
+          media.thumb = data.sizes.s100x75
+          media.url   = data.sizes.s320x240
+          delete media.guid
+        callback null, media #media found and urls set
+        return
+    else if media.guid?
+      if !media.url?
+        callback new errors.ValidationError({"media.url":"Media url (temp. url) is required when supplying guid."})
+      else if !media.thumb?
+        callback new errors.ValidationError({"media.thumb":"Media thumb (temp. url) is required when supplying guid."})
+      else
+        callback null, media
+      return
+    else if (media.url? || media.thumb?) #and !data.media.guid and !data.media.mediaId
+      callback new errors.ValidationError({"media":"Guid or MediaId is required when supplying a media.url"})
+      return
+    else
+      callback null, media #guid and urls supplied
+      return
 
   @addOrUpdate: (media, callback)->
     if Object.isString(media.entity.id)
@@ -1635,6 +3635,7 @@ class Medias extends API
     #@get {'entity.type': entityType, 'entity.id': entityId, 'media.guid': guid}, callback
 
 
+## ClientInvitations ##
 class ClientInvitations extends API
   @model = ClientInvitation
 
@@ -1669,20 +3670,37 @@ class ClientInvitations extends API
     query.remove(callback)
 
 
+## Tags ##
 class Tags extends API
   @model = Tag
 
-  @add = (name, callback)->
-    @_add {name: name}, callback
+  @add = (name, type, callback)->
+    @_add {name: name, type: type}, callback
 
-  @search = (name, callback)->
+  @addAll = (nameArr, type, callback)->
+    #callback is not required..
+    countUpdates = 0
+    for val,i in nameArr
+      @model.update {name:val, type: type}, {$inc:{count:1}}, {upsert:true,safe:true}, (error, success)->
+        if error?
+          callback error
+          return
+        if ++countUpdates == nameArr.length && Object.isFunction callback #check if done
+          callback null, countUpdates
+        return
+
+  @search = (name, type, callback)->
     re = new RegExp("^"+name+".*", 'i')
     query = @_query()
-    query.where('name', re)
+    if name? or name.isBlank()
+      query.where('name', re)
+    if type in choices.tags.types._enum
+      query.where('type', type)
     query.limit(10)
     query.exec callback
 
 
+## EventRequests ##
 class EventRequests extends API
   @model = EventRequest
 
@@ -1693,14 +3711,15 @@ class EventRequests extends API
     query.exec callback
 
   @respond: (requestId, callback)->
-    if Object.isString requestId
-      requestId = new ObjectId requestId
     $query = {_id: requestId}
-    $update = {$set: { 'date.responded': new Date()}}
+    $update =
+      $set:
+        'date.responded': new Date()
     $options = {remove: false, new: true, upsert: false}
     @model.collection.findAndModify $query, [], $update, $options, callback
 
 
+## Events ##
 class Events extends API
   @model = Event
 
@@ -1717,7 +3736,6 @@ class Events extends API
       eventId = new ObjectId eventId
     if Object.isString userId
       userId = new ObjectId userId
-
     query = {_id: eventId}
     update = {$pop: {rsvp: userId}}
     options = {remove: false, new: true, upsert: false}
@@ -1749,16 +3767,114 @@ class Events extends API
   @setTransactionError: @__setTransactionError
 
 
+## BusinessTransactions ##
 class BusinessTransactions extends API
   @model = db.BusinessTransaction
 
   @add: (data, callback)->
-    @_add data, (error, transaction)->
-      callback(error, transaction)
-      if !error?
-        if userEntity?
-          who = userEntity
-          Streams.tappedIn who, transaction
+    if Object.isString(data.organizationEntity.id)
+      data.organizationEntity.id = new ObjectId(data.organizationEntity.id)
+    if Object.isString(data.locationId)
+      data.locationId = new ObjectId(data.locationId)
+
+    timestamp = Date.create(data.timestamp)
+
+    doc = {
+      organizationEntity: {
+        type          : data.organizationEntity.type
+        id            : data.organizationEntity.id
+        name          : data.organizationEntity.name
+      }
+
+      locationId      : data.locationId
+      registerId      : data.registerId
+      barcodeId       : data.barcodeId+"" #make string
+      transactionId   : data.transactionId+"" #make string
+      date            : Date.create(timestamp)
+      time            : new Date(0,0,0, timestamp.getHours(), timestamp.getMinutes(), timestamp.getSeconds(), timestamp.getMilliseconds()) #this is for slicing by time
+      amount          : parseFloat(data.amount).round(2)
+      #donationAmount  : data.donationAmount #business don't have a donation $ or % field in db
+    }
+
+    self = this
+    async.series {
+      findConsumer: (cb)-> #find only if there was a barcode that needed to be analyzed
+        if doc.barcodeId?
+          Consumers.getByBarcodeId doc.barcodeId, (error, consumer)->
+            if error?
+              cb(error, null)
+              return
+            else if consumer?
+              doc.userEntity = {
+                type        : choices.entities.CONSUMER
+                id          : consumer._id
+                name        : "#{consumer.firstName} #{consumer.lastName}"
+                screenName  : consumer.screenName
+              }
+              cb(null)
+            else
+              cb(null) #insert the transaction anyway, it is an invalid bar code though
+              #cb(new errors.ValidationError {"DNE": "Consumer Does Not Exist"})
+        else
+          cb(null)
+
+      findOrg: (cb)-> #do 3 things, make sure org exists, get the name, get donation amount
+        if doc.organizationEntity.type is choices.entities.BUSINESS
+          Businesses.one doc.organizationEntity.id, (error, business)->
+            if error?
+              cb(error, null)
+              return
+            else if business?
+              doc.organizationEntity.name = business.publicName
+              # if doc.userEntity? #donate only if this was a goodybag user
+              #   doc.donationAmount = (business.donationPercentage * doc.amount).round(2)
+              cb(null)
+            else
+              cb(new errors.ValidationError {"DNE": "Business Does Not Exist"})
+
+      save: (cb)=> #save it and write to the statistics table
+        transactionData = {
+          amount: doc.amount
+        }
+
+        statTransaction = @createTransaction(choices.transactions.states.PENDING, choices.transactions.actions.STAT_BT_TAPPED, transactionData, choices.transactions.directions.INBOUND, instance._doc.organizationEntity)
+
+        doc.transactions = {}
+        doc.transactions.locked = false
+        doc.transactions.ids = [statTransaction.id]
+        doc.transactions.log = [statTransaction]
+
+        @model.collection.insert doc, {safe: true}, (error, bt)->
+          logger.debug error
+          logger.debug bt
+          cb error, bt[0]
+          if error?
+            return
+          if doc.userEntity?
+            who = doc.userEntity
+            tp.process(bt[0], statTransaction) #write stat to collection
+            Streams.btTapped bt[0] #NOTICE THE _doc HERE, BECAUSE !!!! #we don't care about the callback
+        return
+    }, (error, results)->
+      if error?
+        callback(error)
+      else if results.save?
+        callback(null, results.save)
+
+  @claimBarcodeId = (entity, barcodeId, callback)->
+    if Object.isString(entity.id)
+      entity.id = new ObjectId(entity.id)
+
+    barcodeId = barcodeId + ""
+    $set = {
+      userEntity: {
+        type: choices.entities.CONSUMER
+        , id: entity.id
+        , name: entity.name
+        , screenName: entity.screenName
+      }
+    }
+    @model.collection.update {barcodeId: barcodeId}, {$set: $set}, {multi:true, safe:true}, callback
 
   @byUser = (userId, options, callback)->
     if Object.isFunction options
@@ -1768,11 +3884,32 @@ class BusinessTransactions extends API
     query.where 'userEntity.id', userId
     query.exec callback
 
+  @byBarcode = (barcodeId, options, callback)->
+    if Object.isFunction options
+      callback = options
+      options = {}
+    query = @optionParser options
+    query.where 'barcodeId', barcodeId
+    query.exec callback
+
   @byBusiness = (businessId, options, callback)->
     if Object.isFunction options
       callback = options
       options = {}
     query = @optionParser options
+    query.fields [
+      "_id"
+      , "amount"
+      , "barcodeId"
+      , "date"
+      , "donationAmount"
+      , "locationId"
+      , "organizationEntity"
+      , "registerId"
+      , "time"
+      , "transactionId"
+      , "userEntity.screenName"
+    ]
     query.where 'organizationEntity.id', businessId
     if options.location?
       query.where 'locationId', options.location
@@ -1812,38 +3949,55 @@ class BusinessTransactions extends API
         "type" : "consumer"
     @model.collection.insert data, {safe: true}, callback
 
+  @setTransactonPending: @__setTransactionPending
+  @setTransactionProcessing: @__setTransactionProcessing
+  @setTransactionProcessed: @__setTransactionProcessed
+  @setTransactionError: @__setTransactionError
 
+
+## BusinessRequests ##
 class BusinessRequests extends API
   @model = BusinessRequest
 
   @add = (userId, business, callback)->
-    data =
-      userEntity:
+    data = {
+      businessName: business
+    }
+
+    if userId?
+      data.userEntity = {
         type: choices.entities.CONSUMER
         id: userId
-      businessName: business
+      }
+      data.loggedin = true
+    else
+      data.loggedin = false
+
     instance = new @model data
     instance.save callback
 
 
+## Streams ##
 class Streams extends API
   @model: Stream
 
   @add: (stream, callback)->
     model = {
-      who               : stream.who
-      by                : stream.by
-      entitiesInvolved  : stream.entitiesInvolved
-      what              : stream.what
-      when              : stream.when || new Date()
-      where             : stream.where
-      events            : stream.events
-      private           : stream.private || false #default to public
-      data              : stream.data || {}
-      feeds             : stream.feeds
+      who                : stream.who
+      by                 : stream.by
+      entitiesInvolved   : stream.entitiesInvolved
+      what               : stream.what
+      when               : stream.when || new Date()
+      where              : stream.where
+      events             : stream.events
+      private            : stream.private || false #default to public
+      data               : stream.data || {}
+      feeds              : stream.feeds
+      feedSpecificData   : stream.feedSpecificData
+      entitySpecificData : stream.entitySpecificData
       dates: {
-        created         : new Date()
-        lastModified    : new Date()
+        created           : new Date()
+        lastModified      : new Date()
       }
     }
 
@@ -1860,7 +4014,7 @@ class Streams extends API
     if Object.isString(pollDoc.createdBy.id)
       pollDoc.createdBy.id = new ObjectId(pollDoc.createdBy.id)
 
-    who = {type: pollDoc.entity.type, id: pollDoc.entity.id} #who ever created it
+    who = pollDoc.entity
     poll = {type: choices.objects.POLL, id: pollDoc._id }
     user = undefined #will be set only if document.entity is an organization and not a consumer
 
@@ -1905,7 +4059,7 @@ class Streams extends API
     if Object.isString(pollDoc.lastModifiedBy.id)
       pollDoc.lastModifiedBy.id = new ObjectId(pollDoc.lastModifiedBy.id)
 
-    who = {type: pollDoc.entity.type, id: pollDoc.entity.id} #who ever created it
+    who = pollDoc.entity
     poll = {type: choices.objects.POLL, id: pollDoc._id }
     user = undefined #will be set only if document.entity is an organization and not a consumer
 
@@ -1948,12 +4102,12 @@ class Streams extends API
     if Object.isString(pollDoc.lastModifiedBy.id)
       pollDoc.lastModifiedBy.id = new ObjectId(pollDoc.lastModifiedBy.id)
 
-    who = {type: pollDoc.entity.type, id: pollDoc.entity.id} #who ever created it
+    who = pollDoc.entity.type #who ever created it
     poll = {type: choices.objects.POLL, id: pollDoc._id }
     user = undefined #will be set only if document.entity is an organization and not a consumer
 
     if who.type is choices.entities.BUSINESS
-      user = {type: pollDoc.lastModifiedBy.type, id: pollDoc.lastModifiedBy.id}
+      user = pollDoc.lastModifiedBy
 
     stream = {
       who               : who
@@ -2015,6 +4169,168 @@ class Streams extends API
 
     @add stream, callback
 
+  @discussionCreated: (discussionDoc, callback)->
+    logger.debug discussionDoc
+    if Object.isString(discussionDoc._id)
+      discussionDoc._id = new ObjectId(discussionDoc._id)
+
+    if Object.isString(discussionDoc.entity.id)
+      discussionDoc.entity.id = new ObjectId(discussionDoc.entity.id)
+
+    if Object.isString(discussionDoc.createdBy.id)
+      discussionDoc.createdBy.id = new ObjectId(discussionDoc.createdBy.id)
+
+    who = discussionDoc.entity
+    discussion = {type: choices.objects.DISCUSSION, id: discussionDoc._id }
+    user = undefined #will be set only if document.entity is an organization and not a consumer
+
+    if who.type is choices.entities.BUSINESS
+      user = {type: discussionDoc.createdBy.type, id: discussionDoc.createdBy.id}
+
+    stream = {
+      who               : who
+      entitiesInvolved  : [who]
+      what              : discussion
+      when              : discussionDoc.dates.created
+      #where:
+      events            : [choices.eventTypes.DISCUSSION_CREATED]
+      data              : {}
+      feeds: {
+        global          : false
+      }
+    }
+
+    if user?
+      stream.by = user
+      stream.entitiesInvolved.push(user)
+
+    stream.data = {
+      discussion:{
+        name: discussionDoc.name
+      }
+    }
+
+    logger.debug stream
+
+    @add stream, callback
+
+  @discussionUpdated: (discussionDoc, callback)->
+    if Object.isString(discussionDoc._id)
+      discussionDoc._id = new ObjectId(discussionDoc._id)
+
+    if Object.isString(discussionDoc.entity.id)
+      discussionDoc.entity.id = new ObjectId(discussionDoc.entity.id)
+
+    if Object.isString(discussionDoc.lastModifiedBy.id)
+      discussionDoc.lastModifiedBy.id = new ObjectId(discussionDoc.lastModifiedBy.id)
+
+    who = discussionDoc.entity #who ever created it
+    discussion = {type: choices.objects.DISCUSSION, id: discussionDoc._id }
+    user = undefined #will be set only if document.entity is an organization and not a consumer
+
+    if who.type is choices.entities.BUSINESS
+      user = {type: discussionDoc.lastModifiedBy.type, id: discussionDoc.lastModifiedBy.id}
+
+    stream = {
+      who               : who
+      entitiesInvolved  : [who]
+      what              : discussion
+      when              : discussionDoc.dates.lastModified
+      #where:
+      events            : [choices.eventTypes.DISCUSSION_UPDATED]
+      data              : {}
+      feeds: {
+        global          : false
+      }
+    }
+
+    if user?
+      stream.by = user
+      stream.entitiesInvolved.push(user)
+
+    stream.data = {
+      discussion:{
+        name: discussionDoc.name
+      }
+    }
+
+    @add stream, callback
+
+  @discussionDeleted: (discussionDoc, callback)->
+    if Object.isString(discussionDoc._id)
+      discussionDoc._id = new ObjectId(discussionDoc._id)
+
+    if Object.isString(discussionDoc.entity.id)
+      discussionDoc.entity.id = new ObjectId(discussionDoc.entity.id)
+
+    if Object.isString(discussionDoc.lastModifiedBy.id)
+      discussionDoc.lastModifiedBy.id = new ObjectId(discussionDoc.lastModifiedBy.id)
+
+    who = discussionDoc.entity #who ever created it
+    discussion = {type: choices.objects.DISCUSSION, id: discussionDoc._id }
+    user = undefined #will be set only if document.entity is an organization and not a consumer
+
+    if who.type is choices.entities.BUSINESS
+      user = {type: discussionDoc.lastModifiedBy.type, id: discussionDoc.lastModifiedBy.id}
+
+    stream = {
+      who               : who
+      entitiesInvolved  : [who]
+      what              : discussion
+      when              : discussionDoc.dates.lastModified
+      #where:
+      events            : [choices.eventTypes.DISCUSSION_DELETED]
+      data              : {}
+      feeds: {
+        global          : false
+      }
+    }
+
+    if user?
+      stream.by = user
+      stream.entitiesInvolved.push(user)
+
+    stream.data = {
+      discussion:{
+        name: discussionDoc.name
+      }
+    }
+
+    @add stream, callback
+
+  @discussionAnswered: (who, timestamp, discussionDoc, callback)->
+    if Object.isString(who.id)
+      who.id = new ObjectId(who.id)
+
+    if Object.isString(discussionDoc._id)
+      discussionDoc._id = new ObjectId(discussionDoc._id)
+
+    if Object.isString(discussionDoc.entity.id)
+      discussionDoc.entity.id = new ObjectId(discussionDoc.entity.id)
+
+    discussion = {type: choices.objects.DISCUSSION, id: discussionDoc._id }
+
+    stream = {
+      who               : who
+      entitiesInvolved  : [who, discussionDoc.entity]
+      what              : discussion
+      when              : timestamp
+      #where:
+      events            : [choices.eventTypes.DISCUSSION_ANSWERED]
+      data              : {}
+      feeds: {
+        global          : false
+      }
+    }
+
+    stream.data = {
+      discussion:{
+        name: discussionDoc.name
+      }
+    }
+
+    @add stream, callback
+
   @eventRsvped: (who, eventDoc, callback)->
     if Object.isString(who.id)
       who.id = new ObjectId(who.id)
@@ -2030,7 +4346,6 @@ class Streams extends API
       feeds: {
         global          : true
       }
-      private: false #THIS NEEDS TO BE UPDATED BASED ON PRIVACY SETTINGS OF WHO (if consumer)
     }
 
     stream.data = {
@@ -2045,6 +4360,46 @@ class Streams extends API
         }
       }
     }
+
+    @add stream, callback
+
+  @btTapped: (btDoc, callback)->
+    if Object.isString(btDoc._id)
+      btDoc._id = new ObjectId(btDoc._id)
+    if Object.isString(btDoc.userEntity.id)
+      btDoc.userEntity.id = new ObjectId(btDoc.userEntity.id)
+    if Object.isString(btDoc.organizationEntity.id)
+      btDoc.organizationEntity.id = new ObjectId(btDoc.organizationEntity.id)
+
+    tapIn = {type: choices.objects.TAPIN, id: btDoc._id}
+    who = btDoc.userEntity
+
+    stream = {
+      who               : who
+      entitiesInvolved  : [who, btDoc.organizationEntity]
+      what              : tapIn
+      when              : btDoc.date
+
+      where: {
+        org             : btDoc.organizationEntity
+        locationId      : btDoc.locationId
+      }
+
+      events            : [choices.eventTypes.BT_TAPPED]
+      data              : {}
+
+      feeds: {
+        global          : true #unless a user's preferences are do that
+      }
+    }
+
+    stream.feedSpecificData = {}
+    stream.feedSpecificData.involved = { #available only to entities involved
+      amount: btDoc.amount
+      donationAmount: btDoc.donationAmount
+    }
+
+    logger.debug(stream)
 
     @add stream, callback
   ###
@@ -2101,6 +4456,18 @@ class Streams extends API
     query = @optionParser(options)
     query.where "feeds.global", true
     query.sort "dates.lastModified", -1
+    query.fields [
+      "who.type"
+      , "who.name"
+      , "who.id"
+      , "by"
+      , "what"
+      , "when"
+      , "where"
+      , "events"
+      , "dates"
+      , "data"
+    ]
     query.exec callback
 
   @business: (businessId, options, callback)->
@@ -2108,18 +4475,20 @@ class Streams extends API
     query.sort "dates.lastModified", -1
     query.where "entitiesInvolved.type", choices.entities.BUSINESS
     query.where "entitiesInvolved.id", businessId
-    query.fields [
-      "who.type"
-      , "who.screenName"
-      , "by"
-      , "what"
-      , "when"
-      , "where"
-      , "events"
-      , "feeds"
-      , "dates"
-      , "data"
-    ]
+    query.only {
+      "who.type": 1
+      , "who.screenName": 1
+      , "by": 1
+      , "what": 1
+      , "when": 1
+      , "where": 1
+      , "events": 1
+      , "dates": 1
+      , "data": 1
+      , "feedSpecificData.involved": 1
+      , "_id": 0
+      , "id": 0
+    }
     query.exec callback
 
   @businessWithConsumerByScreenName: (businessId, screenName, options, callback)->
@@ -2138,6 +4507,7 @@ class Streams extends API
       , "events"
       , "dates"
       , "data"
+      , "feedSpecificData.involved"
     ]
     query.exec callback
 
@@ -2146,6 +4516,19 @@ class Streams extends API
     query.sort "dates.lastModified", -1
     query.where "who.type", choices.entities.CONSUMER
     query.where "who.id", consumerId
+    query.fields [
+      "who.type"
+      , "who.name"
+      , "who.id"
+      , "by"
+      , "what"
+      , "when"
+      , "where"
+      , "events"
+      , "dates"
+      , "data"
+      , "feedSpecificData.involved"
+    ]
     query.exec callback
 
   @getLatest: (entity, limit, offset, callback)->
@@ -2182,56 +4565,37 @@ class Streams extends API
           return
         callback error, {activities: activities, consumers: consumers}
 
-
 class PasswordResetRequests extends API
   @model: PasswordResetRequest
 
-  @consume: (id, callback)->
-    if Object.isString(id)
-      id = new ObjectId(id)
-
-    query = {_id: id}
-    update = {$set: {consumed: true}}
-    options = {remove: false, new: true, upsert: false}
-    @model.collection.findAndModify query, [], update, options, (error, request)->
-      if error?
-        callback error
-        return
-      if !request?
-        callback new errors.ValidationError {"_id": "_id does not exist"}
-        return
-      if request?
-        callback error, request
-      return
-
-  @pending: (key, callback)->
-    minutes = new Date().getMinutes()
-    minutes -= globals.defaults.passwordResets.keyLife
-    date = new Date()
-    date.setMinutes minutes
-    options =
-      key: key
-      date: {$gt: date}
-      consumed: false
-    @model.findOne options, callback
+  @update: (id, doc, dbOptions, callback)->
+    if Object.isString id
+      id = new ObjectId id
+    if Object.isFunction dbOptions
+      callback = dbOptions
+      dbOptions = {safe:true}
+    #id typecheck is done in .update
+    where = {_id:id}
+    @model.update where, doc, dbOptions, callback
+    return
 
   @add: (type, email, callback)->
     # determine user type
     if type == choices.entities.CONSUMER
-      userModel = Consumers.model
+      UserClass = Consumers
     else if type == choices.entities.CLIENT
-      userModel = Clients.model
+      UserClass = Clients
     else
-      callback new errors.ValidationError {
-        "type": "Not a valid entity type."
-      }
+      callback new errors.ValidationError {"type": "Not a valid entity type."}
       return
       # find the user
-    userModel.findOne {email: email}, (error, user)=>
+    UserClass.getByEmail email, {_id:1,"facebook.id":1}, (error, user)=>
       if error?
         callback error
         return
       #found the user now submit the request
+      if user.facebook? && user.facebook.id?
+        callback new errors.ValidationError "Your account is authenticated through Facebook.", {"user":"facebookuser"} #do not update this error without updating the frontend javascript
       request =
         entity:
           type: type
@@ -2239,8 +4603,57 @@ class PasswordResetRequests extends API
         key: hashlib.md5(globals.secretWord+email+(new Date().toString()))
       instance = new @model request
       instance.save callback
+      return
+    return
 
+  @pending: (key, callback)->
+    date = (new Date()).addMinutes(0 - globals.defaults.passwordResets.keyLife);
+    where =
+      key: key
+      date: {$gt: date}
+      consumed: false
+    @model.findOne where, callback
+    return
 
+  @consume: (key, newPassword, callback)->
+    self = this
+    if Object.isString(id)
+      id = new ObjectId(id)
+    self.pending key, (error, resetRequest)->
+      if error?
+        callback error
+        return
+      if !resetRequest?
+        callback new errors.ValidationError "The password-reset key is invalid, expired or already used.", {"key":"invalid, expired,or used"}
+        return
+      #key found and active.
+      switch resetRequest.entity.type
+        when choices.entities.CONSUMER
+          userClass = Consumers
+        when choices.entities.CLIENT
+          userClass = Clients
+        else
+          callback new errors.ValidationError {"type": "Not a valid entity type."}
+
+      userClass._updatePasswordHelper resetRequest.entity.id, newPassword, (error, count)->
+        if error?
+          callback error
+          return
+        #password update success
+        success = count>0 #true
+        callback null, success #respond to the user, well clear the request after.
+        # Change the status of the request
+        self.update resetRequest._id, {$set:{consumed:true}}, (error)->
+          if error?
+            logger.error error
+            return
+          #consumer request success
+          return
+        return
+      return
+    return
+
+## Statistics ##
 class Statistics extends API
   @model: Statistic
 
@@ -2315,11 +4728,15 @@ class Statistics extends API
 
   @eventRsvped: (org, consumerId, transactionId, timestamp, callback)->
 
-  @tapedIn: (org, consumerId, transactionId, spent, timestamp, callback)->
-    query = @queryOne()
-    query.where("org.type", org.type)
-    query.where("org.id", org.id)
-    query.where("consumerId", consumerId)
+  @btTapped: (org, consumerId, transactionId, spent, timestamp, callback)->
+    if Object.isString(org.id)
+      org.id = new ObjectId(org.id)
+
+    if Object.isString(consumerId)
+      consumerId = new ObjectId(consumerId)
+
+    if Object.isString(transactionId)
+      transactionId = new ObjectId(transactionId)
 
     $inc = {}
     $inc["data.tapIns.totalTapIns"] = 1
@@ -2337,7 +4754,7 @@ class Statistics extends API
       $push: $push
     }
 
-    query.update {$inc: $inc, $set: $set}, callback
+    @model.collection.update {org: org, consumerId: consumerId}, $update, {safe: true, upsert: true }, callback
     return
 
   @_inc: (org, consumerId, field, value, callback)->
@@ -2362,20 +4779,98 @@ class Statistics extends API
   @setTransactionProcessed: @__setTransactionProcessed
   @setTransactionError: @__setTransactionError
 
+class Referrals extends API
+  @model = Referral
 
-exports.Clients = Clients
+  @addUserLink: (entity, link, code, callback )->
+    doc = {
+      _id: new ObjectId()
+      type: choices.referrals.types.LINK
+      entity: {
+        type: entity.type
+        id: entity.id
+      }
+      incentives: {referrer: defaults.referrals.incentives.referrers.USER, referred: defaults.referrals.incentives.referreds.USER}
+      link: {
+        code: code
+        url:  link
+        type: choices.referrals.links.types.USER
+        visits: 0
+      }
+      signups: 0
+      referredUsers: []
+    }
+
+    @model.collection.insert(doc, {safe: true}, callback)
+
+  @addTapInLink: (entity, link, code, callback)->
+    doc = {
+      _id: new ObjectId()
+      type: choices.referrals.types.LINK
+      entity: {
+        type: entity.type
+        id: entity.id
+      }
+      incentives: {referrer: defaults.referrals.incentives.referrers.TAP_IN, referred: defaults.referrals.incentives.referreds.TAP_IN}
+      link: {
+        code: code
+        url:  link
+        type: choices.referrals.links.types.TAPIN
+        visits: 0
+      }
+      signups: 0
+      referredUsers: []
+    }
+
+    @model.collection.insert(doc, {safe: true}, callback)
+
+  @signUp: (code, referredEntity, callback)->
+    $update = {
+      $inc: {signups: 1}
+      $push: {referredUsers: referredEntity}
+    }
+
+    $fields = {_id: 1, entity: 1, incentives: 1}
+
+    logger.info "code: " + code
+    @model.collection.findAndModify {"link.code": code}, [], $update, {safe: true, new: true, fields: $fields}, (error, doc)->
+      if error?
+        if callback?
+          callback(error)
+        return
+      else
+        logger.debug doc
+        referralFound = doc?
+        if callback?
+          callback(null, referralFound)
+        #deposit money into the referred's account
+        if doc.entity.type is choices.entities.CONSUMER
+          Consumers.addFunds(referredEntity.id, doc.incentives.referred)
+        else if choices.entities.BUSINESS
+          Businesses.addFunds(referredEntity.id, doc.incentives.referred)
+
+        #deposit money into the referrer's account
+        if doc.entity.type is choices.entities.CONSUMER
+          Consumers.addFunds(doc.entity.id, doc.incentives.referrer)
+        else if choices.entities.BUSINESS
+          Businesses.addFunds(doc.entity.id, doc.incentives.referrer)
+
+
+exports.DBTransactions = DBTransactions
 exports.Consumers = Consumers
+exports.Clients = Clients
 exports.Businesses = Businesses
-exports.Medias = Medias
 exports.Polls = Polls
 exports.Discussions = Discussions
-exports.Responses = Responses
+exports.Medias = Medias
 exports.ClientInvitations = ClientInvitations
 exports.Tags = Tags
 exports.EventRequests = EventRequests
 exports.Events = Events
-exports.Streams = Streams
 exports.BusinessTransactions = BusinessTransactions
 exports.BusinessRequests = BusinessRequests
-exports.PasswordResetRequests = PasswordResetRequests
+exports.Streams = Streams
 exports.Statistics = Statistics
+exports.Organizations = Organizations
+exports.PasswordResetRequests = PasswordResetRequests
+exports.Referrals = Referrals
