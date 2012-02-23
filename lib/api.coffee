@@ -2130,13 +2130,12 @@ class Businesses extends API
 
     @model.collection.update {_id: id}, $update, {safe: true}, callback
 
-  @newRegister = (businessId, locationId, callback)->
+  @addRegister = (businessId, locationId, callback)->
     if Object.isString businessId
       businessId = new ObjectId businessId
-    if Object.isObject locationId
-      locationId = locationId.toString()
-    registerId = new ObjectId().toString()
+    registerId = new ObjectId()
 
+    $query = {_id: businessId}
     $set = {registers: {}}
     $push = {locRegister: {}}
     $set.registers[registerId] = {}
@@ -2145,11 +2144,25 @@ class Businesses extends API
 
     $set = @_flattenDoc $set
     $push = @_flattenDoc $push
+    $update = {$set: $set, $push: $push}
 
-    query = @_query()
-    query.where '_id', businessId
-    query.update {$set: $set, $push: $push}, (error)->
-      callback error, registerId
+    @model.collection.findAndModify $query, [], $update, {safe: false, new: true}, (error, business)->
+      callback error, {registerId: registerId, business: business}
+
+  @delRegister = (businessId, locationId, registerId, callback)->
+    if Object.isString businessId
+      businessId = new ObjectId businessId
+
+
+    $query = {_id: businessId}
+    $unset = {}
+    $pull = {}
+    $unset["registers.#{registerId}"] = 1
+    $pull["locRegister.#{locationId}"] = registerId
+    $update = {$unset: $unset, $pull: $pull}
+
+    @model.collection.findAndModify $query, [], $update, {safe: false, new: true}, callback
+
 
 class Organizations extends API
   @model = Organization
