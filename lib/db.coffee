@@ -218,6 +218,7 @@ Consumer = new Schema {
   media           : media
   secureMedia     : media
   tapinsToFacebook: {type: Boolean, default: false}
+  changeEmail   : {}
 
   facebook: {
     access_token  : {type: String}
@@ -271,6 +272,7 @@ Consumer = new Schema {
 
   gbAdmin         : {type: Boolean, default: false}
   transactions    : transactions
+  changeEmail     : {}
 }
 
 Consumer.index {barcodeId: 1}, {unique: true, sparse: true} #sparse because we allow for null/non-existant values
@@ -322,6 +324,9 @@ Business = new Schema {
     phone       : {type: String, required: true}
     fax         : {type: String}
   }
+
+  registers     : {} # {registerId: {location: locationId, ...}}
+  locRegister   : {} # {locationId: [registerId]}
 
   locations     : [Location]
 

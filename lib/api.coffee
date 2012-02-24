@@ -664,10 +664,8 @@ class Users extends API
               cb(error)
               return
             else if client?
-              for own k,v of data
-                client[k] = v
-              client.save callback
-              cb(null)
+              set = data
+              self.update id, {$set:set}, callback
               return
             else #!client?
               e = new errors.ValidationError "Incorrect password.",{'password':"Incorrect Password"} #invalid login error
@@ -678,6 +676,23 @@ class Users extends API
       },
       (error, results)->
         return
+    return
+
+  @updateWithFacebookAuthNonce: (id, facebookAccessToken, facebookAuthNonce, data, callback)->
+    self = this
+    url = '/oauth/access_token_info'
+    options = {
+      client_id:configs.facebook.appId
+    }
+    fb.get url, facebookAccessToken, options, (error, accessTokenInfo)->
+      #we don't care if the nonce has been used or not..
+      #verify that the nonce from FB matches the nonce from the user..
+      if(accessTokenInfo.auth_nonce != facebookAuthNonce)
+        callback new errors.ValidationError('Facebook authentication error.', {'Auth Nonce':'Incorrect.'})
+      else
+        set = data
+        self.update id, {$set:set}, callback
+      return
     return
 
   @updateMedia: (id, media, callback)->
@@ -812,6 +827,8 @@ class Users extends API
 
   #@updateEmail
   @updateEmailRequest: (id, password, newEmail, callback)->
+    logger.debug "###### ID ######"
+    logger.debug id
     #id typecheck is done in @update
     @getByEmail newEmail, (error, user)->
       if error?
@@ -819,9 +836,9 @@ class Users extends API
         return
       if user?
         if id == user._id
-          callback new errors.ValidationError({"email":"That is your current email"})
+          callback new errors.ValidationError("That is your current email",{"email":"That is your current email"})
         else
-          callback new errors.ValidationError({"email":"Another user is already using this email"}) #email exists error
+          callback new errors.ValidationError("Another user is already using this email",{"email":"Another user is already using this email"}) #email exists error
         return
     data = {}
     data.changeEmail =
@@ -832,11 +849,37 @@ class Users extends API
       if count==0
         callback new errors.ValidationError({"password":"Incorrect password."}) #assuming id is correct..
         return
-      callback error, count>0
+      #success or error..
+      callback error, data.changeEmail
       return
     return
 
-  @updateEmailConfirm: (key, callback)->
+  @updateFBEmailRequest: (id, facebookAccessToken, facebookAuthNonce, newEmail, callback)->
+    #id typecheck is done in @update
+    @getByEmail newEmail, (error, user)->
+      if error?
+        callback error
+        return
+      if user?
+        if id == user._id
+          callback new errors.ValidationError("That is your current email",{"email":"That is your current email"})
+        else
+          callback new errors.ValidationError("Another user is already using this email",{"email":"Another user is already using this email"}) #email exists error
+        return
+    data = {}
+    data.changeEmail =
+      newEmail: newEmail
+      key: hashlib.md5(globals.secretWord + newEmail+(new Date().toString()))+'-'+generatePassword(12, false, /\d/)
+      expirationDate: Date.create("next week")
+    @updateWithFacebookAuthNonce id, facebookAccessToken, facebookAuthNonce, data, (error, count)-> #error,count
+      if error
+        callback error
+      #success..
+      callback error, data.changeEmail
+      return
+    return
+
+  @updateEmailComplete: (key, callback)->
     query = @_query()
     query.where('changeEmail.key', key)
     query.fields("changeEmail")
@@ -848,6 +891,7 @@ class Users extends API
         callback new errors.ValidationError({"key":"Invalid key, expired or already used."})
         return
       #user found
+      user = user._doc
       if(new Date()>user.changeEmail.expirationDate)
         callback new errors.ValidationError({"key":"Key expired."})
         query.update {$set:{changeEmail:null}}, (error, success)->
@@ -855,13 +899,15 @@ class Users extends API
         return
       query.update {$set:{email:user.changeEmail.newEmail, changeEmail:null}}, (error, count)->
         if error?
-          callback error #dberror
+          if error.code is 11000
+            callback new errors.ValidationError "Email Already Exists", {"email": "Email Already Exists"} #email exists error
+          else
+            callback error #dberror
           return
-        callback null, count>0
+        callback null, user.changeEmail.newEmail
         return
       return
     return
-
 
 class Consumers extends Users
   @model = Consumer
@@ -1750,7 +1796,6 @@ class Clients extends API
   @updateEmail: (id, password, newEmail, callback)->
     if(Object.isString(id))
       id = new ObjectId(id)
-
     async.parallel {
       validatePassword: (cb)->
         Clients.validatePassword id, password, (error, success)->
@@ -2142,6 +2187,40 @@ class Businesses extends API
     query["registers.#{registerId}.locationId"] = locationId
 
     @model.collection.findOne query, {_id: 1, publicName: 1}, callback
+
+  @addRegister = (businessId, locationId, callback)->
+    if Object.isString businessId
+      businessId = new ObjectId businessId
+    registerId = new ObjectId()
+
+    $query = {_id: businessId}
+    $set = {registers: {}}
+    $push = {locRegister: {}}
+    $set.registers[registerId] = {}
+    $set.registers[registerId].location = locationId
+    $push.locRegister[locationId] = registerId
+
+    $set = @_flattenDoc $set
+    $push = @_flattenDoc $push
+    $update = {$set: $set, $push: $push}
+
+    @model.collection.findAndModify $query, [], $update, {safe: false, new: true}, (error, business)->
+      callback error, {registerId: registerId, business: business}
+
+  @delRegister = (businessId, locationId, registerId, callback)->
+    if Object.isString businessId
+      businessId = new ObjectId businessId
+
+
+    $query = {_id: businessId}
+    $unset = {}
+    $pull = {}
+    $unset["registers.#{registerId}"] = 1
+    $pull["locRegister.#{locationId}"] = registerId
+    $update = {$unset: $unset, $pull: $pull}
+
+    @model.collection.findAndModify $query, [], $update, {safe: false, new: true}, callback
+
 
 class Organizations extends API
   @model = Organization
@@ -3719,12 +3798,16 @@ class EventRequests extends API
   @model = EventRequest
 
   @requestsPending: (businessId, callback)->
+    if Object.isString businessId
+      businessId = new ObjectId businessId
     query = @_query()
     query.where 'organizationEntity.id', businessId
     query.where('date.responded').exists false
     query.exec callback
 
   @respond: (requestId, callback)->
+    if Object.isString requestId
+      requestId = new ObjectId requestId
     $query = {_id: requestId}
     $update =
       $set:
