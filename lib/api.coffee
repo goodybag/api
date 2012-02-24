@@ -3888,13 +3888,13 @@ class BusinessTransactions extends API
 
       locationId      : data.locationId
       registerId      : data.registerId
-      barcodeId       : data.barcodeId+"" #make string
-      transactionId   : data.transactionId+"" #make string
+      barcodeId       : if !utils.isBlank(data.barcodeId) then data.barcodeId+"" else undefined #make string
+      transactionId   : if !utils.isBlank(data.transactionId) then data.transactionId+"" else undefined #make string
       date            : Date.create(timestamp)
       time            : new Date(0,0,0, timestamp.getHours(), timestamp.getMinutes(), timestamp.getSeconds(), timestamp.getMilliseconds()) #this is for slicing by time
-      amount          : parseFloat(data.amount).round(2)
-      receipt         : if data.receipt? then new Binary(data.receipt) else undefined
-      hasReceipt      : if data.receipt? then true else false
+      amount          : if data.amount? then parseFloat(data.amount).round(2) else undefined
+      receipt         : if !utils.isBlank(data.receipt) then new Binary(data.receipt) else undefined
+      hasReceipt      : if !utils.isBlank(data.receipt) then true else false
       #donationAmount  : data.donationAmount #business don't have a donation $ or % field in db
     }
 
@@ -3982,7 +3982,7 @@ class BusinessTransactions extends API
   @associateReceipt: (id, receipt, callback)->
     if Object.isString(id)
       id = new ObjectId(id)
-    @model.collection.update {_id: id, hasReceipt: false}, {$set: {receipt: receipt, hasReceipt: true}}, {safe: true}, callback
+    @model.collection.update {_id: id, hasReceipt: false}, {$set: {receipt: new Binary(receipt), hasReceipt: true}}, {safe: true}, callback
     return
 
   @claimBarcodeId: (entity, barcodeId, callback)->
