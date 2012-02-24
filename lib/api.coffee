@@ -25,6 +25,7 @@ fb = globals.facebook
 urlShortner = globals.urlShortner
 
 ObjectId = globals.mongoose.Types.ObjectId
+Binary = globals.mongoose.mongo.BSONPure.Binary
 
 DBTransaction = db.DBTransaction
 Sequence = db.Sequence
@@ -663,12 +664,8 @@ class Users extends API
               cb(error)
               return
             else if client?
-              logger.debug "##### POOOP"
-              logger.debug data
-              for own k,v of data
-                client[k] = v
-              client.save callback
-              cb(null)
+              set = data
+              self.update id, {$set:set}, callback
               return
             else #!client?
               e = new errors.ValidationError "Incorrect password.",{'password':"Incorrect Password"} #invalid login error
@@ -679,6 +676,23 @@ class Users extends API
       },
       (error, results)->
         return
+    return
+
+  @updateWithFacebookAuthNonce: (id, facebookAccessToken, facebookAuthNonce, data, callback)->
+    self = this
+    url = '/oauth/access_token_info'
+    options = {
+      client_id:configs.facebook.appId
+    }
+    fb.get url, facebookAccessToken, options, (error, accessTokenInfo)->
+      #we don't care if the nonce has been used or not..
+      #verify that the nonce from FB matches the nonce from the user..
+      if(accessTokenInfo.auth_nonce != facebookAuthNonce)
+        callback new errors.ValidationError('Facebook authentication error.', {'Auth Nonce':'Incorrect.'})
+      else
+        set = data
+        self.update id, {$set:set}, callback
+      return
     return
 
   @updateMedia: (id, media, callback)->
@@ -822,9 +836,9 @@ class Users extends API
         return
       if user?
         if id == user._id
-          callback new errors.ValidationError({"email":"That is your current email"})
+          callback new errors.ValidationError("That is your current email",{"email":"That is your current email"})
         else
-          callback new errors.ValidationError({"email":"Another user is already using this email"}) #email exists error
+          callback new errors.ValidationError("Another user is already using this email",{"email":"Another user is already using this email"}) #email exists error
         return
     data = {}
     data.changeEmail =
@@ -835,11 +849,37 @@ class Users extends API
       if count==0
         callback new errors.ValidationError({"password":"Incorrect password."}) #assuming id is correct..
         return
+      #success or error..
       callback error, data.changeEmail
       return
     return
 
-  @updateEmailConfirm: (key, callback)->
+  @updateFBEmailRequest: (id, facebookAccessToken, facebookAuthNonce, newEmail, callback)->
+    #id typecheck is done in @update
+    @getByEmail newEmail, (error, user)->
+      if error?
+        callback error
+        return
+      if user?
+        if id == user._id
+          callback new errors.ValidationError("That is your current email",{"email":"That is your current email"})
+        else
+          callback new errors.ValidationError("Another user is already using this email",{"email":"Another user is already using this email"}) #email exists error
+        return
+    data = {}
+    data.changeEmail =
+      newEmail: newEmail
+      key: hashlib.md5(globals.secretWord + newEmail+(new Date().toString()))+'-'+generatePassword(12, false, /\d/)
+      expirationDate: Date.create("next week")
+    @updateWithFacebookAuthNonce id, facebookAccessToken, facebookAuthNonce, data, (error, count)-> #error,count
+      if error
+        callback error
+      #success..
+      callback error, data.changeEmail
+      return
+    return
+
+  @updateEmailComplete: (key, callback)->
     query = @_query()
     query.where('changeEmail.key', key)
     query.fields("changeEmail")
@@ -851,6 +891,7 @@ class Users extends API
         callback new errors.ValidationError({"key":"Invalid key, expired or already used."})
         return
       #user found
+      user = user._doc
       if(new Date()>user.changeEmail.expirationDate)
         callback new errors.ValidationError({"key":"Key expired."})
         query.update {$set:{changeEmail:null}}, (error, success)->
@@ -858,13 +899,15 @@ class Users extends API
         return
       query.update {$set:{email:user.changeEmail.newEmail, changeEmail:null}}, (error, count)->
         if error?
-          callback error #dberror
+          if error.code is 11000
+            callback new errors.ValidationError "Email Already Exists", {"email": "Email Already Exists"} #email exists error
+          else
+            callback error #dberror
           return
-        callback null, count>0
+        callback null, user.changeEmail.newEmail
         return
       return
     return
-
 
 class Consumers extends Users
   @model = Consumer
@@ -2131,6 +2174,22 @@ class Businesses extends API
     $update = {$inc: {"funds.remaining": amount, "funds.allocated": amount} }
 
     @model.collection.update {_id: id}, $update, {safe: true}, callback
+
+  @validateTransactionEntity: (businessId, locationId, registerId, callback)->
+    if Object.isString(businessId)
+      businessId = new ObjectId(businessId)
+    if Object.isString(locationId)
+      locationId = new ObjectId(locationId)
+    if Object.isString(registerId)
+      registerId = new ObjectId(registerId)
+
+    query = {}
+    query["_id"] = businessId
+    query["locRegister.#{locationId}"] = registerId
+    query["registers.#{registerId}.location"] = locationId.toString()
+    #query["registers.#{registerId}.locationId"] = locationId #SHOULD BE THIS, BUT TEMPORARILY USE ABOVE CAUSE CODE NEEDS A FIXIN'
+
+    @model.collection.findOne query, {_id: 1, publicName: 1}, callback
 
   @addRegister = (businessId, locationId, callback)->
     if Object.isString businessId
@@ -3818,6 +3877,8 @@ class BusinessTransactions extends API
       data.organizationEntity.id = new ObjectId(data.organizationEntity.id)
     if Object.isString(data.locationId)
       data.locationId = new ObjectId(data.locationId)
+    if Object.isString(data.registerId)
+      data.registerId = new ObjectId(data.registerId)
 
     timestamp = Date.create(data.timestamp)
 
@@ -3830,11 +3891,13 @@ class BusinessTransactions extends API
 
       locationId      : data.locationId
       registerId      : data.registerId
-      barcodeId       : data.barcodeId+"" #make string
-      transactionId   : data.transactionId+"" #make string
+      barcodeId       : if !utils.isBlank(data.barcodeId) then data.barcodeId+"" else undefined #make string
+      transactionId   : if !utils.isBlank(data.transactionId) then data.transactionId+"" else undefined #make string
       date            : Date.create(timestamp)
       time            : new Date(0,0,0, timestamp.getHours(), timestamp.getMinutes(), timestamp.getSeconds(), timestamp.getMilliseconds()) #this is for slicing by time
-      amount          : parseFloat(data.amount).round(2)
+      amount          : if data.amount? then parseFloat(data.amount).round(2) else undefined
+      receipt         : if !utils.isBlank(data.receipt) then new Binary(data.receipt) else undefined
+      hasReceipt      : if !utils.isBlank(data.receipt) then true else false
       #donationAmount  : data.donationAmount #business don't have a donation $ or % field in db
     }
 
@@ -3855,14 +3918,14 @@ class BusinessTransactions extends API
               }
               cb(null)
             else
-              cb(null) #insert the transaction anyway, it is an invalid bar code though
+              cb(null) #insert the transaction anyway, it is an invalid or unassigned bar code though
               #cb(new errors.ValidationError {"DNE": "Consumer Does Not Exist"})
         else
           cb(null)
 
       findOrg: (cb)-> #do 3 things, make sure org exists, get the name, get donation amount
         if doc.organizationEntity.type is choices.entities.BUSINESS
-          Businesses.one doc.organizationEntity.id, (error, business)->
+          Businesses.validateTransactionEntity doc.organizationEntity.id, doc.locationId, doc.registerId, (error, business)->
             if error?
               cb(error, null)
               return
@@ -3879,7 +3942,7 @@ class BusinessTransactions extends API
           amount: doc.amount
         }
 
-        statTransaction = @createTransaction(choices.transactions.states.PENDING, choices.transactions.actions.STAT_BT_TAPPED, transactionData, choices.transactions.directions.INBOUND, instance._doc.organizationEntity)
+        statTransaction = @createTransaction(choices.transactions.states.PENDING, choices.transactions.actions.STAT_BT_TAPPED, transactionData, choices.transactions.directions.INBOUND, doc.organizationEntity)
 
         doc.transactions = {}
         doc.transactions.locked = false
@@ -3887,23 +3950,45 @@ class BusinessTransactions extends API
         doc.transactions.log = [statTransaction]
 
         @model.collection.insert doc, {safe: true}, (error, bt)->
-          logger.debug error
-          logger.debug bt
-          cb error, bt[0]
+          bt = bt[0]
           if error?
+            cb(error)
             return
           if doc.userEntity?
-            who = doc.userEntity
-            tp.process(bt[0], statTransaction) #write stat to collection
-            Streams.btTapped bt[0] #NOTICE THE _doc HERE, BECAUSE !!!! #we don't care about the callback
-        return
+            cb(null, true) #success
+            tp.process(bt, statTransaction) #write stat to collection
+            Streams.btTapped bt #we don't care about the callback for this stream function
+            return
+          else
+            cb(null, true) #success
+            return
+          return
     }, (error, results)->
       if error?
         callback(error)
+        return
       else if results.save?
-        callback(null, results.save)
+        callback(null)
+        return
 
-  @claimBarcodeId = (entity, barcodeId, callback)->
+  @findOneRecentTapIn: (businessId, locationId, registerId, callback)->
+    if Object.isString(businessId)
+      businessId = new ObjectId(businessId)
+    if Object.isString(locationId)
+      locationId = new ObjectId(locationId)
+    if Object.isString(registerId)
+      registerId = new ObjectId(registerId)
+
+    @model.collection.findOne {"organizationEntity.id": businessId, locationId: locationId, registerId: registerId}, {sort: {date: -1}}, callback
+    return
+
+  @associateReceipt: (id, receipt, callback)->
+    if Object.isString(id)
+      id = new ObjectId(id)
+    @model.collection.update {_id: id, hasReceipt: false}, {$set: {receipt: new Binary(receipt), hasReceipt: true}}, {safe: true}, callback
+    return
+
+  @claimBarcodeId: (entity, barcodeId, callback)->
     if Object.isString(entity.id)
       entity.id = new ObjectId(entity.id)
 
@@ -3917,8 +4002,9 @@ class BusinessTransactions extends API
       }
     }
     @model.collection.update {barcodeId: barcodeId}, {$set: $set}, {multi:true, safe:true}, callback
+    return
 
-  @byUser = (userId, options, callback)->
+  @byUser: (userId, options, callback)->
     if Object.isFunction options
       callback = options
       options = {}
@@ -3926,7 +4012,7 @@ class BusinessTransactions extends API
     query.where 'userEntity.id', userId
     query.exec callback
 
-  @byBarcode = (barcodeId, options, callback)->
+  @byBarcode: (barcodeId, options, callback)->
     if Object.isFunction options
       callback = options
       options = {}
@@ -3934,7 +4020,7 @@ class BusinessTransactions extends API
     query.where 'barcodeId', barcodeId
     query.exec callback
 
-  @byBusiness = (businessId, options, callback)->
+  @byBusiness: (businessId, options, callback)->
     if Object.isFunction options
       callback = options
       options = {}
@@ -3958,7 +4044,7 @@ class BusinessTransactions extends API
     logger.info options
     query.exec callback
 
-  @byBusinessGbCostumers = (businessId, options, callback)->
+  @byBusinessGbCostumers: (businessId, options, callback)->
     if Object.isFunction options
       callback = options
       options = {}
@@ -3973,7 +4059,7 @@ class BusinessTransactions extends API
       query.where 'locationId', options.location
     query.exec callback
 
-  @test = (callback)->
+  @test: (callback)->
     data =
       "barcodeId" : "aldkfjs12lsdfl12lskdjf"
       "registerId" : "asdlf3jljsdlfoiuwirljf"
