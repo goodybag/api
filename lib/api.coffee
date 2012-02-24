@@ -663,10 +663,8 @@ class Users extends API
               cb(error)
               return
             else if client?
-              for own k,v of data
-                client[k] = v
-              client.save callback
-              cb(null)
+              set = data
+              self.update id, {$set:set}, callback
               return
             else #!client?
               e = new errors.ValidationError "Incorrect password.",{'password':"Incorrect Password"} #invalid login error
@@ -677,6 +675,23 @@ class Users extends API
       },
       (error, results)->
         return
+    return
+
+  @updateWithFacebookAuthNonce: (id, facebookAccessToken, facebookAuthNonce, data, callback)->
+    self = this
+    url = '/oauth/access_token_info'
+    options = {
+      client_id:configs.facebook.appId
+    }
+    fb.get url, facebookAccessToken, options, (error, accessTokenInfo)->
+      #we don't care if the nonce has been used or not..
+      #verify that the nonce from FB matches the nonce from the user..
+      if(accessTokenInfo.auth_nonce != facebookAuthNonce)
+        callback new errors.ValidationError('Facebook authentication error.', {'Auth Nonce':'Incorrect.'})
+      else
+        set = data
+        self.update id, {$set:set}, callback
+      return
     return
 
   @updateMedia: (id, media, callback)->
@@ -818,9 +833,9 @@ class Users extends API
         return
       if user?
         if id == user._id
-          callback new errors.ValidationError({"email":"That is your current email"})
+          callback new errors.ValidationError("That is your current email",{"email":"That is your current email"})
         else
-          callback new errors.ValidationError({"email":"Another user is already using this email"}) #email exists error
+          callback new errors.ValidationError("Another user is already using this email",{"email":"Another user is already using this email"}) #email exists error
         return
     data = {}
     data.changeEmail =
@@ -831,11 +846,37 @@ class Users extends API
       if count==0
         callback new errors.ValidationError({"password":"Incorrect password."}) #assuming id is correct..
         return
-      callback error, count>0
+      #success or error..
+      callback error, data.changeEmail
       return
     return
 
-  @updateEmailConfirm: (key, callback)->
+  @updateFBEmailRequest: (id, facebookAccessToken, facebookAuthNonce, newEmail, callback)->
+    #id typecheck is done in @update
+    @getByEmail newEmail, (error, user)->
+      if error?
+        callback error
+        return
+      if user?
+        if id == user._id
+          callback new errors.ValidationError("That is your current email",{"email":"That is your current email"})
+        else
+          callback new errors.ValidationError("Another user is already using this email",{"email":"Another user is already using this email"}) #email exists error
+        return
+    data = {}
+    data.changeEmail =
+      newEmail: newEmail
+      key: hashlib.md5(globals.secretWord + newEmail+(new Date().toString()))+'-'+generatePassword(12, false, /\d/)
+      expirationDate: Date.create("next week")
+    @updateWithFacebookAuthNonce id, facebookAccessToken, facebookAuthNonce, data, (error, count)-> #error,count
+      if error
+        callback error
+      #success..
+      callback error, data.changeEmail
+      return
+    return
+
+  @updateEmailComplete: (key, callback)->
     query = @_query()
     query.where('changeEmail.key', key)
     query.fields("changeEmail")
@@ -847,6 +888,7 @@ class Users extends API
         callback new errors.ValidationError({"key":"Invalid key, expired or already used."})
         return
       #user found
+      user = user._doc
       if(new Date()>user.changeEmail.expirationDate)
         callback new errors.ValidationError({"key":"Key expired."})
         query.update {$set:{changeEmail:null}}, (error, success)->
@@ -854,13 +896,15 @@ class Users extends API
         return
       query.update {$set:{email:user.changeEmail.newEmail, changeEmail:null}}, (error, count)->
         if error?
-          callback error #dberror
+          if error.code is 11000
+            callback new errors.ValidationError "Email Already Exists", {"email": "Email Already Exists"} #email exists error
+          else
+            callback error #dberror
           return
-        callback null, count>0
+        callback null, user.changeEmail.newEmail
         return
       return
     return
-
 
 class Consumers extends Users
   @model = Consumer

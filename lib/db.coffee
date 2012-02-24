@@ -271,6 +271,7 @@ Consumer = new Schema {
 
   gbAdmin         : {type: Boolean, default: false}
   transactions    : transactions
+  changeEmail     : {}
 }
 
 Consumer.index {barcodeId: 1}, {unique: true, sparse: true} #sparse because we allow for null/non-existant values
