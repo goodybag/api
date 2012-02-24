@@ -2184,7 +2184,8 @@ class Businesses extends API
     query = {}
     query["_id"] = businessId
     query["locRegister.#{locationId}"] = registerId
-    query["registers.#{registerId}.locationId"] = locationId
+    query["registers.#{registerId}.location"] = locationId.toString()
+    #query["registers.#{registerId}.locationId"] = locationId #SHOULD BE THIS, BUT TEMPORARILY USE ABOVE CAUSE CODE NEEDS A FIXIN'
 
     @model.collection.findOne query, {_id: 1, publicName: 1}, callback
 
@@ -3892,7 +3893,7 @@ class BusinessTransactions extends API
       date            : Date.create(timestamp)
       time            : new Date(0,0,0, timestamp.getHours(), timestamp.getMinutes(), timestamp.getSeconds(), timestamp.getMilliseconds()) #this is for slicing by time
       amount          : parseFloat(data.amount).round(2)
-      receipt         : new Binary(data.receipt)
+      receipt         : if data.receipt? then new Binary(data.receipt) else undefined
       hasReceipt      : if data.receipt? then true else false
       #donationAmount  : data.donationAmount #business don't have a donation $ or % field in db
     }
@@ -3938,7 +3939,7 @@ class BusinessTransactions extends API
           amount: doc.amount
         }
 
-        statTransaction = @createTransaction(choices.transactions.states.PENDING, choices.transactions.actions.STAT_BT_TAPPED, transactionData, choices.transactions.directions.INBOUND, instance._doc.organizationEntity)
+        statTransaction = @createTransaction(choices.transactions.states.PENDING, choices.transactions.actions.STAT_BT_TAPPED, transactionData, choices.transactions.directions.INBOUND, doc.organizationEntity)
 
         doc.transactions = {}
         doc.transactions.locked = false
@@ -3946,21 +3947,26 @@ class BusinessTransactions extends API
         doc.transactions.log = [statTransaction]
 
         @model.collection.insert doc, {safe: true}, (error, bt)->
-          logger.debug error
-          logger.debug bt
-          cb error, bt[0]
+          bt = bt[0]
           if error?
+            cb(error)
             return
           if doc.userEntity?
-            who = doc.userEntity
-            tp.process(bt[0], statTransaction) #write stat to collection
-            Streams.btTapped bt[0] #NOTICE THE _doc HERE, BECAUSE !!!! #we don't care about the callback
-        return
+            cb(null, true) #success
+            tp.process(bt, statTransaction) #write stat to collection
+            Streams.btTapped bt #we don't care about the callback for this stream function
+            return
+          else
+            cb(null, true) #success
+            return
+          return
     }, (error, results)->
       if error?
         callback(error)
+        return
       else if results.save?
-        callback(null, results.save)
+        callback(null)
+        return
 
   @findOneRecentTapIn: (businessId, locationId, registerId, callback)->
     if Object.isString(businessId)
