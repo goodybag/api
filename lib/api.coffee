@@ -826,6 +826,8 @@ class Users extends API
 
   #@updateEmail
   @updateEmailRequest: (id, password, newEmail, callback)->
+    logger.debug "###### ID ######"
+    logger.debug id
     #id typecheck is done in @update
     @getByEmail newEmail, (error, user)->
       if error?
@@ -1793,7 +1795,6 @@ class Clients extends API
   @updateEmail: (id, password, newEmail, callback)->
     if(Object.isString(id))
       id = new ObjectId(id)
-
     async.parallel {
       validatePassword: (cb)->
         Clients.validatePassword id, password, (error, success)->
@@ -2171,7 +2172,39 @@ class Businesses extends API
 
     @model.collection.update {_id: id}, $update, {safe: true}, callback
 
-class
+  @addRegister = (businessId, locationId, callback)->
+    if Object.isString businessId
+      businessId = new ObjectId businessId
+    registerId = new ObjectId()
+
+    $query = {_id: businessId}
+    $set = {registers: {}}
+    $push = {locRegister: {}}
+    $set.registers[registerId] = {}
+    $set.registers[registerId].location = locationId
+    $push.locRegister[locationId] = registerId
+
+    $set = @_flattenDoc $set
+    $push = @_flattenDoc $push
+    $update = {$set: $set, $push: $push}
+
+    @model.collection.findAndModify $query, [], $update, {safe: false, new: true}, (error, business)->
+      callback error, {registerId: registerId, business: business}
+
+  @delRegister = (businessId, locationId, registerId, callback)->
+    if Object.isString businessId
+      businessId = new ObjectId businessId
+
+
+    $query = {_id: businessId}
+    $unset = {}
+    $pull = {}
+    $unset["registers.#{registerId}"] = 1
+    $pull["locRegister.#{locationId}"] = registerId
+    $update = {$unset: $unset, $pull: $pull}
+
+    @model.collection.findAndModify $query, [], $update, {safe: false, new: true}, callback
+
 
 class Organizations extends API
   @model = Organization
@@ -3749,12 +3782,16 @@ class EventRequests extends API
   @model = EventRequest
 
   @requestsPending: (businessId, callback)->
+    if Object.isString businessId
+      businessId = new ObjectId businessId
     query = @_query()
     query.where 'organizationEntity.id', businessId
     query.where('date.responded').exists false
     query.exec callback
 
   @respond: (requestId, callback)->
+    if Object.isString requestId
+      requestId = new ObjectId requestId
     $query = {_id: requestId}
     $update =
       $set:
