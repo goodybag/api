@@ -25,6 +25,7 @@ fb = globals.facebook
 urlShortner = globals.urlShortner
 
 ObjectId = globals.mongoose.Types.ObjectId
+Binary = globals.mongoose.mongo.BSONPure.Binary
 
 DBTransaction = db.DBTransaction
 Sequence = db.Sequence
@@ -3808,7 +3809,7 @@ class BusinessTransactions extends API
       date            : Date.create(timestamp)
       time            : new Date(0,0,0, timestamp.getHours(), timestamp.getMinutes(), timestamp.getSeconds(), timestamp.getMilliseconds()) #this is for slicing by time
       amount          : parseFloat(data.amount).round(2)
-      receipt         : data.receipt
+      receipt         : new Binary(data.receipt)
       hasReceipt      : if data.receipt? then true else false
       #donationAmount  : data.donationAmount #business don't have a donation $ or % field in db
     }
