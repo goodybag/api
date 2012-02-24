@@ -2128,7 +2128,19 @@ class Businesses extends API
     @model.collection.update {_id: id}, $update, {safe: true}, callback
 
   @validateTransactionEntity: (businessId, locationId, registerId, callback)->
-    @model.collection.findOne {_id: businessId, locations._id: locationId, registerId: }
+    if Object.isString(businessId)
+      businessId = new ObjectId(businessId)
+    if Object.isString(locationId)
+      locationId = new ObjectId(locationId)
+    if Object.isString(registerId)
+      registerId = new ObjectId(registerId)
+
+    query = {}
+    query["_id"] = businessId
+    query["locRegister.#{locationId}"] = registerId
+    query["registers.#{registerId}.locationId"] = locationId
+
+    @model.collection.findOne query, {_id: 1, publicName: 1}, callback
 
 class Organizations extends API
   @model = Organization
@@ -3866,7 +3878,24 @@ class BusinessTransactions extends API
       else if results.save?
         callback(null, results.save)
 
-  @claimBarcodeId = (entity, barcodeId, callback)->
+  @findOneRecentTapIn: (businessId, locationId, registerId, callback)->
+    if Object.isString(businessId)
+      businessId = new ObjectId(businessId)
+    if Object.isString(locationId)
+      locationId = new ObjectId(locationId)
+    if Object.isString(registerId)
+      registerId = new ObjectId(registerId)
+
+    @model.collection.findOne {"organizationEntity.id": businessId, locationId: locationId, registerId: registerId}, {sort: {date: -1}}, callback
+    return
+
+  @associateReceipt: (id, receipt, callback)->
+    if Object.isString(id)
+      id = new ObjectId(id)
+    @model.collection.update {_id: id, hasReceipt: false}, {$set: {receipt: receipt, hasReceipt: true}}, {safe: true}, callback
+    return
+
+  @claimBarcodeId: (entity, barcodeId, callback)->
     if Object.isString(entity.id)
       entity.id = new ObjectId(entity.id)
 
@@ -3880,8 +3909,9 @@ class BusinessTransactions extends API
       }
     }
     @model.collection.update {barcodeId: barcodeId}, {$set: $set}, {multi:true, safe:true}, callback
+    return
 
-  @byUser = (userId, options, callback)->
+  @byUser: (userId, options, callback)->
     if Object.isFunction options
       callback = options
       options = {}
@@ -3889,7 +3919,7 @@ class BusinessTransactions extends API
     query.where 'userEntity.id', userId
     query.exec callback
 
-  @byBarcode = (barcodeId, options, callback)->
+  @byBarcode: (barcodeId, options, callback)->
     if Object.isFunction options
       callback = options
       options = {}
@@ -3897,7 +3927,7 @@ class BusinessTransactions extends API
     query.where 'barcodeId', barcodeId
     query.exec callback
 
-  @byBusiness = (businessId, options, callback)->
+  @byBusiness: (businessId, options, callback)->
     if Object.isFunction options
       callback = options
       options = {}
@@ -3921,7 +3951,7 @@ class BusinessTransactions extends API
     logger.info options
     query.exec callback
 
-  @byBusinessGbCostumers = (businessId, options, callback)->
+  @byBusinessGbCostumers: (businessId, options, callback)->
     if Object.isFunction options
       callback = options
       options = {}
@@ -3936,7 +3966,7 @@ class BusinessTransactions extends API
       query.where 'locationId', options.location
     query.exec callback
 
-  @test = (callback)->
+  @test: (callback)->
     data =
       "barcodeId" : "aldkfjs12lsdfl12lskdjf"
       "registerId" : "asdlf3jljsdlfoiuwirljf"
