@@ -1168,6 +1168,7 @@ class Consumers extends Users
       email         : 1
       profile       : 1
       permissions   : 1
+      media         : 1
     }
     fieldsToReturn["facebook.id"] = 1 #if user has this then the user is a fbUser
     facebookMeFields = {
@@ -1179,6 +1180,7 @@ class Consumers extends Users
       if error?
         callback error
         return
+
       #user permissions to determine which fields to delete
       if !consumer.permissions.email
         delete consumer.email
@@ -1186,7 +1188,7 @@ class Consumers extends Users
       consumer.facebook = self._copyFields(consumer.facebook, consumer.permissions)
       for field,idsToRemove of consumer.permissions.hiddenFacebookItems #object of remove id arrays
         #if there are ids to remove, idsToRemove - array of ids to remove from facebook field
-        if(idsToRemove.length > 0)
+        if(idsToRemove? && idsToRemove.length > 0)
           facebookFieldItems = consumer.facebook[field] #array of all items for a facebook field
           #check field items ids to see if they match any that need to be removed
           for i,item in facebookFieldItems
@@ -2133,35 +2135,36 @@ class Businesses extends API
   @addRegister = (businessId, locationId, callback)->
     if Object.isString businessId
       businessId = new ObjectId businessId
+    if Object.isString locationId
+      locationId = new ObjectId locationId
     registerId = new ObjectId()
 
     $query = {_id: businessId}
     $set = {registers: {}}
     $push = {locRegister: {}}
     $set.registers[registerId] = {}
-    $set.registers[registerId].location = locationId
+    $set.registers[registerId].locationId = locationId
     $push.locRegister[locationId] = registerId
 
     $set = @_flattenDoc $set
     $push = @_flattenDoc $push
     $update = {$set: $set, $push: $push}
 
-    @model.collection.findAndModify $query, [], $update, {safe: false, new: true}, (error, business)->
-      callback error, {registerId: registerId, business: business}
+    @model.collection.findAndModify $query, [], $update, {safe: true}, (error)->
+      callback error, registerId
 
   @delRegister = (businessId, locationId, registerId, callback)->
     if Object.isString businessId
       businessId = new ObjectId businessId
 
-
     $query = {_id: businessId}
     $unset = {}
     $pull = {}
     $unset["registers.#{registerId}"] = 1
-    $pull["locRegister.#{locationId}"] = registerId
+    $pull["locRegister.#{locationId}"] = new ObjectId(registerId)
     $update = {$unset: $unset, $pull: $pull}
 
-    @model.collection.findAndModify $query, [], $update, {safe: false, new: true}, callback
+    @model.collection.findAndModify $query, [], $update, {safe: true}, callback
 
 
 class Organizations extends API
