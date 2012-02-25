@@ -2625,12 +2625,12 @@ class Polls extends Campaigns
       callback null, polls
       return
 
-  @answer = (consumerId, pollId, answers, callback)->
+  @answer = (entity, pollId, answers, callback)->
     if Object.isString(pollId)
       pollId = new ObjectId(pollId)
 
-    if Object.isString(consumerId)
-      consumerId = new ObjectId(consumerId)
+    if Object.isString(entity.id)
+      entity.id = new ObjectId(entity.id)
 
     minAnswer = Math.min.apply(Math,answers)
     maxAnswer = Math.max.apply(Math,answers)
@@ -2666,11 +2666,6 @@ class Polls extends Campaigns
           timestamp: new Date()
         }
 
-        entity = {
-          type: choices.entities.CONSUMER,
-          id: consumerId
-        }
-
         # CREATE TRANSACTION
         transaction = self.createTransaction(choices.transactions.states.PENDING, choices.transactions.actions.POLL_ANSWERED, transactionData, choices.transactions.directions.OUTBOUND, entity)
 
@@ -2685,16 +2680,16 @@ class Polls extends Campaigns
           inc["responses.choiceCounts."+answers[i]] = 1;
           i++
 
-        set["responses.log."+consumerId] = {
+        set["responses.log."+entity.id] = {
             answers   : answers,
             timestamp : timestamp
         }
 
         push["responses.dates"] = {
-          consumerId: consumerId
+          consumerId: entity.id
           timestamp: timestamp
         }
-        push["responses.consumers"] = consumerId
+        push["responses.consumers"] = entity.id
 
         update = {
           $inc  : inc
@@ -2717,15 +2712,15 @@ class Polls extends Campaigns
           "funds.perResponse"      : 1
 
         }
-        fieldsToReturn["responses.log.#{consumerId}"] = 1
+        fieldsToReturn["responses.log.#{entity.id}"] = 1
 
         query = {
             _id                       : pollId,
-            "entity.id"               : {$ne : consumerId} #can't answer a question you authored
+            "entity.id"               : {$ne : entity.id} #can't answer a question you authored
             numChoices                : {$gt : maxAnswer}   #makes sure all answers selected exist
-            "responses.consumers"     : {$ne : consumerId}  #makes sure consumer has not already answered
-            "responses.skipConsumers" : {$ne : consumerId}  #makes sure consumer has not already skipped..
-            "responses.flagConsumers" : {$ne : consumerId}  #makes sure consumer has not already flagged..
+            "responses.consumers"     : {$ne : entity.id}  #makes sure consumer has not already answered
+            "responses.skipConsumers" : {$ne : entity.id}  #makes sure consumer has not already skipped..
+            "responses.flagConsumers" : {$ne : entity.id}  #makes sure consumer has not already flagged..
             "dates.start"             : {$lte: new Date()}  #makes sure poll has started
             # "dates.end"               : {$gt : new Date()}  #makes sure poll has not ended
             "transactions.state"      : choices.transactions.states.PROCESSED #poll is processed and ready to launch
@@ -4175,6 +4170,7 @@ class Streams extends API
 
     stream.data = {
       poll:{
+        question: pollDoc.question
         name: pollDoc.name
       }
     }
@@ -4220,6 +4216,7 @@ class Streams extends API
 
     stream.data = {
       poll:{
+        question: pollDoc.question
         name: pollDoc.name
       }
     }
@@ -4263,6 +4260,7 @@ class Streams extends API
 
     stream.data = {
       poll:{
+        question: pollDoc.question
         name: pollDoc.name
       }
     }
@@ -4297,6 +4295,7 @@ class Streams extends API
 
     stream.data = {
       poll:{
+        question: pollDoc.question
         name: pollDoc.name
       }
     }
