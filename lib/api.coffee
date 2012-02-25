@@ -2234,7 +2234,7 @@ class Organizations extends API
     query = @_query()
     if name? and !name.isBlank()
       query.where('name', re)
-    if type in choices.organizations.types._enum
+    if type in choices.organizations._enum
       query.where('type', type)
     query.limit(100)
     query.exec callback
@@ -3898,14 +3898,17 @@ class BusinessTransactions extends API
       amount          : if data.amount? then parseFloat(data.amount).round(2) else undefined
       receipt         : if !utils.isBlank(data.receipt) then new Binary(data.receipt) else undefined
       hasReceipt      : if !utils.isBlank(data.receipt) then true else false
-      #donationAmount  : data.donationAmount #business don't have a donation $ or % field in db
+
+      donationType    : defaults.bt.donationType #we should pull this out from the organization later
+      donationValue   : parseFloat(defaults.bt.donationValue).round(2) #we should pull this out from the organization
+      donationAmount  : parseFloat(defaults.bt.donationValue).round(2)
     }
 
     self = this
     async.series {
       findConsumer: (cb)-> #find only if there was a barcode that needed to be analyzed
         if doc.barcodeId?
-          Consumers.getByBarcodeId doc.barcodeId, (error, consumer)->
+          Consumers.model.collection.findOne {barcodeId: doc.barcodeId}, {_id:1, firstName:1, lastName:1, screenName:1, tapinsToFacebook:1}, (error, consumer)->
             if error?
               cb(error, null)
               return
@@ -3916,6 +3919,9 @@ class BusinessTransactions extends API
                 name        : "#{consumer.firstName} #{consumer.lastName}"
                 screenName  : consumer.screenName
               }
+              logger.debug(consumer)
+              doc.postToFacebook = if consumer.tapinsToFacebook? and consumer.tapinsToFacebook then true else false
+              doc.donationAmount = if consumer.tapinsToFacebook? and consumer.tapinsToFacebook then (doc.donationAmount + defaults.bt.donationFacebook).round(2) else doc.donationAmount
               cb(null)
             else
               cb(null) #insert the transaction anyway, it is an invalid or unassigned bar code though
@@ -4807,21 +4813,18 @@ class Statistics extends API
 
   #Give me a list of people who have tapped in to a business before and therefore are customers
   @withTapIns: (org, skip, callback)->
-    query = Statistics.query()
-    query.where("org.type", org.type)
-    query.where("org.id", org.id)
-    query.where("data.tapIns.totalTapIns").gt(0)
-    query.limit(25) #we don't accept limit as an argument because it holds up the event loop
-    query.skip(skip)
-    query.exec (error, statistics)->
+    if Object.isString(org.id)
+      org.id = new ObjectId(org.id)
+    @model.collection.find {"org.type": org.type, "org.id": org.id, "data.tapIns.totalTapIns": {$gt: 0}}, (error, cursor)->
       if error?
         callback(error)
-      else
+        return
+      cursor.limit(25)
+      cursor.skip(skip || 0)
+      cursor.sort({"data.tapIns.lastVisited": -1})
+      cursor.toArray (error, statistics)->
+        logger.debug(statistics)
         callback(error, statistics)
-        # customerIds
-        # for customer in statistics
-        #   customerIds.push(customer.consumerId)
-        #   delete customer.consumerId
 
   @getByConsumerIds: (org, consumerIds, callback)->
     query = @query()

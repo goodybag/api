@@ -800,10 +800,11 @@ BusinessTransaction = new Schema {
   amount                : {type: Number, required: false}
   receipt               : {type: Buffer, required: false} #binary receipt data
   hasReceipt            : {type: Boolean, required: true, default:false} #because we want to check if there is a receipt without pulling receipt (might be big)
-  donationtype          : {type: String, required: true, enum: choices.donationTypes._enum} #percentage or dollar amount
+
+  donationType          : {type: String, required: true, enum: choices.donationTypes._enum} #percentage or dollar amount
   donationValue         : {type: Number, required: true} #what is the percentage or what is the dollar amount
-  postToFacebook        : {type: Boolean, required: true, default: false} #do we post this transaction to facebook
   donationAmount        : {type: Number, required: true, default: 0} #the amount donated
+  postToFacebook        : {type: Boolean, required: true, default: false} #do we post this transaction to facebook
 
   transactions          : transactions
 }
