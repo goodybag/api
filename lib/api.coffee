@@ -2186,7 +2186,7 @@ class Businesses extends API
     query = {}
     query["_id"] = businessId
     query["locRegister.#{locationId}"] = registerId
-    query["registers.#{registerId}.location"] = locationId.toString()
+    query["registers.#{registerId}.locationId"] = locationId
     #query["registers.#{registerId}.locationId"] = locationId #SHOULD BE THIS, BUT TEMPORARILY USE ABOVE CAUSE CODE NEEDS A FIXIN'
 
     @model.collection.findOne query, {_id: 1, publicName: 1}, callback
