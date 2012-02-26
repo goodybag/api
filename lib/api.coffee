@@ -995,6 +995,7 @@ class Consumers extends Users
     return
 
   @facebookLogin: (accessToken, fieldsToReturn, referralCode, callback)->
+    #** fieldsToReturn needs to include screenName **
     if Object.isFunction fieldsToReturn
       callback = fieldsToReturn
       fieldsToReturn = {}
@@ -1058,56 +1059,43 @@ class Consumers extends Users
       #consumer['profile.education'] = facebookData.me.education
 
       #find user with fbid or same email
-      self.model.findOne {$or:[{"facebook.id":facebookData.me.id}, {email:facebookData.me.email}]}, {_id:1,"permissions.media":1,"facebook.fbid":1}, null, (error,consumerAlreadyRegistered)->
+      self.model.findOne {$or:[{"facebook.id":facebookData.me.id}, {email:facebookData.me.email}]}, {_id:1,"permissions.media":1,"facebook.fbid":1,"facebook.pic":1}, null, (error,consumerAlreadyRegistered)->
         if error?
           callback error
           return
         else
           callTransloadit = false
           if consumerAlreadyRegistered?
-            #registered user found
-            if consumerAlreadyRegistered.permissions? && consumerAlreadyRegistered.permissions.media && facebookData.pic?
-              #user is showing (permissions) media, and fb pic is set (not default fb pic)
-              # update pic to new facbook pic
+            # Previously Register User Found
+            mediaPermission  = consumerAlreadyRegistered.permissions.media
+            facebookPicFound = facebookData.pic?
+            facebookPicIsNew = consumerAlreadyRegistered.facebook.pic != facebookData.pic
+            if mediaPermission && facebookPicFound && facebookPicIsNew
+              # User has
+              # * Media permissions set to true - (or no permissions set, this should never be the case..)
+              # * Facebook Profile picture found (on Facebook, not default picture)
+              # * Facebook picture found is not the same as last Facebook picture found.
+              # THEN set their GB pic as the FB pic, and send it to transloadit for processing.
               mediaGuid = guidGen.v1()
               consumer.media = {
                 guid    : mediaGuid
-                url     : facebookData.pic
-                thumb   : facebookData.pic
+                url     : facebookData.pic #tempURL
+                thumb   : facebookData.pic #tempURL
                 mediaId : null
               }
               callTransloadit = true
-            if consumerAlreadyRegistered.facebook?
-              #if user found was registered via facebook
-              # save updated facebook data to user document
-              fieldsToReturnWithMediaPermission = fieldsToReturn
-              fieldsToReturnWithMediaPermission["permissions.media"] = 1
-              self.model.collection.findAndModify {'facebook.id': fbid}, [], {$set: consumer, $inc: {loginCount:1}}, {fields:fieldsToReturnWithMediaPermission,new:true,safe:true}, (error, returningFacebookUser)->
-                if returningFacebookUser?
-                  if !fieldsToReturn["permissions.media"]?
-                    delete consumers.permissions.media
-                    if Object.isEmpty consumers.permissions
-                      delete consumers.permissions
-                callback error, returningFacebookUser
-                #update profile pic with latest pic
-                if callTransloadit && !error?
-                  self._sendFacebookPicToTransloadit returningFacebookUser._id, mediaGuid, facebookData.pic
-                return
-            else
-              #user found was registered via email
-              # update user object with facebook fields
-              self.model.collection.findAndModify {'email': facebookData.me.email}, [], {$set: consumer, $inc: {loginCount:1}}, {fields:fieldsToReturn,new:true,safe:true}, (error, emailToFacebookUser)->
-                callback error, emailToFacebookUser
-                if callTransloadit && !error?
-                  self._sendFacebookPicToTransloadit emailToFacebookUser._id, mediaGuid, facebookData.pic
-                return
-            return
+
+            self.model.collection.findAndModify {$or:[{"facebook.id":facebookData.me.id}, {email:facebookData.me.email}]}, [], {$set: consumer, $inc: {loginCount:1}}, {fields:fieldsToReturn,new:true,safe:true}, (error, consumerToReturn)->
+              consumerToReturn = consumerToReturn._doc
+              callback error, consumerToReturn
+              if callTransloadit && !error?
+                self._sendFacebookPicToTransloadit consumerToReturn._id, consumerToReturn.screenName, mediaGuid, facebookData.pic
+              return
           else
-            #previously registered user not found
-            #brand new user!
+            # Brand New User!
+            # generate a random password and screenName...
             consumer.password = hashlib.md5(globals.secretWord + facebookData.me.email+(new Date().toString()))+'-'+generatePassword(12, false, /\d/)
             consumer.screenName = new ObjectId()
-            #generate a random password...
             self.encryptPassword consumer.password, (error, hash)->
               if error?
                 callback new errors.ValidationError "Invalid Password", {"password":"Invalid Password"} #error encrypting password, so fail
@@ -1143,13 +1131,14 @@ class Consumers extends Users
                   if error?
                     callback error #dberror
                   else
-                    newUserFields = self._copyFields(newUser._doc, fieldsToReturn)
+                    newUser = newUser._doc
+                    newUserFields = self._copyFields(newUser, fieldsToReturn)
                     callback null, newUserFields
 
                     #create referral codes in the referral's collection
                     entity = {
                       type: choices.entities.CONSUMER
-                      id: newUserModel._doc._id
+                      id: newUser._id
                     }
 
                     Referrals.addUserLink(entity, "/", userCode)
