@@ -452,13 +452,13 @@ class Users extends API
   #model.findById id, fields, options callback
   #model.findOne
   @_sendFacebookPicToTransloadit = (entityId, guid, picURL, callback)->
-    logger.debug ("callTransloadit")
+    logger.debug ("TRANSLOADIT - send fbpic - "+"notifyURL:"+configs.transloadit.notifyURL+",guid:"+guid+",picURL:"+picURL+",entityId:"+entityId)
     client = new transloadit(configs.transloadit.authKey, configs.transloadit.authSecret)
     params = {
       auth: {
         key: configs.transloadit.authKey
       }
-      notify_url: 'http://b.goodybag.com/hooks/transloadit'
+      notify_url: configs.transloadit.notifyURL
       template_id: configs.transloadit.consumerFromURLTemplateId
       steps: {
         ':original':
@@ -477,6 +477,7 @@ class Users extends API
     }
     client.send params, fields
       ,(success)->
+        logger.debug "Transloadit Response - "+success
         if callback?
           callback null, true
         return
@@ -782,34 +783,18 @@ class Users extends API
           return
         return
     return
-  @updateMediaByGuid: (id, guid, media, mediaKey, callback)->
+  @updateMediaByGuid: (id, guid, mediasDoc, callback)->
     if(Object.isString(id))
       id = new ObjectId(id)
-    if Object.isFunction mediaKey
-      callback = mediaKey
-      mediaKey = "media"
 
     query = @_query()
     query.where("_id", id)
-    set = {}
-    if Object.isArray mediaKey
-      #updating multiple media keys
-      query.where("media.guid", guid)
-      for val, i in mediaKey
-        if(Object.isString(media[i].mediaId))
-          media[i].mediaId = new ObjectId(media[i].mediaId)
-        set["#{mediaKey[i]}.thumb"] = media[i].thumb
-        set["#{mediaKey[i]}.url"] = media[i].url
-        set["#{mediaKey[i]}.mediaId"] = media[i].mediaId
-        set["#{mediaKey[i]}.guid"] = media[i].guid #reset
-    else
-      query.where("#{mediaKey}.guid", guid)
-      if(Object.isString(media.mediaId))
-        media.mediaId = new ObjectId(media.mediaId)
-      set["#{mediaKey}.thumb"] = media.thumb
-      set["#{mediaKey}.url"] = media.url
-      set["#{mediaKey}.mediaId"] = media.mediaId
-      set["#{mediaKey}.guid"] = media.guid #reset
+    query.where("media.guid", guid)
+    set = {
+      media       : Medias.mediaFieldsForType mediasDoc, "consumer"
+      secureMedia : Medias.mediaFieldsForType mediasDoc, "consumer-secure"
+    }
+
     query.update {$set:set}, (error, success)->
       if error?
         callback error #dberror
@@ -1768,20 +1753,17 @@ class Clients extends API
       return
     return
 
-  @updateMedia: (id, guid, data, callback)->
+  @updateMediaByGuid: (id, guid, mediasDoc, callback)->
     if(Object.isString(id))
       id = new ObjectId(id)
-    if(Object.isString(data.mediaId))
-      data.mediaId = new ObjectId(data.mediaId)
 
     query = @_query()
     query.where("_id", id)
     query.where("media.guid", guid)
 
-    set = {}
-    set["media.thumb"] = data.thumb
-    set["media.url"] = data.url
-    set["media.mediaId"] = data.mediaId
+    set = {
+      media : Medias.mediaFieldsForType mediasDoc, "client"
+    }
     set["media.guid"] = data.guid #reset
 
     query.update {$set:set}, (error, success)->
@@ -2059,21 +2041,17 @@ class Businesses extends API
         set[k] = v
     @model.collection.update {_id: id}, {$set: set}, {safe: true}, callback
 
-  @updateMedia: (id, guid, data, callback)->
+  @updateMediaByGuid: (id, guid, mediasDoc, callback)->
     if(Object.isString(id))
       id = new ObjectId(id)
-    if(Object.isString(data.mediaId))
-      data.mediaId = new ObjectId(data.mediaId)
 
     query = @_query()
     query.where("_id", id)
     query.where("media.guid", data.guid)
 
-    set = {}
-    set["media.thumb"] = data.thumb
-    set["media.url"] = data.url
-    set["media.mediaId"] = data.mediaId
-    set["media.guid"] = data.guid #reset
+    set = {
+      media : Medias.mediaFieldsForType mediasDoc, "business"
+    }
 
     query.update {$set:set}, (error, success)->
       if error?
@@ -2226,42 +2204,12 @@ class Organizations extends API
 
 
 ## Campaigns ##
-class Campaigns extends API
-  @updateMedia: (entityType, entityId, guid, data, mediaKey, callback)->
-    if(Object.isString(entityId))
-      entityId = new ObjectId(entityId)
-    if(Object.isString(data.mediaId))
-      data.mediaId = new ObjectId(data.mediaId)
-    if(Object.isFunction(mediaKey))
-      callback = mediaKey
-      mediaKey = "media"
-
-    query = @_query()
-    query.where("entity.type", entityType)
-    query.where("entity.id", entityId)
-    query.where("#{mediaKey}.guid", guid)
-
-    set = {}
-    set["#{mediaKey}.thumb"] = data.thumb
-    set["#{mediaKey}.url"] = data.url
-    set["#{mediaKey}.mediaId"] = data.mediaId
-    set["#{mediaKey}.guid"] = data.guid #reset
-
-    query.update {$set:set}, (error, success)->
-      if error?
-        callback error #dberror
-      else
-        callback null, success
-      return
-    return
+# class Campaigns extends API
 
 
 ## Polls ##
-class Polls extends Campaigns
+class Polls extends API # Campaigns
   @model = Poll
-
-  #inherits from campaigns
-  #@updateMedia
 
   #options: name, businessid, type, businessname,showstats, answered, start, end, outoffunds
   @optionParser = (options, q)->
@@ -2442,6 +2390,28 @@ class Polls extends Campaigns
       return
     return
 
+  @updateMediaByGuid: (entityType, entityId, guid, mediasDoc, mediaKey, callback)->
+    if(Object.isString(entityId))
+      entityId = new ObjectId(entityId)
+    if(Object.isFunction(mediaKey))
+      callback = mediaKey
+      mediaKey = "media"
+
+    query = @_query()
+    query.where("entity.type", entityType)
+    query.where("entity.id", entityId)
+    query.where("#{mediaKey}.guid", guid)
+
+    set = {}
+    set["#{mediaKey}"] = Medias.mediaFieldsForType mediasDoc, "poll"
+
+    query.update {$set:set}, (error, success)->
+      if error?
+        callback error #dberror
+      else
+        callback null, success
+      return
+    return
 
   @list: (entityType, entityId, stage, options, callback)->
     #options: count(boolean)-to return just the count, skip(int), limit(int)
@@ -2828,11 +2798,8 @@ class Polls extends Campaigns
 
 
 ## Discussions ##
-class Discussions extends Campaigns
+class Discussions extends API #Campaigns
   @model = Discussion
-
-  #inherits from campaigns
-  #@updateMedia
 
   @optionParser = (options, q)->
     query = @_optionParser(options, q)
@@ -3010,6 +2977,27 @@ class Discussions extends Campaigns
         logger.info "DISCUSSIONS - DELETE: findAndModify succeeded, transaction starting"
         callback null, discussion
         tp.process(discussion, transaction)
+    return
+
+  @updateMediaByGuid: (entityType, entityId, guid, mediasDoc, callback)->
+    if(Object.isString(entityId))
+      entityId = new ObjectId(entityId)
+
+    query = @_query()
+    query.where("entity.type", entityType)
+    query.where("entity.id", entityId)
+    query.where("media.guid", guid)
+
+    set = {
+      media : Medias.mediaFieldsForType mediasDoc, "discussion"
+    }
+
+    query.update {$set:set}, (error, success)->
+      if error?
+        callback error #dberror
+      else
+        callback null, success
+      return
     return
 
   @listCampaigns: (entityType, entityId, stage, options, callback)->
@@ -3631,45 +3619,164 @@ class Discussions extends Campaigns
 class Medias extends API
   @model = Media
 
+  @mediaFieldsForType: (mediasDoc, mediaFor)->
+    switch mediaFor
+      when 'event','poll','discussion'
+        imageType = 'landscape'
+      when 'business','consumer','client'
+        imageType = 'square'
+      when 'consumer-secure'
+        imageType = 'secureSquare'
+
+    if imageType == "square"
+      media = {
+        url     : mediasDoc.sizes.s128
+        thumb   : mediasDoc.sizes.s85
+        mediaId : mediasDoc._id
+      }
+    else if imageType == "secureSquare"
+      media = {
+        url     : mediasDoc.sizes['s128-secure']
+        thumb   : mediasDoc.sizes['s85-secure']
+        mediaId : mediasDoc._id
+      }
+    else if imageType == "landscape"
+      media = {
+        url     : mediasDoc.sizes.s320x240
+        thumb   : mediasDoc.sizes.s100x75
+        mediaId : mediasDoc._id
+      }
+    return media
+
   #validate Media Objects for other collections
   @validateMedia: (media, imageType, callback)->
+    validatedMedia = {}
     if !media?
       callback new errors.ValidationError {"media":"Media is null."}
       return
-    if media.mediaId? and (!media.url? or !media.thumb?) #new mediaId and no urls -> look up urls
-      #mediaId typecheck is done in one
-      Medias.one media.mediaId, (error, data)->
-        if error?
-          callback error #callback
-          return
-        else if data.length==0
-          callback new errors.ValidationError({"mediaId":"Invalid MediaId"})
-          return
-        if imageType=="square"
-          media.mediaId = data.mediaId #type objectId
-          media.thumb = data.sizes.s85
-          media.url   = data.sizes.s128
-          delete media.guid
-        else if imageType=="landscape"
-          media.mediaId = data.mediaId #type objectId
-          media.thumb = data.sizes.s100x75
-          media.url   = data.sizes.s320x240
-          delete media.guid
-        callback null, media #media found and urls set
-        return
-    else if media.guid?
-      if !media.url?
-        callback new errors.ValidationError({"media.url":"Media url (temp. url) is required when supplying guid."})
-      else if !media.thumb?
-        callback new errors.ValidationError({"media.thumb":"Media thumb (temp. url) is required when supplying guid."})
-      else
+
+    if !utils.isBlank(media.mediaId)
+      #mediaId and no urls -> look up urls
+      delete media.tempURL
+      if (!utils.isBlank(media.url) or !utils.isBlank(media.thumb))
+        logger.debug "validateMedia - mediaId supplied, missing urls, fetch urls from db."
+        #mediaId typecheck is done in one
+        Medias.one media.mediaId, (error, data)->
+          if error?
+            callback error #callback
+            return
+          else if !data? || data.length==0
+            callback new errors.ValidationError({"mediaId":"Invalid MediaId"})
+            return
+
+          if imageType=="square"
+            validatedMedia.mediaId = data._id #type objectId
+            validatedMedia.thumb = data.sizes.s85
+            validatedMedia.url   = data.sizes.s128
+            validatedMedia.rotateDegrees = media.rotateDegrees if !utils.isBlank(media.rotateDegrees) && media.rotateDegrees!=0
+            callback null, validatedMedia #media found and urls set
+            return
+          else if imageType=="landscape"
+            logger.debug "imageType-landscape"
+            logger.debug data
+            validatedMedia.mediaId = data._id #type objectId
+            validatedMedia.thumb = data.sizes.s100x75
+            validatedMedia.url   = data.sizes.s320x240
+            validatedMedia.rotateDegrees = media.rotateDegrees if !utils.isBlank(media.rotateDegrees) && media.rotateDegrees!=0
+            callback null, validatedMedia #media found and urls set
+            return
+          else
+            callback new errors.ValidationError({"imageType":"Unknown value."})
+            return
+      else  #media Id and has urls
+        logger.debug "validateMedia - mediaId supplied with both URLs, no updates required."
         callback null, media
-      return
-    else if (media.url? || media.thumb?) #and !data.media.guid and !data.media.mediaId
-      callback new errors.ValidationError({"media":"Guid or MediaId is required when supplying a media.url"})
+        return
+    else if !utils.isBlank(media.guid) #media guid supplied.
+      validatedMedia.guid = media.guid
+      validatedMedia.rotateDegrees = media.rotateDegrees if !utils.isBlank(media.rotateDegrees) && media.rotateDegrees!=0
+      if !utils.isBlank(media.tempURL)
+        validatedMedia.url = media.tempURL
+        validatedMedia.thumb = media.tempURL
+        callback null, validatedMedia
+        return
+      else
+        if utils.isBlank(media.url) || utils.isBlank(media.thumb)
+          callback new errors.ValidationError({"media":"'tempURL' or ('url' and 'thumb') is required when supplying guid."})
+          return
+        else
+          validatedMedia.url   = media.url
+          validatedMedia.thumb = media.thumb
+          callback null, validatedMedia
+          return
+    else if media.url? || media.thumb? #and !data.media.guid and !data.media.mediaId
+      callback new errors.ValidationError({"media":"'guid' or 'mediaId' is required when supplying a media.url"})
       return
     else
-      callback null, media #guid and urls supplied
+      #invalid (missing ) or empty mediaObject
+      callback null, {} #guid and urls supplied
+      return
+
+
+
+  #validate Media Objects for other collections
+  @validateAndCheckForMedia: (entityType, entityId, mediaFor, media, callback)->
+    validatedMedia = {}
+    if !media?
+      callback new errors.ValidationError {"media":"Media is null."}
+      return
+
+    if !utils.isBlank(media.mediaId)
+      #mediaId and no urls -> look up urls
+      if (!utils.isBlank(media.url) or !utils.isBlank(media.thumb))
+        logger.debug "validateMedia - mediaId supplied, missing urls, fetch urls from db."
+        #mediaId typecheck is done in one
+        Medias.one media.mediaId, (error, mediasDoc)->
+          if error?
+            callback error #callback
+            return
+          else if !data? || data.length==0
+            callback new errors.ValidationError({"mediaId":"Invalid MediaId"})
+            return
+          validatedMedia = Medias.mediaFieldsForType mediasDoc._doc, mediaFor
+          callback null, validatedMedia # found - media by mediaId
+          return
+      else  #media Id and has urls
+        logger.debug "validateMedia - mediaId supplied with both URLs, no updates required."
+        callback null, media
+        return
+    else if !utils.isBlank(media.guid) #media guid supplied.
+      validatedMedia.guid = media.guid
+      Medias.getByGuid entityType, entityId, validatedMedia.guid, (error, mediasDoc)->
+        if error?
+          callback error
+          return
+        else if mediasDoc?
+          validatedMedia = Medias.mediaFieldsForType mediasDoc._doc, mediaFor
+          callback null, validatedMedia # found - media uploaded by transloadit already
+          return
+        else #!media? - media has yet to be uploaded by transloadit.. mark it with the guid and use tempurls for now
+          validatedMedia.rotateDegrees = media.rotateDegrees if !utils.isBlank(media.rotateDegrees) && media.rotateDegrees!=0
+          if !utils.isBlank(media.tempURL)
+            validatedMedia.url = media.tempURL
+            validatedMedia.thumb = media.tempURL
+            callback null, validatedMedia
+            return
+          else
+            if utils.isBlank(media.url) || utils.isBlank(media.thumb)
+              callback new errors.ValidationError({"media":"'tempURL' or ('url' and 'thumb') is required when supplying guid."})
+              return
+            else
+              validatedMedia.url   = media.url
+              validatedMedia.thumb = media.thumb
+              callback null, validatedMedia
+              return
+    else if media.url? || media.thumb? #and !data.media.guid and !data.media.mediaId
+      callback new errors.ValidationError({"media":"'guid' or 'mediaId' is required when supplying a media.url"})
+      return
+    else
+      #invalid (missing mediaId and guid..) or empty mediaObject
+      callback null, {} #guid and urls supplied
       return
 
   @addOrUpdate: (media, callback)->
@@ -3707,8 +3814,16 @@ class Medias extends API
       #@get {'entity.type': choices.entities.BUSINESS, 'entity.id': entityId, type: type}, callback
     return
 
+  #getByGuid(entityId,guid,callback)
   @getByGuid: (entityType, entityId, guid, callback)->
-    @get {entityType: entityType, entityId: entityId, guid: guid}, callback
+    if Object.isString entityId
+      entityId = entityId
+    @get {entityType: entityType, entityId: entityId, guid: guid}, (error,mediasDoc)->
+      if mediasDoc? && mediasDoc.length
+        callback null, mediasDoc[0]
+      else
+        callback error, null
+
     #@get {'entity.type': entityType, 'entity.id': entityId, 'media.guid': guid}, callback
 
 
@@ -3804,6 +3919,22 @@ class EventRequests extends API
 class Events extends API
   @model = Event
 
+  @add: (event, callback)->
+    self = Events
+    console.log "mediaBefore"
+    console.log event.media
+    console.log event.entity
+    Medias.validateAndCheckForMedia event.entity.type, event.entity.id, "event", event.media, (error, validatedMedia)->
+      if error?
+        callback error
+        return
+      #media good..
+      console.log "validatedMedia"
+      console.log validatedMedia
+      event.media = validatedMedia
+      self._add event, callback
+    return
+
   @optionParser: (options, q)->
     query = @_optionParser options, q
     if options.not?
@@ -3821,6 +3952,28 @@ class Events extends API
     update = {$pop: {rsvp: userId}}
     options = {remove: false, new: true, upsert: false}
     @model.collection.findAndModify query, [], update, options, callback
+
+  @updateMediaByGuid: (entityType, entityId, guid, mediasDoc, callback)->
+    if(Object.isString(entityId))
+      entityId = new ObjectId(entityId)
+
+    query = @_query()
+    query.where("entity.type", entityType)
+    query.where("entity.id", entityId)
+    query.where("media.guid", guid)
+
+    set = {
+      media : Medias.mediaFieldsForType mediasDoc, "event"
+    }
+
+    query.update {$set:set}, (error, success)->
+      if error?
+        callback error #dberror
+      else
+        callback null, success
+      return
+    return
+
 
   @rsvp = (eventId, userId, callback)->
     if Object.isString eventId

@@ -140,6 +140,7 @@ media = {
   thumb             : {type: String, validate: Url}
   guid              : {type: String}
   mediaId           : {type: ObjectId}
+  rotateDegrees     : {type: Number} #tempURLs from transloadit have wacky rotations...
 }
 
 ProfileEntry = new Schema {
@@ -750,6 +751,7 @@ Event = new Schema {
   rsvpUsers     : {}
 
   transactions  : transactions
+  media         : media
 }
 
 
