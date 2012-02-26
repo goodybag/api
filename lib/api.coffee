@@ -701,7 +701,7 @@ class Users extends API
       return
     return
 
-  @updateMediaWithFacebook: (id, fbid, callback)->
+  @updateMediaWithFacebook: (id, screenName, fbid, callback)->
     self = this
     if Object.isString id
       id = new ObjectId id
@@ -759,7 +759,7 @@ class Users extends API
           callback error
           return
         #media update success
-        self._sendFacebookPicToTransloadit id, guid, data.fbPicURL, (error, success)->
+        self._sendFacebookPicToTransloadit id, screenName, guid, data.fbPicURL, (error, success)->
           if error?
             callback error
           else
