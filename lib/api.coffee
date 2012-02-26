@@ -958,11 +958,11 @@ class Consumers extends Users
     if !value?
       callback(null, false)
       return
-    @update uid, {tapinsToFacebook: value}, (error)->
+    @update uid, {tapinsToFacebook: value}, (error, count)->
       if error?
         callback error
         return
-      callback null
+      callback null, count
     return
 
   @register: (data, fieldsToReturn, callback)->
