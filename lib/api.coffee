@@ -451,7 +451,7 @@ class Users extends API
   #start potential new API functions
   #model.findById id, fields, options callback
   #model.findOne
-  @_sendFacebookPicToTransloadit = (entityId, guid, picURL, callback)->
+  @_sendFacebookPicToTransloadit = (entityId, screenName, guid, picURL, callback)->
     logger.debug ("TRANSLOADIT - send fbpic - "+"notifyURL:"+configs.transloadit.notifyURL+",guid:"+guid+",picURL:"+picURL+",entityId:"+entityId)
     client = new transloadit(configs.transloadit.authKey, configs.transloadit.authSecret)
     params = {
@@ -468,6 +468,10 @@ class Users extends API
           path: "consumers/"+entityId+"-85.png"
         export128:
           path: "consumers/"+entityId+"-128.png"
+        export85Secure:
+          path: "consumers-secure/"+screenName+"-85.png"
+        export128Secure:
+          path: "consumers-secure/"+screenName+"-128.png"
       }
     }
     fields = {
@@ -717,7 +721,7 @@ class Users extends API
       return
     return
 
-  @updateMediaWithFacebook: (id, fbid, callback)->
+  @updateMediaWithFacebook: (id, screenName, fbid, callback)->
     self = this
     if Object.isString id
       id = new ObjectId id
@@ -775,7 +779,7 @@ class Users extends API
           callback error
           return
         #media update success
-        self._sendFacebookPicToTransloadit id, guid, data.fbPicURL, (error, success)->
+        self._sendFacebookPicToTransloadit id, screenName, guid, data.fbPicURL, (error, success)->
           if error?
             callback error
           else
@@ -1155,7 +1159,7 @@ class Consumers extends Users
                       Referrals.signUp(referralCode, entity)
 
                     if callTransloadit
-                      self._sendFacebookPicToTransloadit newUser._id, mediaGuid, facebookData.pic
+                      self._sendFacebookPicToTransloadit newUser._id, newUser.screenName, mediaGuid, facebookData.pic
                   return
                 return
               return
