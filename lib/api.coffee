@@ -25,6 +25,7 @@ fb = globals.facebook
 urlShortner = globals.urlShortner
 
 ObjectId = globals.mongoose.Types.ObjectId
+Binary = globals.mongoose.mongo.BSONPure.Binary
 
 DBTransaction = db.DBTransaction
 Sequence = db.Sequence
@@ -953,11 +954,11 @@ class Consumers extends Users
     if !value?
       callback(null, false)
       return
-    @update uid, {tapinsToFacebook: value}, (error)->
+    @update uid, {tapinsToFacebook: value}, (error, count)->
       if error?
         callback error
         return
-      callback null
+      callback null, count
     return
 
   @register: (data, fieldsToReturn, callback)->
@@ -1195,6 +1196,7 @@ class Consumers extends Users
       email         : 1
       profile       : 1
       permissions   : 1
+      media         : 1
     }
     fieldsToReturn["facebook.id"] = 1 #if user has this then the user is a fbUser
     facebookMeFields = {
@@ -1206,6 +1208,7 @@ class Consumers extends Users
       if error?
         callback error
         return
+
       #user permissions to determine which fields to delete
       if !consumer.permissions.email
         delete consumer.email
@@ -1213,7 +1216,7 @@ class Consumers extends Users
       consumer.facebook = self._copyFields(consumer.facebook, consumer.permissions)
       for field,idsToRemove of consumer.permissions.hiddenFacebookItems #object of remove id arrays
         #if there are ids to remove, idsToRemove - array of ids to remove from facebook field
-        if(idsToRemove.length > 0)
+        if(idsToRemove? && idsToRemove.length > 0)
           facebookFieldItems = consumer.facebook[field] #array of all items for a facebook field
           #check field items ids to see if they match any that need to be removed
           for i,item in facebookFieldItems
@@ -2189,38 +2192,55 @@ class Businesses extends API
 
     @model.collection.update {_id: id}, $update, {safe: true}, callback
 
+  @validateTransactionEntity: (businessId, locationId, registerId, callback)->
+    if Object.isString(businessId)
+      businessId = new ObjectId(businessId)
+    if Object.isString(locationId)
+      locationId = new ObjectId(locationId)
+    if Object.isString(registerId)
+      registerId = new ObjectId(registerId)
+
+    query = {}
+    query["_id"] = businessId
+    query["locRegister.#{locationId}"] = registerId
+    query["registers.#{registerId}.location"] = locationId.toString()
+    #query["registers.#{registerId}.locationId"] = locationId #SHOULD BE THIS, BUT TEMPORARILY USE ABOVE CAUSE CODE NEEDS A FIXIN'
+
+    @model.collection.findOne query, {_id: 1, publicName: 1}, callback
+
   @addRegister = (businessId, locationId, callback)->
     if Object.isString businessId
       businessId = new ObjectId businessId
+    if Object.isString locationId
+      locationId = new ObjectId locationId
     registerId = new ObjectId()
 
     $query = {_id: businessId}
     $set = {registers: {}}
     $push = {locRegister: {}}
     $set.registers[registerId] = {}
-    $set.registers[registerId].location = locationId
+    $set.registers[registerId].locationId = locationId
     $push.locRegister[locationId] = registerId
 
     $set = @_flattenDoc $set
     $push = @_flattenDoc $push
     $update = {$set: $set, $push: $push}
 
-    @model.collection.findAndModify $query, [], $update, {safe: false, new: true}, (error, business)->
-      callback error, {registerId: registerId, business: business}
+    @model.collection.findAndModify $query, [], $update, {safe: true}, (error)->
+      callback error, registerId
 
   @delRegister = (businessId, locationId, registerId, callback)->
     if Object.isString businessId
       businessId = new ObjectId businessId
 
-
     $query = {_id: businessId}
     $unset = {}
     $pull = {}
     $unset["registers.#{registerId}"] = 1
-    $pull["locRegister.#{locationId}"] = registerId
+    $pull["locRegister.#{locationId}"] = new ObjectId(registerId)
     $update = {$unset: $unset, $pull: $pull}
 
-    @model.collection.findAndModify $query, [], $update, {safe: false, new: true}, callback
+    @model.collection.findAndModify $query, [], $update, {safe: true}, callback
 
 
 class Organizations extends API
@@ -2231,7 +2251,7 @@ class Organizations extends API
     query = @_query()
     if name? and !name.isBlank()
       query.where('name', re)
-    if type in choices.organizations.types._enum
+    if type in choices.organizations._enum
       query.where('type', type)
     query.limit(100)
     query.exec callback
@@ -2695,12 +2715,12 @@ class Polls extends API # Campaigns
       callback null, polls
       return
 
-  @answer = (consumerId, pollId, answers, callback)->
+  @answer = (entity, pollId, answers, callback)->
     if Object.isString(pollId)
       pollId = new ObjectId(pollId)
 
-    if Object.isString(consumerId)
-      consumerId = new ObjectId(consumerId)
+    if Object.isString(entity.id)
+      entity.id = new ObjectId(entity.id)
 
     minAnswer = Math.min.apply(Math,answers)
     maxAnswer = Math.max.apply(Math,answers)
@@ -2736,11 +2756,6 @@ class Polls extends API # Campaigns
           timestamp: new Date()
         }
 
-        entity = {
-          type: choices.entities.CONSUMER,
-          id: consumerId
-        }
-
         # CREATE TRANSACTION
         transaction = self.createTransaction(choices.transactions.states.PENDING, choices.transactions.actions.POLL_ANSWERED, transactionData, choices.transactions.directions.OUTBOUND, entity)
 
@@ -2755,16 +2770,16 @@ class Polls extends API # Campaigns
           inc["responses.choiceCounts."+answers[i]] = 1;
           i++
 
-        set["responses.log."+consumerId] = {
+        set["responses.log."+entity.id] = {
             answers   : answers,
             timestamp : timestamp
         }
 
         push["responses.dates"] = {
-          consumerId: consumerId
+          consumerId: entity.id
           timestamp: timestamp
         }
-        push["responses.consumers"] = consumerId
+        push["responses.consumers"] = entity.id
 
         update = {
           $inc  : inc
@@ -2787,15 +2802,15 @@ class Polls extends API # Campaigns
           "funds.perResponse"      : 1
 
         }
-        fieldsToReturn["responses.log.#{consumerId}"] = 1
+        fieldsToReturn["responses.log.#{entity.id}"] = 1
 
         query = {
             _id                       : pollId,
-            "entity.id"               : {$ne : consumerId} #can't answer a question you authored
+            "entity.id"               : {$ne : entity.id} #can't answer a question you authored
             numChoices                : {$gt : maxAnswer}   #makes sure all answers selected exist
-            "responses.consumers"     : {$ne : consumerId}  #makes sure consumer has not already answered
-            "responses.skipConsumers" : {$ne : consumerId}  #makes sure consumer has not already skipped..
-            "responses.flagConsumers" : {$ne : consumerId}  #makes sure consumer has not already flagged..
+            "responses.consumers"     : {$ne : entity.id}  #makes sure consumer has not already answered
+            "responses.skipConsumers" : {$ne : entity.id}  #makes sure consumer has not already skipped..
+            "responses.flagConsumers" : {$ne : entity.id}  #makes sure consumer has not already flagged..
             "dates.start"             : {$lte: new Date()}  #makes sure poll has started
             # "dates.end"               : {$gt : new Date()}  #makes sure poll has not ended
             "transactions.state"      : choices.transactions.states.PROCESSED #poll is processed and ready to launch
@@ -4138,6 +4153,8 @@ class BusinessTransactions extends API
       data.organizationEntity.id = new ObjectId(data.organizationEntity.id)
     if Object.isString(data.locationId)
       data.locationId = new ObjectId(data.locationId)
+    if Object.isString(data.registerId)
+      data.registerId = new ObjectId(data.registerId)
 
     timestamp = Date.create(data.timestamp)
 
@@ -4150,19 +4167,24 @@ class BusinessTransactions extends API
 
       locationId      : data.locationId
       registerId      : data.registerId
-      barcodeId       : data.barcodeId+"" #make string
-      transactionId   : data.transactionId+"" #make string
+      barcodeId       : if !utils.isBlank(data.barcodeId) then data.barcodeId+"" else undefined #make string
+      transactionId   : if !utils.isBlank(data.transactionId) then data.transactionId+"" else undefined #make string
       date            : Date.create(timestamp)
       time            : new Date(0,0,0, timestamp.getHours(), timestamp.getMinutes(), timestamp.getSeconds(), timestamp.getMilliseconds()) #this is for slicing by time
-      amount          : parseFloat(data.amount).round(2)
-      #donationAmount  : data.donationAmount #business don't have a donation $ or % field in db
+      amount          : if data.amount? then parseFloat(data.amount).round(2) else undefined
+      receipt         : if !utils.isBlank(data.receipt) then new Binary(data.receipt) else undefined
+      hasReceipt      : if !utils.isBlank(data.receipt) then true else false
+
+      donationType    : defaults.bt.donationType #we should pull this out from the organization later
+      donationValue   : parseFloat(defaults.bt.donationValue).round(2) #we should pull this out from the organization
+      donationAmount  : parseFloat(defaults.bt.donationValue).round(2)
     }
 
     self = this
     async.series {
       findConsumer: (cb)-> #find only if there was a barcode that needed to be analyzed
         if doc.barcodeId?
-          Consumers.getByBarcodeId doc.barcodeId, (error, consumer)->
+          Consumers.model.collection.findOne {barcodeId: doc.barcodeId}, {_id:1, firstName:1, lastName:1, screenName:1, tapinsToFacebook:1}, (error, consumer)->
             if error?
               cb(error, null)
               return
@@ -4173,16 +4195,19 @@ class BusinessTransactions extends API
                 name        : "#{consumer.firstName} #{consumer.lastName}"
                 screenName  : consumer.screenName
               }
+              logger.debug(consumer)
+              doc.postToFacebook = if consumer.tapinsToFacebook? and consumer.tapinsToFacebook then true else false
+              doc.donationAmount = if consumer.tapinsToFacebook? and consumer.tapinsToFacebook then (doc.donationAmount + defaults.bt.donationFacebook).round(2) else doc.donationAmount
               cb(null)
             else
-              cb(null) #insert the transaction anyway, it is an invalid bar code though
+              cb(null) #insert the transaction anyway, it is an invalid or unassigned bar code though
               #cb(new errors.ValidationError {"DNE": "Consumer Does Not Exist"})
         else
           cb(null)
 
       findOrg: (cb)-> #do 3 things, make sure org exists, get the name, get donation amount
         if doc.organizationEntity.type is choices.entities.BUSINESS
-          Businesses.one doc.organizationEntity.id, (error, business)->
+          Businesses.validateTransactionEntity doc.organizationEntity.id, doc.locationId, doc.registerId, (error, business)->
             if error?
               cb(error, null)
               return
@@ -4199,7 +4224,7 @@ class BusinessTransactions extends API
           amount: doc.amount
         }
 
-        statTransaction = @createTransaction(choices.transactions.states.PENDING, choices.transactions.actions.STAT_BT_TAPPED, transactionData, choices.transactions.directions.INBOUND, instance._doc.organizationEntity)
+        statTransaction = @createTransaction(choices.transactions.states.PENDING, choices.transactions.actions.STAT_BT_TAPPED, transactionData, choices.transactions.directions.INBOUND, doc.organizationEntity)
 
         doc.transactions = {}
         doc.transactions.locked = false
@@ -4207,23 +4232,45 @@ class BusinessTransactions extends API
         doc.transactions.log = [statTransaction]
 
         @model.collection.insert doc, {safe: true}, (error, bt)->
-          logger.debug error
-          logger.debug bt
-          cb error, bt[0]
+          bt = bt[0]
           if error?
+            cb(error)
             return
           if doc.userEntity?
-            who = doc.userEntity
-            tp.process(bt[0], statTransaction) #write stat to collection
-            Streams.btTapped bt[0] #NOTICE THE _doc HERE, BECAUSE !!!! #we don't care about the callback
-        return
+            cb(null, true) #success
+            tp.process(bt, statTransaction) #write stat to collection
+            Streams.btTapped bt #we don't care about the callback for this stream function
+            return
+          else
+            cb(null, true) #success
+            return
+          return
     }, (error, results)->
       if error?
         callback(error)
+        return
       else if results.save?
-        callback(null, results.save)
+        callback(null)
+        return
 
-  @claimBarcodeId = (entity, barcodeId, callback)->
+  @findOneRecentTapIn: (businessId, locationId, registerId, callback)->
+    if Object.isString(businessId)
+      businessId = new ObjectId(businessId)
+    if Object.isString(locationId)
+      locationId = new ObjectId(locationId)
+    if Object.isString(registerId)
+      registerId = new ObjectId(registerId)
+
+    @model.collection.findOne {"organizationEntity.id": businessId, locationId: locationId, registerId: registerId}, {sort: {date: -1}}, callback
+    return
+
+  @associateReceipt: (id, receipt, callback)->
+    if Object.isString(id)
+      id = new ObjectId(id)
+    @model.collection.update {_id: id, hasReceipt: false}, {$set: {receipt: new Binary(receipt), hasReceipt: true}}, {safe: true}, callback
+    return
+
+  @claimBarcodeId: (entity, barcodeId, callback)->
     if Object.isString(entity.id)
       entity.id = new ObjectId(entity.id)
 
@@ -4237,8 +4284,9 @@ class BusinessTransactions extends API
       }
     }
     @model.collection.update {barcodeId: barcodeId}, {$set: $set}, {multi:true, safe:true}, callback
+    return
 
-  @byUser = (userId, options, callback)->
+  @byUser: (userId, options, callback)->
     if Object.isFunction options
       callback = options
       options = {}
@@ -4246,7 +4294,7 @@ class BusinessTransactions extends API
     query.where 'userEntity.id', userId
     query.exec callback
 
-  @byBarcode = (barcodeId, options, callback)->
+  @byBarcode: (barcodeId, options, callback)->
     if Object.isFunction options
       callback = options
       options = {}
@@ -4254,7 +4302,7 @@ class BusinessTransactions extends API
     query.where 'barcodeId', barcodeId
     query.exec callback
 
-  @byBusiness = (businessId, options, callback)->
+  @byBusiness: (businessId, options, callback)->
     if Object.isFunction options
       callback = options
       options = {}
@@ -4278,7 +4326,7 @@ class BusinessTransactions extends API
     logger.info options
     query.exec callback
 
-  @byBusinessGbCostumers = (businessId, options, callback)->
+  @byBusinessGbCostumers: (businessId, options, callback)->
     if Object.isFunction options
       callback = options
       options = {}
@@ -4293,7 +4341,7 @@ class BusinessTransactions extends API
       query.where 'locationId', options.location
     query.exec callback
 
-  @test = (callback)->
+  @test: (callback)->
     data =
       "barcodeId" : "aldkfjs12lsdfl12lskdjf"
       "registerId" : "asdlf3jljsdlfoiuwirljf"
@@ -4403,6 +4451,7 @@ class Streams extends API
 
     stream.data = {
       poll:{
+        question: pollDoc.question
         name: pollDoc.name
       }
     }
@@ -4448,6 +4497,7 @@ class Streams extends API
 
     stream.data = {
       poll:{
+        question: pollDoc.question
         name: pollDoc.name
       }
     }
@@ -4491,6 +4541,7 @@ class Streams extends API
 
     stream.data = {
       poll:{
+        question: pollDoc.question
         name: pollDoc.name
       }
     }
@@ -4525,6 +4576,7 @@ class Streams extends API
 
     stream.data = {
       poll:{
+        question: pollDoc.question
         name: pollDoc.name
       }
     }
@@ -5041,21 +5093,18 @@ class Statistics extends API
 
   #Give me a list of people who have tapped in to a business before and therefore are customers
   @withTapIns: (org, skip, callback)->
-    query = Statistics.query()
-    query.where("org.type", org.type)
-    query.where("org.id", org.id)
-    query.where("data.tapIns.totalTapIns").gt(0)
-    query.limit(25) #we don't accept limit as an argument because it holds up the event loop
-    query.skip(skip)
-    query.exec (error, statistics)->
+    if Object.isString(org.id)
+      org.id = new ObjectId(org.id)
+    @model.collection.find {"org.type": org.type, "org.id": org.id, "data.tapIns.totalTapIns": {$gt: 0}}, (error, cursor)->
       if error?
         callback(error)
-      else
+        return
+      cursor.limit(25)
+      cursor.skip(skip || 0)
+      cursor.sort({"data.tapIns.lastVisited": -1})
+      cursor.toArray (error, statistics)->
+        logger.debug(statistics)
         callback(error, statistics)
-        # customerIds
-        # for customer in statistics
-        #   customerIds.push(customer.consumerId)
-        #   delete customer.consumerId
 
   @getByConsumerIds: (org, consumerIds, callback)->
     query = @query()
