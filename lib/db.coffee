@@ -672,7 +672,7 @@ Stream = new Schema {
     locationId        : {type: ObjectId}
     locationName      : {type: String} #generally we don't have this information #probably remove this
   }
-  events              : [{type:String, required: true, enum: choices.eventTypes}]
+  events              : [{type:String, required: true, enum: choices.eventTypes._enum}]
   feeds: {
     global            : {type: Boolean, required: true, default: false}
   }
@@ -797,8 +797,14 @@ BusinessTransaction = new Schema {
   transactionId         : {type: String} #if their data has a transaction number we put it here
   date                  : {type: Date, required: true}
   time                  : {type: Date, required: true}
-  amount                : {type: Number, required: true}
-  donationAmount        : {type: Number, required: true, default: 0}
+  amount                : {type: Number, required: false}
+  receipt               : {type: Buffer, required: false} #binary receipt data
+  hasReceipt            : {type: Boolean, required: true, default:false} #because we want to check if there is a receipt without pulling receipt (might be big)
+
+  donationType          : {type: String, required: true, enum: choices.donationTypes._enum} #percentage or dollar amount
+  donationValue         : {type: Number, required: true} #what is the percentage or what is the dollar amount
+  donationAmount        : {type: Number, required: true, default: 0} #the amount donated
+  postToFacebook        : {type: Boolean, required: true, default: false} #do we post this transaction to facebook
 
   transactions          : transactions
 }
