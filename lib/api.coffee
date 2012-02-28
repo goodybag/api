@@ -703,20 +703,26 @@ class Users extends API
     self = this
     #id typecheck is done in @update
     #media.mediaId typecheck is done in validateMedia
-    Medias.validateMedia media, "square", (error, validatedMedia)->
+    Medias.validateAndGetMediaURLs "consumer", id, "consumer", media, (error, validatedMedia)->
       if error?
         callback error
         return
-      set =
-        media: validatedMedia
 
-      self.update id, {$set:set}, (error, count)-> #error,count
+      update = {}
+      if !validatedMedia?
+        mediaToReturn = null
+        update.$unset = {media:1}
+      else
+        mediaToReturn = validatedMedia
+        update.$set = {media:validatedMedia}
+
+      self.update id, update, (error, count)-> #error,count
         if error?
           callback error
         if count==0
           callback new errors.ValidationError {"id":"Consumer Id not found."}
         else
-          callback null, set.media #send back the media object
+          callback null, mediaToReturn #send back the media object
         return
       return
     return
@@ -772,7 +778,8 @@ class Users extends API
         mediaId: null
       }
       set = {
-        media: media
+        media          : media
+        "facebook.pic" : data.fbPicURL
       }
       self.update {_id:id}, {$set:set}, (error,success)->
         if error?
@@ -810,7 +817,7 @@ class Users extends API
   @delMedia: (id,callback)->
     if Object.isString id
       id = new ObjectId id
-    @model.update {_id:id}, {$set:{"permissions.media":false},$unset:{media:1}}, callback
+    @model.update {_id:id}, {$set:{"permissions.media":false},$unset:{media:1,secureMedia:1,"facebook.pic":1}}, callback
     return
 
   #@updateEmail
@@ -1050,6 +1057,7 @@ class Consumers extends Users
       consumer['facebook.access_token'] = accessToken
       consumer['facebook.id'] = facebookData.me.id
       consumer['facebook.me'] = facebookData.me
+      consumer['facebook.pic']= facebookData.pic if facebookData.pic?
 
       consumer['profile.birthday'] = if facebookData.me.birthday? then utils.setDateToUTC(facebookData.me.birthday)
       consumer['profile.gender']   = facebookData.me.gender
@@ -1066,6 +1074,7 @@ class Consumers extends Users
         else
           callTransloadit = false
           if consumerAlreadyRegistered?
+            consumerAlreadyRegistered = consumerAlreadyRegistered._doc #cause mongoose
             # Previously Register User Found
             mediaPermission  = consumerAlreadyRegistered.permissions.media
             facebookPicFound = facebookData.pic?
@@ -1086,7 +1095,6 @@ class Consumers extends Users
               callTransloadit = true
 
             self.model.collection.findAndModify {$or:[{"facebook.id":facebookData.me.id}, {email:facebookData.me.email}]}, [], {$set: consumer, $inc: {loginCount:1}}, {fields:fieldsToReturn,new:true,safe:true}, (error, consumerToReturn)->
-              consumerToReturn = consumerToReturn._doc
               callback error, consumerToReturn
               if callTransloadit && !error?
                 self._sendFacebookPicToTransloadit consumerToReturn._id, consumerToReturn.screenName, mediaGuid, facebookData.pic
@@ -1131,7 +1139,6 @@ class Consumers extends Users
                   if error?
                     callback error #dberror
                   else
-                    newUser = newUser._doc
                     newUserFields = self._copyFields(newUser, fieldsToReturn)
                     callback null, newUserFields
 
@@ -1606,6 +1613,31 @@ class Clients extends API
       self.update id, {password: hash}, callback
       return
 
+  @updateIdentity: (id, data, callback)->
+    self = this
+    logger.silly id
+    if Object.isString(id)
+      id = new ObjectId(id)
+
+    entityType = "client"
+    Medias.validateAndGetMediaURLs entityType, id, "client", data.media, (error, validatedMedia)->
+      if error?
+        callback error
+        return
+
+      updateDoc = {}
+      if !validatedMedia?
+        delete data.media
+        #updateDoc.$unset = {media:1} #DONT UNSET - media is submitted with business info updates..
+      else
+        data.media = validatedMedia
+
+      updateDoc.$set = data
+      logger.silly data
+      self.model.collection.findAndModify {_id: id}, [], updateDoc, {safe: true}, callback
+      return
+    return
+
   @register: (data, fieldsToReturn, callback)->
     self = this
     data.screenName = new ObjectId()
@@ -2026,13 +2058,27 @@ class Businesses extends API
     return
 
   @updateIdentity: (id, data, callback)->
+    self = this
     if Object.isString(id)
       id = new ObjectId(id)
-    set = {}
-    for own k,v of data
-      if !utils.isBlank(v)
-        set[k] = v
-    @model.collection.update {_id: id}, {$set: set}, {safe: true}, callback
+
+    entityType = "business"
+    Medias.validateAndGetMediaURLs entityType, id, "business", data.media, (error, validatedMedia)->
+      if error?
+        callback error
+        return
+
+      updateDoc = {}
+      if !validatedMedia?
+        delete data.media
+        #updateDoc.$unset = {media:1} #DONT UNSET - media is submitted with business info updates..
+      else
+        data.media = validatedMedia
+
+      updateDoc.$set = data
+      self.model.collection.update {_id: id}, updateDoc, {safe: true}, callback
+      return
+    return
 
   @updateMediaByGuid: (id, guid, mediasDoc, callback)->
     if(Object.isString(id))
@@ -2215,173 +2261,254 @@ class Polls extends API # Campaigns
     return query
 
   # @add = (data, amount, event, callback)-> #come back to this one, first transactions need to work
-  @add: (data, amount, callback)->
+  @add: (pollData, amount, callback)->
     self = this
-    if Object.isString(data.entity.id)
-      data.entity.id = new ObjectId data.entity.id
-    if data.mediaQuestion and Object.isString(data.mediaQuestion.mediaId) and data.mediaQuestion.mediaId.length>0
-      data.mediaQuestion.mediaId = new ObjectId data.mediaQuestion.mediaId
-    if data.mediaResults? and Object.isString(data.mediaResults.mediaId) and data.mediaResults.mediaId.length>0
-      data.mediaResults.mediaId = new ObjectId data.mediaResults.mediaId
+    if Object.isString(pollData.entity.id)
+      pollData.entity.id = new ObjectId pollData.entity.id
 
     #find Entity, and check if they have enough funds
-    switch data.entity.type
-      when choices.entities.CLIENT
-        entityClass = Clients
+    logger.debug "pollData.entity"
+    logger.debug pollData.entity
+    switch pollData.entity.type
+      when choices.entities.BUSINESS
+        entityClass = Businesses
       when choices.entities.CONSUMER
         entityClass = Consumers
 
-    entityClass.one data.entity.id, {funds:1}, (error, entity)->
-      if error?
-        callback error
-        return
-      if !entity?
-        callback new errors.ValidationError "Entity id not found.", {"entity":"Entity not found."}
-        return
-      #found entity
-      if (entity.funds.remaining < (data.funds.perResponse*data.responses.max))
-        callback new errors.ValidationError "Insufficient funds.", {"entity":"Insufficient funds"}
-        return
-      #User has enough funds.
-      instance = new self.model(data)
+    async.parallel {
+        checkFunds: (cb)->
+          if Object.isString pollData.entity.id
+            pollData.entity.id = new ObjectId pollData.entity.id
+          entityClass.one pollData.entity.id, {funds:1}, (error, entity)->
+            if error?
+              cb error
+              return
+            if !entity?
+              #Entity not found
+              cb new errors.ValidationError "Entity id not found.", {"entity":"Entity not found."}
+              return
+            if (entity.funds.remaining < (pollData.funds.perResponse*pollData.responses.max))
+              #Entity does not have enough funds
+              cb new errors.ValidationError "Insufficient funds.", {"entity":"Insufficient funds"}
+              return
+            # Success - entity found and has enough funds to create poll..
+            cb null, entity
 
-      transactionData = {
-        amount: amount
-      }
+        validatedMediaQuestion: (cb)->
+          Medias.validateAndGetMediaURLs pollData.entity.type, pollData.entity.id, "poll", pollData.mediaQuestion, (error, validatedMedia)->
+            if error?
+              cb error
+              return
+            #mediaCheck - if validated media is null.. delete media from the poll pollData.
+            if !validatedMedia?
+              delete pollData.mediaQuestion
+              cb null, null
+            else
+              pollData.mediaQuestion = validatedMedia
+              cb null, validatedMedia
+            return
 
-      transaction = self.createTransaction(choices.transactions.states.PENDING, choices.transactions.actions.POLL_CREATED, transactionData, choices.transactions.directions.INBOUND, instance._doc.entity)
-
-      instance.transactions.state = choices.transactions.states.PENDING #soley for reading purposes
-      instance.transactions.locked = true
-      instance.transactions.ids = [transaction.id]
-      instance.transactions.log = [transaction]
-
-      #instance.events = @_createEventsObj event
-      instance.save (error, poll)->
-        logger.debug error
-        logger.debug poll
-        callback error, poll._doc
+        validatedMediaResults: (cb)->
+          Medias.validateAndGetMediaURLs pollData.entity.type, pollData.entity.id, "poll", pollData.mediaResults, (error, validatedMedia)->
+            if error?
+              cb error
+              return
+            #mediaCheck - if validated media is null.. delete media from the poll data.
+            if !validatedMedia?
+              delete pollData.mediaResults
+              cb null, null
+            else
+              pollData.mediaResults = validatedMedia
+              cb null, validatedMedia
+            return
+      },
+      (error, asyncResults)-> #asyn.parallel callback
         if error?
-          logger.debug "error"
-        else
-          tp.process(poll._doc, transaction)
+          callback error
+          return
+
+        #note: pollData was modified above in the validateMedia checks above..
+        logger.debug "POLL pollData"
+        logger.debug pollData
+        instance = new self.model(pollData)
+
+        transactionData = {
+          amount: amount
+        }
+
+        transaction = self.createTransaction(choices.transactions.states.PENDING, choices.transactions.actions.POLL_CREATED, transactionData, choices.transactions.directions.INBOUND, instance._doc.entity)
+
+        instance.transactions.state = choices.transactions.states.PENDING #soley for reading purposes
+        instance.transactions.locked = true
+        instance.transactions.ids = [transaction.id]
+        instance.transactions.log = [transaction]
+
+        #instance.events = @_createEventsObj event
+        instance.save (error, poll)->
+          logger.debug error
+          logger.debug poll
+          if error?
+            logger.debug "error"
+            callback error
+          else
+            callback error, poll._doc
+            tp.process(poll._doc, transaction)
+          return
         return
-      return
     return
 
-  @update: (entityType, entityId, pollId, data, newAllocated, perResponse, callback)->
+  @update: (entityType, entityId, pollId, pollData, newAllocated, perResponse, callback)->
     self = this
-    instance = new @model(data)
+    instance = new @model(pollData)
 
     if Object.isString(pollId)
       pollId = new ObjectId(pollId)
     if Object.isString(entityId)
       entityId = new ObjectId(entityId)
 
-    #find Entity, and check if they have enough funds
-    switch entityType
-      when choices.entities.CLIENT
-        entityClass = Clients
-      when choices.entities.CONSUMER
-        entityClass = Consumers
-    entityClass.one entityId, {funds:1}, (error, entity)->
-      if error?
-        callback error
-        return
-      if !entity?
-        callback new errors.ValidationError "Entity id not found.", {"entity":"Entity not found."}
-        return
-      #found entity
-      if (entity.funds.remaining < (data.funds.perResponse*data.responses.max))
-        callback new errors.ValidationError "Insufficient funds.", {"entity":"Insufficient funds"}
-        return
-      #User has enough funds.
 
-      #Set the fields you want updated now, not afte the update
-      #for the ones that you want set after the update put those
-      #in the transactionData and make thsoe changes in the
-      #setTransactionProcessed function
+    async.parallel {
+        # checkFunds: (cb)->
+        #   find Entity, and check if they have enough funds
+        #    switch entityType
+        #      when choices.entities.BUSINESS
+        #        entityClass = Businesses
+        #      when choices.entities.CONSUMER
+        #        entityClass = Consumers
+        #   if Object.isString pollData.entity.id
+        #     pollData.entity.id = new ObjectId pollData.entity.id
+        #   entityClass.one pollData.entity.id, {funds:1}, (error, entity)->
+        #     if error?
+        #       cb error
+        #       return
+        #     if !entity?
+        #       #Entity not found
+        #       cb new errors.ValidationError "Entity id not found.", {"entity":"Entity not found."}
+        #       return
+        #     if (entity.funds.remaining < (pollData.funds.perResponse*pollData.responses.max))
+        #       #Entity does not have enough funds
+        #       cb new errors.ValidationError "Insufficient funds.", {"entity":"Insufficient funds"}
+        #       return
+        #     # Success - entity found and has enough funds to create poll..
+        #     cb null, entity
 
-      $set = {
-        entity: {
-          type          : entityType
-          id            : entityId
-          name          : data.entity.name
-        }
+        validatedMediaQuestion: (cb)->
+          Medias.validateAndGetMediaURLs entityType, entityId, "poll", pollData.mediaQuestion, (error, validatedMedia)->
+            if error?
+              cb error
+              return
+            #mediaCheck - if validated media is null.. delete media from the poll pollData.
+            if !validatedMedia?
+              delete pollData.mediaQuestion
+              cb null, null
+            else
+              pollData.mediaQuestion = validatedMedia
+              cb null, validatedMedia
+            return
 
-        lastModifiedBy: {
-          type          : data.lastModifiedBy.type
-          id            : data.lastModifiedBy.id
-        }
-
-        name            : data.name
-        type            : data.type
-        question        : data.question
-        choices         : data.choices
-        numChoices      : parseInt(data.numChoices)
-        responses: {
-          remaining     : parseInt(data.responses.max)
-          max           : parseInt(data.responses.max)
-          log           : data.responses.log
-          dates         : data.responses.dates
-          choiceCounts  : data.responses.choiceCounts
-        }
-        showStats       : data.showStats
-        displayName     : data.displayName
-        displayMediaQuestion    : data.displayMediaQuestion
-        displayMediaResults    : data.displayMediaResults
-
-        mediaQuestion : data.mediaQuestion
-        mediaResults  : data.mediaResults
-      }
-      #flat properties so that they dont overwrite their entire subdoc
-      $set["dates.start"]= new Date(data.dates.start) #this is so that we don't lose the create date
-      $set["transactions.locked"]= true #THIS IS A LOCKING TRANSACTION, SO IF ANYONE ELSE TRIES TO DO A LOKCING TRANSACTION IT WILL NOT HAPPEN (AS LONG AS YOU CHECK FOR THAT)
-      $set["transactions.state"]= choices.transactions.states.PENDING
-
-      #TRANSACTION updates
-      transactionEntity = {
-          type          : entityType
-          id            : entityId
-      }
-      transactionData = {
-        newAllocated: newAllocated
-        perResponse: perResponse
-      }
-      transaction = self.createTransaction choices.transactions.states.PENDING, choices.transactions.actions.POLL_UPDATED, transactionData, choices.transactions.directions.INBOUND, transactionEntity
-
-      $push = {
-        "transactions.ids": transaction.id
-        "transactions.log": transaction
-      }
-
-      $update = {
-        $set: $set
-        $push: $push
-      }
-
-      where = {
-        _id: pollId,
-        "entity.type":entityType,
-        "entity.id":entityId,
-        "transactions.locked": false,
-        "deleted": false
-        $or : [
-          {"dates.start": {$gt:new Date()}, "transactions.state": choices.transactions.states.PROCESSED},
-          {"transactions.state": choices.transactions.states.ERROR}
-        ]
-      }
-      self.model.collection.findAndModify where, [], $update, {safe: true, new: true}, (error, poll)->
+        validatedMediaResults: (cb)->
+          Medias.validateAndGetMediaURLs entityType, entityId, "poll", pollData.mediaResults, (error, validatedMedia)->
+            if error?
+              cb error
+              return
+            #mediaCheck - if validated media is null.. delete media from the poll data.
+            if !validatedMedia?
+              delete pollData.mediaResults
+              cb null, null
+            else
+              pollData.mediaResults = validatedMedia
+              cb null, validatedMedia
+            return
+      },
+      (error, asyncData)-> #asyn.parallel callback
         if error?
-          callback error, null
-        else if !poll?
-          callback new errors.ValidationError({"poll":"Poll does not exist or not editable."})
-        else
-          callback null, poll
-          tp.process(poll, transaction)
+          callback error
+          return
+
+        #Set the fields you want updated now, not afte the update
+        #for the ones that you want set after the update put those
+        #in the transactionData and make thsoe changes in the
+        #setTransactionProcessed function
+        updateDoc = {}
+
+        updateDoc.$unset = {}
+        if !asyncData.validatedMediaQuestion?
+          updateDoc.$unset.mediaQuestion = 1
+        if !asyncData.validatedMediaResults?
+          updateDoc.$unset.mediaResults = 1
+        delete updateDoc.$unset if Object.isEmpty(updateDoc.$unset) #delete it if nothing to unset
+
+        updateDoc.$set = {
+          entity: {
+            type          : entityType
+            id            : entityId
+            name          : pollData.entity.name
+          }
+
+          lastModifiedBy: {
+            type          : pollData.lastModifiedBy.type
+            id            : pollData.lastModifiedBy.id
+          }
+
+          name            : pollData.name
+          type            : pollData.type
+          question        : pollData.question
+          choices         : pollData.choices
+          numChoices      : parseInt(pollData.numChoices)
+          responses: {
+            remaining     : parseInt(pollData.responses.max)
+            max           : parseInt(pollData.responses.max)
+            log           : pollData.responses.log
+            dates         : pollData.responses.dates
+            choiceCounts  : pollData.responses.choiceCounts
+          }
+          showStats       : pollData.showStats
+          displayName     : pollData.displayName
+
+        }
+        #flat properties so that they dont overwrite their entire subdoc
+        updateDoc.$set["dates.start"]= new Date(pollData.dates.start) #this is so that we don't lose the create date
+        updateDoc.$set["transactions.locked"]= true #THIS IS A LOCKING TRANSACTION, SO IF ANYONE ELSE TRIES TO DO A LOKCING TRANSACTION IT WILL NOT HAPPEN (AS LONG AS YOU CHECK FOR THAT)
+        updateDoc.$set["transactions.state"]= choices.transactions.states.PENDING
+
+        #TRANSACTION updates
+        transactionEntity = {
+            type          : entityType
+            id            : entityId
+        }
+        transactionData = {
+          newAllocated: newAllocated
+          perResponse: perResponse
+        }
+        transaction = self.createTransaction choices.transactions.states.PENDING, choices.transactions.actions.POLL_UPDATED, transactionData, choices.transactions.directions.INBOUND, transactionEntity
+
+        updateDoc.$push = {
+          "transactions.ids": transaction.id
+          "transactions.log": transaction
+        }
+
+        where = {
+          _id: pollId,
+          "entity.type":entityType,
+          "entity.id":entityId,
+          "transactions.locked": false,
+          "deleted": false
+          $or : [
+            {"dates.start": {$gt:new Date()}, "transactions.state": choices.transactions.states.PROCESSED},
+            {"transactions.state": choices.transactions.states.ERROR}
+          ]
+        }
+        self.model.collection.findAndModify where, [], updateDoc, {safe: true, new: true}, (error, poll)->
+          if error?
+            callback error, null
+          else if !poll?
+            callback new errors.ValidationError({"poll":"Poll does not exist or not editable."})
+          else
+            callback null, poll
+            tp.process(poll, transaction)
+          return
         return
       return
-    return
 
   @updateMediaByGuid: (entityType, entityId, guid, mediasDoc, mediaKey, callback)->
     if(Object.isString(entityId))
@@ -3713,22 +3840,26 @@ class Medias extends API
 
 
   #validate Media Objects for other collections
-  @validateAndCheckForMedia: (entityType, entityId, mediaFor, media, callback)->
-    validatedMedia = {}
+  @validateAndGetMediaURLs: (entityType, entityId, mediaFor, media, callback)->
+    validatedMedia = {
+      rotateDegrees : media.rotateDegrees
+    }
     if !media?
-      callback new errors.ValidationError {"media":"Media is null."}
+      callback null, null
       return
 
     if !utils.isBlank(media.mediaId)
       #mediaId and no urls -> look up urls
-      if (!utils.isBlank(media.url) or !utils.isBlank(media.thumb))
+      if (utils.isBlank(media.url) or utils.isBlank(media.thumb))
         logger.debug "validateMedia - mediaId supplied, missing urls, fetch urls from db."
         #mediaId typecheck is done in one
+        if Object.isString(media.mediaId)
+          media.mediaId = new ObjectId(media.mediaId)
         Medias.one media.mediaId, (error, mediasDoc)->
           if error?
             callback error #callback
             return
-          else if !data? || data.length==0
+          else if !mediasDoc? || mediasDoc.length==0
             callback new errors.ValidationError({"mediaId":"Invalid MediaId"})
             return
           validatedMedia = Medias.mediaFieldsForType mediasDoc._doc, mediaFor
@@ -3745,10 +3876,12 @@ class Medias extends API
           callback error
           return
         else if mediasDoc?
+          logger.debug "validateMedia - guid supplied, found guid in Medias."
           validatedMedia = Medias.mediaFieldsForType mediasDoc._doc, mediaFor
           callback null, validatedMedia # found - media uploaded by transloadit already
           return
         else #!media? - media has yet to be uploaded by transloadit.. mark it with the guid and use tempurls for now
+          logger.debug "validateMedia - guid supplied, guid not found (use temp. URLs for now)."
           validatedMedia.rotateDegrees = media.rotateDegrees if !utils.isBlank(media.rotateDegrees) && media.rotateDegrees!=0
           if !utils.isBlank(media.tempURL)
             validatedMedia.url = media.tempURL
@@ -3764,12 +3897,12 @@ class Medias extends API
               validatedMedia.thumb = media.thumb
               callback null, validatedMedia
               return
-    else if media.url? || media.thumb? #and !data.media.guid and !data.media.mediaId
+    else if !utils.isBlank(media.url) || !utils.isBlank(media.thumb) #and !data.media.guid and !data.media.mediaId
       callback new errors.ValidationError({"media":"'guid' or 'mediaId' is required when supplying a media.url"})
       return
     else
       #invalid (missing mediaId and guid..) or empty mediaObject
-      callback null, {} #guid and urls supplied
+      callback null, null #guid and urls supplied
       return
 
   @addOrUpdate: (media, callback)->
@@ -3914,17 +4047,19 @@ class Events extends API
 
   @add: (event, callback)->
     self = Events
-    console.log "mediaBefore"
-    console.log event.media
-    console.log event.entity
-    Medias.validateAndCheckForMedia event.entity.type, event.entity.id, "event", event.media, (error, validatedMedia)->
+
+    #validate and get media urls (if avail) - returns null media if media is incomplete
+    Medias.validateAndGetMediaURLs event.entity.type, event.entity.id, "event", event.media, (error, validatedMedia)->
       if error?
         callback error
         return
-      #media good..
-      console.log "validatedMedia"
-      console.log validatedMedia
-      event.media = validatedMedia
+      if !validatedMedia?
+        #no media, or incomplete media subdoc..
+        delete event.media
+      else
+        #media good..
+        event.media = validatedMedia
+
       self._add event, callback
     return
 

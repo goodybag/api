@@ -403,8 +403,6 @@ Poll = new Schema {
   numChoices           : {type: Number, min:2, required: true}
   showStats            : {type: Boolean, required: true} #whether to display the stats to the user or not
   displayName          : {type: Boolean, required: true}
-  displayMediaQuestion : {type: Boolean, required: true}
-  displayMediaResults  : {type: Boolean, required: true}
 
   responses: {
     remaining          : {type: Number,   required: true} #decrement each response
