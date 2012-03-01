@@ -976,16 +976,51 @@ class Consumers extends Users
         return
     return
 
-  @updateTapinsToFacebook: (uid, value, callback)->
+  ###
+  # acceptable parameters
+  # uid, value, callback
+  # uid, accessToken, value, callback
+  ###
+  @updateTapinsToFacebook: (uid, accessToken, value, callback)->
+    if Object.isBoolean(accessToken)
+      callback = value
+      value = accessToken
+
     if !value?
       callback(null, false)
       return
-    @update uid, {tapinsToFacebook: value}, (error, count)->
-      if error?
-        callback error
+    if value is true
+      if !accessToken?
+        callback {message: "There was not enough information from facebook to complete this request"}
         return
-      callback null, count
-    return
+      logger.silly "attempting to save tapIns To Facebook"
+      fb.get 'me/permissions', accessToken, (error, response)=>
+        permissions = response.data[0]
+        logger.debug permissions
+        if error?
+          callback {message: "Sorry, it seems facebook isn't responding right now, please try again in a short while."}
+          return
+        else if permissions? and permissions.publish_stream is 1 and permissions.offline_access is 1
+          logger.silly "Permissions are good. Saving tapIns to Facebook value"
+          @update uid, {tapinsToFacebook: true, "facebook.access_token": accessToken}, (error, count)->
+            if error?
+              callback error
+              return
+            callback null, count #should be 1 or 0, since update by Id
+            return
+        else
+          callback {message: "Not Enough Permissions"}
+          return
+    else #value is false
+      logger.silly "attempting to no longer saving tapIns To Facebook"
+      @update uid, {tapinsToFacebook: false}, (error, count)->
+        if error?
+          callback error
+          return
+        callback null, count #should be 1 or 0, since update by Id
+        return
+
+
 
   @register: (data, fieldsToReturn, callback)->
     self = this
@@ -2245,7 +2280,7 @@ class Businesses extends API
     query = {}
     query["_id"] = businessId
     query["locRegister.#{locationId}"] = registerId
-    query["registers.#{registerId}.location"] = locationId.toString()
+    query["registers.#{registerId}.locationId"] = locationId
     #query["registers.#{registerId}.locationId"] = locationId #SHOULD BE THIS, BUT TEMPORARILY USE ABOVE CAUSE CODE NEEDS A FIXIN'
 
     @model.collection.findOne query, {_id: 1, publicName: 1}, callback
@@ -4223,10 +4258,11 @@ class BusinessTransactions extends API
     }
 
     self = this
+    accessToken = null
     async.series {
       findConsumer: (cb)-> #find only if there was a barcode that needed to be analyzed
         if doc.barcodeId?
-          Consumers.model.collection.findOne {barcodeId: doc.barcodeId}, {_id:1, firstName:1, lastName:1, screenName:1, tapinsToFacebook:1}, (error, consumer)->
+          Consumers.model.collection.findOne {barcodeId: doc.barcodeId}, {_id:1, firstName:1, lastName:1, screenName:1, tapinsToFacebook:1, "facebook.access_token": 1}, (error, consumer)->
             if error?
               cb(error, null)
               return
@@ -4237,6 +4273,7 @@ class BusinessTransactions extends API
                 name        : "#{consumer.firstName} #{consumer.lastName}"
                 screenName  : consumer.screenName
               }
+              accessToken = if consumer.facebook? then consumer.facebook.access_token else null
               logger.debug(consumer)
               doc.postToFacebook = if consumer.tapinsToFacebook? and consumer.tapinsToFacebook then true else false
               doc.donationAmount = if consumer.tapinsToFacebook? and consumer.tapinsToFacebook then (doc.donationAmount + defaults.bt.donationFacebook).round(2) else doc.donationAmount
@@ -4282,6 +4319,16 @@ class BusinessTransactions extends API
             cb(null, true) #success
             tp.process(bt, statTransaction) #write stat to collection
             Streams.btTapped bt #we don't care about the callback for this stream function
+
+            logger.debug accessToken
+            logger.debug doc.postToFacebook
+            if accessToken? and doc.postToFacebook #post to facebook
+              logger.verbose "Posting tapIn to facebook"
+              fb.post '/me/feed', accessToken, {message: "I justed tapped in at #{doc.organizationEntity.name}", link: "http://www.goodybag.com/", name: "Goodybag", picture: "http://www.goodybag.com/static/images/gb-logo.png"}, (error, response)->
+                if error?
+                  logger.error error
+                else
+                  logger.debug response
             return
           else
             cb(null, true) #success
