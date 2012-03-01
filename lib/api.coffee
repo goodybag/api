@@ -934,6 +934,60 @@ class Users extends API
 class Consumers extends Users
   @model = Consumer
 
+  @initialUpdate: (id, data, callback)->
+    where = {
+      _id : new ObjectId(id)
+      #setScreenName: false #maybe, see below..
+    }
+    set = {}
+    if !utils.isBlank(data.barcodeId)
+      logger.silly "addBarcodeId"
+      set.barcodeId = data.barcodeId
+    if !utils.isBlank(data.affiliationId)
+      #you can only set one for now...via the more info modal
+      logger.silly "addAffil"
+      affiliationId = new ObjectId affiliationId
+      set["profile.affiliations"] = [data.affiliationId]
+
+    #if session screenName not set and screeName not passed in..
+    if utils.isBlank(data.screenName)
+      callback new errors.ValidationError "Alias is required.", {"screenName":"required"}
+      return
+    else
+      logger.silly "addScreenName"
+      where.setScreenName = false # if screenName is sent make sure it is already not set.
+      set.screenName = data.screenName
+      set.setScreenName = true
+
+    if Object.isEmpty set
+      callback new errors.ValidationError "Nothing to update..", {"update":"required"}
+      return
+
+    logger.silly "where"
+    logger.silly where
+    logger.silly "set"
+    logger.silly set
+
+    @model.update where, {$set:set}, (error, count)->
+      logger.silly "db results"
+      logger.silly error
+      logger.silly count
+      if error?
+        if error.code == 11000 or error.code == 11001
+          callback new errors.ValidationError "Sorry, that Alias is already taken.", {"screenName":"not unique"}
+          return
+        else
+          callback error
+          return
+      #success
+      if count>0
+        callback error, true
+      else
+        #screen name already set or id not found... id is coming from session
+        callback new errors.ValidationError "Sorry, you can only set your Alias once.", {"screenName":"already set"}
+      return
+    return
+
   # List all consumers (limit to 25 at a time for now - not taking in a limit arg on purpose)
   @getIdsAndScreenNames: (skip, callback)->
     query = @query()
