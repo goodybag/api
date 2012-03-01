@@ -30,6 +30,7 @@ Binary = globals.mongoose.mongo.BSONPure.Binary
 DBTransaction = db.DBTransaction
 Sequence = db.Sequence
 Client = db.Client
+DonationLog = db.DonationLog
 Consumer = db.Consumer
 Business = db.Business
 Media = db.Media
@@ -447,6 +448,31 @@ class Sequences extends API
       else
         callback(null, doc[key])
 
+class DonationLogs extends API
+  @model = DonationLog
+
+  @entityDonated = (entity, charity, amount, timestampDonated, transactionId, callback)->
+    if Object.isString entity.id
+      entity.id = new ObjectId entity.id
+    if Object.isString charity.id
+      charity.id = new Object.Id charity.id
+
+    data = {
+      _id     : transactionId #to prevent duplicates
+      entity  : entity
+      charity : charity
+      amount  : amount
+      dates : {
+        created : new Date()
+        donated : new Date(timestampDonated)
+      }
+      transaction : {
+        ids : [transactionId]
+      }
+    }
+    instance = new @model(data)
+    instance.save callback
+    return
 
 class Users extends API
   #start potential new API functions
@@ -895,7 +921,7 @@ class Users extends API
         return
       query.update {$set:{email:user.changeEmail.newEmail, changeEmail:null}}, (error, count)->
         if error?
-          if error.code is 11000
+          if error.code is 11000 or error.code is 11001
             callback new errors.ValidationError "Email Already Exists", {"email": "Email Already Exists"} #email exists error
           else
             callback error #dberror
@@ -982,7 +1008,7 @@ class Consumers extends Users
 
           self.add data, (error, consumer)->
             if error?
-              if error.code is 11000
+              if error.code is 11000 or error.code is 11001
                 callback new errors.ValidationError "Email Already Exists", {"email":"Email Already Exists"} #email exists error
               else
                 callback error
@@ -1234,27 +1260,25 @@ class Consumers extends Users
       id = new ObjectId id
     entityType = choices.entities.CONSUMER
 
-    @one id, {funds:1}, (error, entity)->
+    @one id, {funds:1}, (error, user)->
       if error?
         callback error
         return
-      if !entity?
-        callback new errors.ValidationError "Entity id not found.", {"entity":"Entity not found."}
+      if !user?
+        callback new errors.ValidationError "User id not found.", {"id":"user id not found."}
         return
-      #found entity
-      totalAmount = 0;
+      #found user
+      totalAmount = 0
       charityIds = []
       for charityId, amount of donationObj
-        console.log charityId
-        console.log amount
         if Object.isString charityId
           charityId = new ObjectId charityId
         amount = parseFloat(amount)
         if !isNaN(amount) && amount>0
           charityIds.push charityId
           totalAmount += amount
-          if entity.funds.remaining < (totalAmount)
-            callback new errors.ValidationError "Insufficient funds.", {"entity":"Insufficient funds."}
+          if user.funds.remaining < (totalAmount)
+            callback new errors.ValidationError "Insufficient funds.", {"user":"Insufficient funds."}
             return
         else
           delete donationObj[charityId]
@@ -1263,35 +1287,40 @@ class Consumers extends Users
         callback new errors.ValidationError "No valid donations entered.", {"donation amounts":"Invalid donation amounts."}
         return
       #verify charities exist..and that the bizs are charities
-      transactions = []
-      transactionIds = []
-      Businesses.model.find {_id:{$in:charityIds},isCharity:true}, {_id:1}, {safe:true}, (error, charitiesVerified)->
+      Businesses.model.find {_id:{$in:charityIds},isCharity:true}, {_id:1, publicName:1}, {safe:true}, (error, charitiesVerified)->
         if error?
           callback error #dberror
           return
         if charitiesVerified.length < numDonations
           callback new errors.ValidationError "Incorrect charity id found.", {'charityId', 'Invalid charityId.'}
           return
-        #all charities found and verified
-        #create transactions
-        for charityId, amount of donationObj
+
+        transactions = []
+        transactionIds = []
+        for charity in charitiesVerified
+          #prepare transactions
           charityEntity = {
-            type: choices.entities.BUSINESS,
-            id  : charityId
+            type : choices.entities.BUSINESS,
+            id   : charity._id #ObjectId
+            name : charity.publicName
           }
+          amount = donationObj[charity._id.toString()]
           transactionData = {
             amount: parseFloat(amount)
+            timestamp: new Date()
           }
           transaction = self.createTransaction(choices.transactions.states.PENDING, choices.transactions.actions.CONSUMER_DONATED, transactionData, choices.transactions.directions.OUTBOUND, charityEntity)
           transactionIds.push transaction.id
           transactions.push transaction
+          #end prepare transactions
 
+        #all charities found and verified
         #update consumer, and start transactions
         pushAll = {}
-        inc  = {}
+        inc     = {}
         pushAll["transactions.ids"] = transactionIds
         pushAll["transactions.log"] = transactions
-        inc["funds.remaining"]   = -1*totalAmount
+        inc["funds.remaining"]      = -1*totalAmount
         update = {
           $pushAll : pushAll,
           $inc  : inc
@@ -1300,7 +1329,11 @@ class Consumers extends Users
           if error?
             callback error
             return
-          callback null, consumer
+          #consumerToReturn has updated funds.donated passed back for the session..
+          #consumer db gets updated after transaction completes.
+          consumerToReturn = Object.clone(consumer, true)
+          consumerToReturn.funds.donated += totalAmount
+          callback null, consumerToReturn
           for transaction in transactions
             tp.process(consumer, transaction)
           return
@@ -1662,7 +1695,7 @@ class Clients extends API
 
           self.add data, (error, client)->
             if error?
-              if error.code is 11000
+              if error.code is 11000 or error.code is 11001
                 callback new errors.ValidationError "Email Already Exists", {"email":"Email Already Exists"} #email exists error
               else
                 callback error
@@ -1723,7 +1756,7 @@ class Clients extends API
         data.password = hash
         self.add data, (error, client)->
           if error?
-            if error.code is 11000
+            if error.code is 11000 or error.code is 11001
               callback new errors.ValidationError "Email Already Exists", {"email":"Email Already Exists"} #email exists error
               return
             else
@@ -1862,7 +1895,7 @@ class Clients extends API
       }
       query.update {$set:set}, (error, success)->
         if error?
-          if error.code is 11000
+          if error.code is 11000 or error.code is 11001
             callback new errors.ValidationError "Email Already Exists", {"email": "Email Already Exists"} #email exists error
             return
           else
@@ -1881,7 +1914,7 @@ class Clients extends API
     query.where('changeEmail.newEmail', email)
     query.update {$set:{email:email}, $unset: {changeEmail: 1}}, (error, success)->
       if error?
-        if error.code is 11000
+        if error.code is 11000 or error.code is 11001
           callback new errors.ValidationError "Email Already Exists", {"email": "Email Already Exists"} #email exists error
         else
           callback error
@@ -2176,6 +2209,15 @@ class Businesses extends API
       transactionId = new ObjectId(transactionId)
 
     @model.collection.findAndModify {_id: id, 'transactions.ids': {$ne: transactionId}}, [], {$addToSet: {"transactions.ids": transactionId}, $inc: {'funds.remaining': amount, 'funds.allocated': amount }}, {new: true, safe: true}, callback
+
+  @depositDonationFunds: (id, transactionId, amount, callback)->
+    if Object.isString(id)
+      id = new ObjectId(id)
+
+    if Object.isString(transactionId)
+      transactionId = new ObjectId(transactionId)
+
+    @model.collection.findAndModify {_id: id, 'transactions.ids': {$ne: transactionId}}, [], {$addToSet: {"transactions.ids": transactionId}, $inc: {'funds.donationsRecieved': amount}}, {new: true, safe: true}, callback
 
   @listWithTapins: (callback)->
     query = @_query()
@@ -4414,6 +4456,47 @@ class Streams extends API
     instance = new @model(model)
     instance.save callback
 
+  @fundsDonated: (who, charity, donationLogDoc, callback)->
+    if Object.isString who.id
+      who.id = new ObjectId who.id
+    if Object.isString charity.id
+      charity.id = new ObjectId charity.id
+
+    donation = {id: donationLogDoc._id, type:choices.objects.DONATION_LOG}
+
+    stream = {
+      who               : who
+      entitiesInvolved  : [who, charity]
+      what              : donation
+      when              : donationLogDoc.dates.donated
+      #where:
+      events            : [choices.eventTypes.FUNDS_DONATED]
+      data              : {}
+      feeds: {
+        global          : true
+      }
+      private: false #THIS NEEDS TO BE UPDATED BASED ON PRIVACY SETTINGS OF WHO (if consumer)
+    }
+
+    stream.data = {
+      amount : donationLogDoc.amount
+    }
+    stream.feedSpecificData = {}
+    stream.feedSpecificData.involved = { #available only to entities involved
+      charity : charity
+    }
+
+    logger.silly stream.data
+
+    @add stream, (error,data)->
+      if error?
+        logger.error error
+      logger.debug data
+      if callback?
+        callback error,data
+      return
+    return
+
   @pollCreated: (pollDoc, callback)->
     if Object.isString(pollDoc._id)
       pollDoc._id = new ObjectId(pollDoc._id)
@@ -5270,6 +5353,7 @@ class Referrals extends API
 exports.DBTransactions = DBTransactions
 exports.Consumers = Consumers
 exports.Clients = Clients
+exports.DonationLogs = DonationLogs
 exports.Businesses = Businesses
 exports.Polls = Polls
 exports.Discussions = Discussions

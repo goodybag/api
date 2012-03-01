@@ -202,6 +202,22 @@ PasswordResetRequest = new Schema {
 
 
 ####################
+# DONATIONS ########
+####################
+DonationLog = new Schema {
+  entity     : entity
+  charity    : entity
+  amount     : {type: Number, required: true}
+  dates : {
+    created  : {type: Date, default: new Date()}
+    donated  : {type: Date, default: new Date()}
+  }
+  transactions : transactions
+}
+
+
+
+####################
 # CONSUMER #########
 ####################
 Consumer = new Schema {
@@ -262,7 +278,18 @@ Consumer = new Schema {
   funds: {
     allocated     : {type: Number, default: 0.0, required: true}
     remaining     : {type: Number, default: 0.0, required: true}
+    donated       : {type: Number, default: 0.0, required: true}
   }
+
+  donations: {
+    log : {}
+      #{entityId} : {
+      #  amount: {type:Number}
+      #  count : {type:Number}
+      #}
+    charities   : [ObjectId]
+  }
+
 
   referralCodes: {
     tapIn         : {type: String}
@@ -273,7 +300,6 @@ Consumer = new Schema {
 
   gbAdmin         : {type: Boolean, default: false}
   transactions    : transactions
-  changeEmail     : {}
 }
 
 Consumer.index {barcodeId: 1}, {unique: true, sparse: true} #sparse because we allow for null/non-existant values
@@ -346,8 +372,9 @@ Business = new Schema {
   }
 
   funds: {
-    allocated   : {type: Number, required: true, default: 0.0}
-    remaining   : {type: Number, required: true, default: 0.0}
+    allocated         : {type: Number, required: true, default: 0.0}
+    remaining         : {type: Number, required: true, default: 0.0}
+    donationsRecieved : {type: Number} #for charities only.
   }
   gbEquipped    : {type: Boolean, default: false}
 
@@ -747,6 +774,7 @@ Event = new Schema {
   externalUrl   : {type: String, validate: Url}
   rsvp          : [ObjectId]
   rsvpUsers     : {}
+  details       : {type: String}
 
   transactions  : transactions
   media         : media
@@ -912,6 +940,7 @@ Statistic.index {'org.type': 1, 'org.id':1, consumerId: 1, "polls.lastAnsweredDa
 
 exports.DBTransaction         = mongoose.model 'DBTransaction', DBTransaction
 exports.Sequence              = mongoose.model 'Sequence', Sequence
+exports.DonationLog           = mongoose.model 'DonationLog', DonationLog
 exports.Consumer              = mongoose.model 'Consumer', Consumer
 exports.Client                = mongoose.model 'Client', Client
 exports.Business              = mongoose.model 'Business', Business
@@ -935,6 +964,7 @@ exports.schemas = {
   Sequence             : Sequence
   Consumer             : Consumer
   Client               : Client
+  DonationLog          : DonationLog
   Business             : Business
   Poll                 : Poll
   Discussion           : Discussion
