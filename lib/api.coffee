@@ -5192,8 +5192,12 @@ class PasswordResetRequests extends API
         callback error
         return
       #found the user now submit the request
+      if !user?
+        callback new errors.ValidationError "That email is not registered with Goodybag.", {"email":"not found"}
+        return
       if user.facebook? && user.facebook.id?
         callback new errors.ValidationError "Your account is authenticated through Facebook.", {"user":"facebookuser"} #do not update this error without updating the frontend javascript
+        return
       request =
         entity:
           type: type
