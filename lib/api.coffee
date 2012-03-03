@@ -32,6 +32,7 @@ Sequence = db.Sequence
 Client = db.Client
 DonationLog = db.DonationLog
 Consumer = db.Consumer
+Loyalty = db.Loyalty
 Business = db.Business
 Media = db.Media
 Poll = db.Poll
@@ -4355,7 +4356,10 @@ class BusinessTransactions extends API
       save: (cb)=> #save it and write to the statistics table
         transactionData = {
           amount: doc.amount
+          charityCentsRaised: 5;
         }
+        if doc.postToFacebook
+          transactionDate.charityCentsRaised = 10;
 
         statTransaction = @createTransaction(choices.transactions.states.PENDING, choices.transactions.actions.STAT_BT_TAPPED, transactionData, choices.transactions.directions.INBOUND, doc.organizationEntity)
 
@@ -5255,6 +5259,66 @@ class PasswordResetRequests extends API
       return
     return
 
+class Loyalties extends API
+  @model = Loyalty
+
+  @add: (data, callback)->
+    instance = @model(data)
+    instance.save (error, loyalty)->
+      if error?
+        callback error
+        return
+      callback null, true
+    return
+
+  @listAllActive: (options)->
+    query = @query()
+    if options?
+      query = optionParser options, query
+    todaysDate = new Date()
+    query.where "active", true #show only active or unactive..
+    query.where {"dates.start" : {$lte:todaysDate}}
+    query.where {"dates.end"   : {$gte:todaysDate}}
+    query.find (error, loyalties)->
+      if error?
+        callback error
+        return
+      callback null, loyalties
+      return
+    return
+
+  @listAllForBusiness: (businessId, options, callback)->
+    @listForBusiness(businessId, null, options, callback)
+    return
+
+  @listActiveForBusiness: (businessId, options, callback)->
+    @listForBusiness(businessId, true, options, callback)
+    return
+
+  @listForBusiness: (businessId, active, options, callback)->
+    query = @optionParser options
+    query.where "entity.id",businessId
+    if Object.isObject active
+      callback = options
+      options = active
+    else if active?
+      todaysDate = new Date()
+      query.where "active",active #show only active or unactive..
+      query.where {"dates.start" : {$lte:todaysDate}}
+      query.where {"dates.end"   : {$gte:todaysDate}}
+    if options.count? && options.count
+      query.count callback
+      return
+    else
+      query.find (error, loyalties)->
+        if error?
+          callback error
+          return
+        callback null, loyalties
+        return
+    return
+
+
 ## Statistics ##
 class Statistics extends API
   @model: Statistic
@@ -5277,6 +5341,17 @@ class Statistics extends API
     query.where("org.type", org.type)
     query.where("org.id", org.id)
     query.exec(callback)
+    return
+
+  @listForConsumerLoyalty: (consumerId, fieldsToReturn, callback)->
+    query = @query()
+    query.where("consumerId",consumerId)
+    query.find (error, callback)->
+      if error?
+        callback error
+        return
+      #dbsuccess.
+
     return
 
   #Give me a list of people who have tapped in to a business before and therefore are customers
@@ -5327,7 +5402,7 @@ class Statistics extends API
 
   @eventRsvped: (org, consumerId, transactionId, timestamp, callback)->
 
-  @btTapped: (org, consumerId, transactionId, spent, timestamp, callback)->
+  @btTapped: (org, consumerId, transactionId, spent, charityCentsRaised, timestamp, callback)->
     if Object.isString(org.id)
       org.id = new ObjectId(org.id)
 
@@ -5339,7 +5414,8 @@ class Statistics extends API
 
     $inc = {}
     $inc["data.tapIns.totalTapIns"] = 1
-    $inc["data.tapIns.totalAmountPurchased"] = parseFloat(spent) #parse just incase it's a string
+    if spent?
+      $inc["data.tapIns.totalAmountPurchased"] = parseFloat(spent) #parse just incase it's a string
 
     $set = {}
     $set["data.tapIns.lastVisited"] = new Date(timestamp) #if it is a string it will become a date hopefully
@@ -5462,6 +5538,8 @@ exports.DonationLogs = DonationLogs
 exports.Businesses = Businesses
 exports.Polls = Polls
 exports.Discussions = Discussions
+exports.Loyalties = Loyalties
+exports.Statistics = Statistics
 exports.Medias = Medias
 exports.ClientInvitations = ClientInvitations
 exports.Tags = Tags

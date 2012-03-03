@@ -1607,7 +1607,7 @@ statBtTapped = (document, transaction)->
       org = {type: document.organizationEntity.type, id: document.organizationEntity.id}
       consumerId = document.userEntity.id
       transactionId = transaction.id
-      api.Statistics.btTapped org, consumerId, transactionId, transaction.data.amount, document.date, (error, count)->
+      api.Statistics.btTapped org, consumerId, transactionId, transaction.data.amount, transaction.data.charityCentsRaised, document.date, (error, count)->
         if error?
           logger.error error #mongo errored out
           callback(error)

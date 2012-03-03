@@ -216,7 +216,6 @@ DonationLog = new Schema {
 }
 
 
-
 ####################
 # CONSUMER #########
 ####################
@@ -907,6 +906,24 @@ Referral.index {type: 1, 'link.code': 1}
 Referral.index {type: 1, 'link.url': 1}
 
 
+####################
+# LOYALTIE(S) ##########
+####################
+Loyaltie = new Schema {
+  name        : {type:String, required:true}
+  deal        : {type:String, required:true}
+  active      : {type:Boolean, default: false, required:true }
+  entity      : entity
+  dates  : {
+    start     : {type:Date, default: new Date(), required:true}
+    end       : {type:Date, default: new Date(), required:true}
+  }
+  funds  : {
+    centsRequired  : {type: Number, required:true}
+  }
+}
+
+
 ##########
 # Stat ###
 ##########
@@ -918,6 +935,9 @@ Referral.index {type: 1, 'link.url': 1}
   #totalTapIns
   #totalAmountPurchased
   #lastVisited
+  #charityCentsRaised
+  #charityCentsRemaining
+  #charityCentsRedeemed
 #polls:
   #totalAnswered
   #lastAnsweredDate
@@ -934,6 +954,9 @@ Statistic.index {'org.type': 1, 'org.id':1, consumerId: 1}, {unique: true}
 Statistic.index {'org.type': 1, 'org.id':1, consumerId: 1, "tapIns.totalTapIns": 1}
 Statistic.index {'org.type': 1, 'org.id':1, consumerId: 1, "tapIns.totalAmountPurchased": 1}
 Statistic.index {'org.type': 1, 'org.id':1, consumerId: 1, "tapIns.lastVisited": 1}
+Statistic.index {'org.type': 1, 'org.id':1, consumerId: 1, "tapIns.charityCentsRedeemed": 1}
+Statistic.index {'org.type': 1, 'org.id':1, consumerId: 1, "tapIns.charityCentsRemaining": 1}
+Statistic.index {'org.type': 1, 'org.id':1, consumerId: 1, "tapIns.charityCentsRaised": 1}
 
 Statistic.index {'org.type': 1, 'org.id':1, consumerId: 1, "polls.totalAnswered": 1}
 Statistic.index {'org.type': 1, 'org.id':1, consumerId: 1, "polls.lastAnsweredDate": 1}
@@ -945,6 +968,7 @@ exports.Consumer              = mongoose.model 'Consumer', Consumer
 exports.Client                = mongoose.model 'Client', Client
 exports.Business              = mongoose.model 'Business', Business
 exports.Poll                  = mongoose.model 'Poll', Poll
+exports.Loyalty               = mongoose.model 'Loyaltie', Loyaltie
 exports.Discussion            = mongoose.model 'Discussion', Discussion
 exports.Response              = mongoose.model 'Response', Response
 exports.Media                 = mongoose.model 'Media', Media
@@ -967,6 +991,7 @@ exports.schemas = {
   DonationLog          : DonationLog
   Business             : Business
   Poll                 : Poll
+  Loyalty              : Loyaltie
   Discussion           : Discussion
   Response             : Response
   Media                : Media
