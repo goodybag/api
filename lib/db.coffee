@@ -907,13 +907,13 @@ Referral.index {type: 1, 'link.url': 1}
 
 
 ####################
-# LOYALTIE(S) ##########
+# LOYALTY ##########
 ####################
-Loyaltie = new Schema {
+Loyalty = new Schema {
   name        : {type:String, required:true}
-  deal        : {type:String, required:true}
+  #details     : {type:String, required:true} #???do we need this?
   active      : {type:Boolean, default: false, required:true }
-  entity      : entity
+  org         : organization
   dates  : {
     start     : {type:Date, default: new Date(), required:true}
     end       : {type:Date, default: new Date(), required:true}
@@ -968,7 +968,7 @@ exports.Consumer              = mongoose.model 'Consumer', Consumer
 exports.Client                = mongoose.model 'Client', Client
 exports.Business              = mongoose.model 'Business', Business
 exports.Poll                  = mongoose.model 'Poll', Poll
-exports.Loyalty               = mongoose.model 'Loyaltie', Loyaltie
+exports.Loyalty               = mongoose.model 'Loyalty', Loyalty
 exports.Discussion            = mongoose.model 'Discussion', Discussion
 exports.Response              = mongoose.model 'Response', Response
 exports.Media                 = mongoose.model 'Media', Media
@@ -991,7 +991,7 @@ exports.schemas = {
   DonationLog          : DonationLog
   Business             : Business
   Poll                 : Poll
-  Loyalty              : Loyaltie
+  Loyalty              : Loyalty
   Discussion           : Discussion
   Response             : Response
   Media                : Media

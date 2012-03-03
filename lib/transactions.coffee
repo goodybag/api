@@ -1604,7 +1604,7 @@ statBtTapped = (document, transaction)->
 
     updateStats: (callback)->
       # logger.debug document
-      org = {type: document.organizationEntity.type, id: document.organizationEntity.id}
+      org = document.organizationEntity
       consumerId = document.userEntity.id
       transactionId = transaction.id
       api.Statistics.btTapped org, consumerId, transactionId, transaction.data.amount, transaction.data.charityCentsRaised, document.date, (error, count)->

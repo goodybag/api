@@ -2110,6 +2110,12 @@ class Businesses extends API
     query.where 'type', options.type if options.type?
     return query
 
+  @getMultiple = (idArray, callback)->
+    query = @query()
+    query.in("_id",idArray)
+    query.find callback
+    return
+
   @add = (clientId, data, callback)->
     instance = new @model()
     for own k,v of data
@@ -4356,10 +4362,10 @@ class BusinessTransactions extends API
       save: (cb)=> #save it and write to the statistics table
         transactionData = {
           amount: doc.amount
-          charityCentsRaised: 5;
+          charityCentsRaised: globals.defaults.tapIns.charityCentsRaised;
         }
         if doc.postToFacebook
-          transactionDate.charityCentsRaised = 10;
+          transactionData.charityCentsRaised = globals.defaults.tapIns.charityCentsRaisedFB;
 
         statTransaction = @createTransaction(choices.transactions.states.PENDING, choices.transactions.actions.STAT_BT_TAPPED, transactionData, choices.transactions.directions.INBOUND, doc.organizationEntity)
 
@@ -5263,7 +5269,7 @@ class Loyalties extends API
   @model = Loyalty
 
   @add: (data, callback)->
-    instance = @model(data)
+    instance = new @model(data)
     instance.save (error, loyalty)->
       if error?
         callback error
@@ -5271,24 +5277,15 @@ class Loyalties extends API
       callback null, true
     return
 
-  @listAllActive: (options)->
+  @listAllActive: (options, callback)->
     query = @query()
     if options?
-      query = optionParser options, query
+      query = @optionParser options, query
     todaysDate = new Date()
     query.where "active", true #show only active or unactive..
     query.where {"dates.start" : {$lte:todaysDate}}
     query.where {"dates.end"   : {$gte:todaysDate}}
-    query.find (error, loyalties)->
-      if error?
-        callback error
-        return
-      callback null, loyalties
-      return
-    return
-
-  @listAllForBusiness: (businessId, options, callback)->
-    @listForBusiness(businessId, null, options, callback)
+    query.find callback
     return
 
   @listActiveForBusiness: (businessId, options, callback)->
@@ -5296,14 +5293,16 @@ class Loyalties extends API
     return
 
   @listForBusiness: (businessId, active, options, callback)->
+    if Object.isString businessId
+      businessId = ObjectId businessId
     query = @optionParser options
-    query.where "entity.id",businessId
+    query.where "org.id",businessId
     if Object.isObject active
       callback = options
       options = active
     else if active?
       todaysDate = new Date()
-      query.where "active",active #show only active or unactive..
+      query.where "active", active #show only active or unactive..
       query.where {"dates.start" : {$lte:todaysDate}}
       query.where {"dates.end"   : {$gte:todaysDate}}
     if options.count? && options.count
@@ -5343,15 +5342,12 @@ class Statistics extends API
     query.exec(callback)
     return
 
-  @listForConsumerLoyalty: (consumerId, fieldsToReturn, callback)->
+  @consumerLoyaltyProgress: (consumerId, orgIds, fieldsToReturn, callback)->
     query = @query()
     query.where("consumerId",consumerId)
-    query.find (error, callback)->
-      if error?
-        callback error
-        return
-      #dbsuccess.
-
+    query.in("org.id",orgIds)
+    query.fields(fieldsToReturn)
+    query.find callback
     return
 
   #Give me a list of people who have tapped in to a business before and therefore are customers
@@ -5416,6 +5412,9 @@ class Statistics extends API
     $inc["data.tapIns.totalTapIns"] = 1
     if spent?
       $inc["data.tapIns.totalAmountPurchased"] = parseFloat(spent) #parse just incase it's a string
+    if charityCentsRaised?
+      $inc["data.tapIns.charityCentsRaised"] = parseFloat(charityCentsRaised) #parse just incase it's a string
+      $inc["data.tapIns.charityCentsRemaining"] = parseFloat(charityCentsRaised) #parse just incase it's a string
 
     $set = {}
     $set["data.tapIns.lastVisited"] = new Date(timestamp) #if it is a string it will become a date hopefully
