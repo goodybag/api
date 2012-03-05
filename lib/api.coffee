@@ -5407,9 +5407,9 @@ class Statistics extends API
 
   @eventRsvped: (org, consumerId, transactionId, timestamp, callback)->
 
-  @btTapped: (org, consumerId, transactionId, spent, charityCentsRaised, timestamp, callback)->
-    if Object.isString(org.id)
-      org.id = new ObjectId(org.id)
+  @btTapped: (orgEntity, consumerId, transactionId, spent, charityCentsRaised, timestamp, callback)->
+    if Object.isString(orgEntity.id)
+      orgEntity.id = new ObjectId(orgEntity.id)
 
     if Object.isString(consumerId)
       consumerId = new ObjectId(consumerId)
@@ -5420,10 +5420,10 @@ class Statistics extends API
     $inc = {}
     $inc["data.tapIns.totalTapIns"] = 1
     if spent?
-      $inc["data.tapIns.totalAmountPurchased"] = parseFloat(spent) #parse just incase it's a string
+      $inc["data.tapIns.totalAmountPurchased"] = if isNaN(parseFloat(spent)) then 0 else parseFloat(spent) #parse just incase it's a string
     if charityCentsRaised?
-      $inc["data.tapIns.charityCentsRaised"] = parseFloat(charityCentsRaised) #parse just incase it's a string
-      $inc["data.tapIns.charityCentsRemaining"] = parseFloat(charityCentsRaised) #parse just incase it's a string
+      $inc["data.tapIns.charityCentsRaised"] = if isNaN(parseFloat(charityCentsRaised)) then 0 else parseFloat(charityCentsRaised) #parse just incase it's a string
+      $inc["data.tapIns.charityCentsRemaining"] = if isNaN(parseFloat(charityCentsRaised)) then 0 else parseFloat(charityCentsRaised) #parse just incase it's a string
 
     $set = {}
     $set["data.tapIns.lastVisited"] = new Date(timestamp) #if it is a string it will become a date hopefully
@@ -5435,6 +5435,13 @@ class Statistics extends API
       $set: $set
       $inc: $inc
       $push: $push
+    }
+
+    # We do this because we don't care about the name or anything else for this business in the statistics collection
+    # Hence we strip away any other properties for the purposes of the query
+    org = {
+      type  : orgEntity.type
+      id    : orgEntity.id
     }
 
     @model.collection.update {org: org, consumerId: consumerId}, $update, {safe: true, upsert: true }, callback
