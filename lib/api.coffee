@@ -1018,12 +1018,12 @@ class Consumers extends Users
       callback(null, false)
       return
     else if barcodeId.length!=10
-      callback new errors.ValidationError "Invalid Barcode Id", {"barcodeId": "barcode is already in use"}
+      callback new errors.ValidationError "Invalid TapIn Id", {"barcodeId": "invalid barcode id"}
       return
     @update entity.id, {barcodeId: barcodeId}, (error, count)->
       if error?
         if error.code is 11000 or error.code is 11001
-          callback new errors.ValidationError "Barcode is already in use", {"barcodeId": "barcode is already in use"}
+          callback new errors.ValidationError "TapIn is already in use", {"barcodeId": "barcode is already in use"}
           return
         callback error
         return
