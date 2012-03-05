@@ -4395,14 +4395,12 @@ class BusinessTransactions extends API
                   logger.debug response
             return
           else
-            Streams.btTapped bt #we don't care about the callback for this stream function
             cb(null, true) #success
             return
           return
     }, (error, results)->
       if error?
         callback(error)
-        Streams.btTapped bt #we don't care about the callback for this stream function
         return
       else if results.save?
         callback(null)
@@ -4976,28 +4974,20 @@ class Streams extends API
   @btTapped: (btDoc, callback)->
     if Object.isString(btDoc._id)
       btDoc._id = new ObjectId(btDoc._id)
+    if Object.isString(btDoc.userEntity.id)
+      btDoc.userEntity.id = new ObjectId(btDoc.userEntity.id)
     if Object.isString(btDoc.organizationEntity.id)
       btDoc.organizationEntity.id = new ObjectId(btDoc.organizationEntity.id)
-
-    #A user entity doesn't have to exist for a tapIn
-    if btDoc.userEntity? and btDoc.userEntity.id?
-      if Object.isString(btDoc.userEntity.id)
-        btDoc.userEntity.id = new ObjectId(btDoc.userEntity.id)
-    else
-      btDoc.userEntity = {}
-      btDoc.userEntity.type = choices.entities.CONSUMER
-      btDoc.userEntity.id = new ObjectId("000000000000000000000000")
-      btDoc.userEntity.name = "Anonymous"
 
     tapIn = {type: choices.objects.TAPIN, id: btDoc._id}
     who = btDoc.userEntity
 
     stream = {
       who               : who
+      entitiesInvolved  : [who, btDoc.organizationEntity]
       what              : tapIn
       when              : btDoc.date
 
-      entitiesInvolved  : [who, btDoc.organizationEntity]
       where: {
         org             : btDoc.organizationEntity
         locationId      : btDoc.locationId
@@ -5010,14 +5000,6 @@ class Streams extends API
         global          : true #unless a user's preferences are do that
       }
     }
-
-    ###
-    stream.entitiesInvolved = []
-    if who?
-      stream.push(who)
-
-    stream.entitiesInvolved.push(btDoc.organizationEntity)
-    ###
 
     stream.feedSpecificData = {}
     stream.feedSpecificData.involved = { #available only to entities involved
