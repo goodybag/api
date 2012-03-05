@@ -98,9 +98,9 @@ transaction = {
   }
 
   dates: {
-    created       : {type: Date, required: true, default: new Date()}
+    created       : {type: Date, required: true, default: Date.now}
     completed     : {type: Date}
-    lastModified  : {type: Date, required: true, default: new Date()}
+    lastModified  : {type: Date, required: true, default: Date.now}
   }
 
   #EXTRA INFO GOES IN HERE
@@ -166,7 +166,7 @@ DBTransaction = new Schema {
     type            : {type: String, required: true}
     id              : {type: ObjectId, required: true}
   }
-  timestamp         : {type: Date, default: new Date()}
+  timestamp         : {type: Date, default: Date.now}
   transaction       : transaction
 }
 
@@ -190,7 +190,7 @@ Sequence = new Schema {
 # PASSWORD RESET REQUEST #########
 ##################################
 PasswordResetRequest = new Schema {
-  date        : {type: Date, default: new Date()}
+  date        : {type: Date, default: Date.now}
   key         : {type: String, required: true, unique: true}
   entity: {
     type      : {type: String, required: true, enum: choices.entities._enum}
@@ -209,8 +209,8 @@ DonationLog = new Schema {
   charity    : entity
   amount     : {type: Number, required: true}
   dates : {
-    created  : {type: Date, default: new Date()}
-    donated  : {type: Date, default: new Date()}
+    created  : {type: Date, default: Date.now}
+    donated  : {type: Date, default: Date.now}
   }
   transactions : transactions
 }
@@ -227,7 +227,7 @@ Consumer = new Schema {
   lastName        : {type: String, required: true}
   screenName      : {type: String, unique: true, min:5}
   setScreenName   : {type: Boolean, default: false}
-  created         : {type: Date, default: new Date()}
+  created         : {type: Date, default: Date.now}
   logins          : []
   loginCount      : {type: Number, default: 1}
   honorScore      : {type: Number, default: 0}
@@ -318,7 +318,7 @@ Client = new Schema {
   media:media
 
   dates: {
-    created     : {type: Date, required: true, default: new Date()}
+    created     : {type: Date, required: true, default: Date.now}
   }
 
   funds: {
@@ -368,7 +368,7 @@ Business = new Schema {
   }
 
   dates: {
-    created     : {type: Date, required: true, default: new Date()}
+    created     : {type: Date, required: true, default: Date.now}
   }
 
   funds: {
@@ -448,7 +448,7 @@ Poll = new Schema {
   mediaResults: media #if changed please update api calls, transloadit hook, frontend code (uploadify/transloadit)
 
   dates: {
-    created            : {type: Date, required: true, default: new Date()}
+    created            : {type: Date, required: true, default: Date.now}
     start              : {type: Date, required: true}
     end                : {type: Date}
   }
@@ -501,8 +501,8 @@ Discussion = new Schema {
   donationAmounts     : {} #{entityTYPE_ObjectIdAsStr: {allocated: AMOUNT, remaining: AMOUNT}} #amount donated by that entity #we are storing it here instead of in donors, incase the same entity donates multiple times
 
   dates: {
-    created           : {type: Date, required: true, default: new Date()}
-    start             : {type: Date, required: true, default: new Date()}
+    created           : {type: Date, required: true, default: Date.now}
+    start             : {type: Date, required: true, default: Date.now}
     end               : {type: Date}
   }
 
@@ -548,8 +548,8 @@ Response = new Schema {
   content           : {type: String}
 
   dates: {
-    created         : {type: Date, required: true, default: new Date()}
-    lastModified    : {type: Date, required: true, default: new Date()}
+    created         : {type: Date, required: true, default: Date.now}
+    lastModified    : {type: Date, required: true, default: Date.now}
   }
 
   comments          : [Comment]
@@ -609,8 +609,8 @@ Comment = new Schema {
   content           : {type: String}
 
   dates: {
-    created         : {type: Date, required: true, default: new Date()}
-    lastModified    : {type: Date, required: true, default: new Date()}
+    created         : {type: Date, required: true, default: Date.now}
+    lastModified    : {type: Date, required: true, default: Date.now}
   }
 
   flagged: {
@@ -638,7 +638,7 @@ Media = new Schema {
   tags          : []
 
   dates: {
-    created     : {type: Date, required: true, default: new Date()}
+    created     : {type: Date, required: true, default: Date.now}
   }
 
   transactions  : transactions
@@ -665,7 +665,7 @@ ClientInvitation = new Schema {
   status          : {type: String, required: true, enum: choices.invitations.state._enum, default: choices.invitations.state.PENDING}
 
   dates: {
-    created       : {type: Date, default: new Date()}
+    created       : {type: Date, default: Date.now}
     expires       : {type: Date}
   }
 
@@ -688,7 +688,7 @@ Stream = new Schema {
   }
   entitiesInvolved    : [Entity]
   what                : reference #the document this stream object is about
-  when                : {type: Date, required: true, default: new Date()}
+  when                : {type: Date, required: true, default: Date.now}
   where: {
     org: {
       type            : {type: String, enum: choices.entities._enum}
@@ -703,7 +703,7 @@ Stream = new Schema {
     global            : {type: Boolean, required: true, default: false}
   }
   dates: {
-    created           : {type: Date, default: new Date()}
+    created           : {type: Date, default: Date.now}
     lastModified      : {type: Date}
   }
   data                : {}#available to all enabled feeds #eventTypes to info mapping:=> eventType: {id: XX, extraFF: GG} #essentially if this was in feedSpecificData it would be the feed: global
