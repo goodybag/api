@@ -5302,8 +5302,8 @@ class Loyalties extends API
     todaysDate = new Date()
     query.where "active", active #show only active or unactive..
     if active
-      query.or [{"dates.start" : {$lte:todaysDate}}, {"dates":{$exists:0}}]
-      query.or [{"dates.end"   : {$lte:todaysDate}}, {"dates":{$exists:0}}]
+      query.where {"dates.start" : {$lte:todaysDate}}
+      query.or [{"dates.end"   : {$lte:todaysDate}}, {"dates.end":{$exists:false}}]
     query.find (error, loyalties)->
       if !options.progress && !options.media
         callback error, loyalties
