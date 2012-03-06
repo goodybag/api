@@ -915,8 +915,8 @@ Loyalty = new Schema {
   active      : {type:Boolean, default: false, required:true }
   org         : organization
   dates  : {
-    start     : {type:Date, default: Date.now, required:true}
-    end       : {type:Date, default: Date.now, required:true}
+    start     : {type:Date, default: Date.now}
+    end       : {type:Date, default: Date.now}
   }
   funds  : {
     centsRequired  : {type: Number, required:true}

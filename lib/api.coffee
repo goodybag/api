@@ -603,7 +603,7 @@ class Users extends API
               callback(null, false)
               return
       else
-        callback new error.ValidationError "Invalid id", {"id", "invalid"}
+        callback new errors.ValidationError "Invalid id", {"id": "invalid"}
         return
 
   @login: (email, password, fieldsToReturn, callback)->
@@ -720,7 +720,7 @@ class Users extends API
       #we don't care if the nonce has been used or not..
       #verify that the nonce from FB matches the nonce from the user..
       if(accessTokenInfo.auth_nonce != facebookAuthNonce)
-        callback new errors.ValidationError('Facebook authentication error.', {'Auth Nonce':'Incorrect.'})
+        callback new errors.ValidationError('Facebook authentication errors.', {'Auth Nonce':'Incorrect.'})
       else
         set = data
         self.update id, {$set:set}, callback
@@ -872,7 +872,7 @@ class Users extends API
       if count==0
         callback new errors.ValidationError({"password":"Incorrect password."}) #assuming id is correct..
         return
-      #success or error..
+      #success or errors..
       callback error, data.changeEmail
       return
     return
@@ -922,7 +922,7 @@ class Users extends API
         return
       query.update {$set:{email:user.changeEmail.newEmail, changeEmail:null}}, (error, count)->
         if error?
-          if error.code is 11000 or error.code is 11001
+          if errors.code is 11000 or errors.code is 11001
             callback new errors.ValidationError "Email Already Exists", {"email": "Email Already Exists"} #email exists error
           else
             callback error #dberror
@@ -974,7 +974,7 @@ class Consumers extends Users
       logger.silly error
       logger.silly count
       if error?
-        if error.code == 11000 or error.code == 11001
+        if errors.code == 11000 or errors.code == 11001
           callback new errors.ValidationError "Sorry, that Alias is already taken.", {"screenName":"not unique"}
           return
         else
@@ -1022,7 +1022,7 @@ class Consumers extends Users
       return
     @update entity.id, {barcodeId: barcodeId}, (error, count)->
       if error?
-        if error.code is 11000 or error.code is 11001
+        if errors.code is 11000 or error.code is 11001
           callback new errors.ValidationError "TapIn is already in use", {"barcodeId": "barcode is already in use"}
           return
         callback error
@@ -2113,9 +2113,10 @@ class Businesses extends API
     query.where 'type', options.type if options.type?
     return query
 
-  @getMultiple = (idArray, callback)->
+  @getMultiple = (idArray, fieldsToReturn, callback)->
     query = @query()
     query.in("_id",idArray)
+    query.fields(fieldsToReturn)
     query.find callback
     return
 
@@ -5289,45 +5290,160 @@ class Loyalties extends API
       callback null, true
     return
 
-  @listAllActive: (options, callback)->
-    query = @query()
-    if options?
-      query = @optionParser options, query
-    todaysDate = new Date()
-    query.where "active", true #show only active or unactive..
-    query.where {"dates.start" : {$lte:todaysDate}}
-    query.where {"dates.end"   : {$gte:todaysDate}}
-    query.find callback
-    return
+  @list: (options, queryOptions, callback)->
+    active        = if options.active? then options.active else true; #show active only by default
+    fetchMedia    = options.media
+    fetchProgress = options.progress
 
-  @listActiveForBusiness: (businessId, options, callback)->
-    @listForBusiness(businessId, true, options, callback)
-    return
-
-  @listForBusiness: (businessId, active, options, callback)->
-    if Object.isString businessId
-      businessId = ObjectId businessId
-    query = @optionParser options
-    query.where "org.id",businessId
-    if Object.isObject active
-      callback = options
-      options = active
-    else if active?
-      todaysDate = new Date()
-      query.where "active", active #show only active or unactive..
-      query.where {"dates.start" : {$lte:todaysDate}}
-      query.where {"dates.end"   : {$gte:todaysDate}}
-    if options.count? && options.count
-      query.count callback
-      return
+    if !queryOptions?
+      query = @query()
     else
-      query.find (error, loyalties)->
-        if error?
-          callback error
+      query = @optionParser queryOptions, query
+    todaysDate = new Date()
+    query.where "active", active #show only active or unactive..
+    if active
+      query.or [{"dates.start" : {$lte:todaysDate}}, {"dates":{$exists:0}}]
+      query.or [{"dates.end"   : {$lte:todaysDate}}, {"dates":{$exists:0}}]
+    query.find (error, loyalties)->
+      if !options.progress && !options.media
+        callback error, loyalties
+        return
+      else # fetch progress and/or media
+        orgIds = []
+        for loyalty in loyalties
+          if orgIds.indexOf(loyalty.org.id.toString()) == -1
+            orgIds.add loyalty.org.id.toString()
+
+        async.parallel {
+          loyaltiesProgress : (cb)->
+            if !fetchProgress
+              cb null, null
+              return
+            if !options.userId?
+              callback new errors.ValidationError "UserId is required to fetch loyalty progress." , {"userId":"required for loyalty progress."}
+            #user progress was requested with loyalties
+            fieldsToReturn = {
+              "org.id" : 1
+              "data.tapIns.charityCentsRedeemed"  : 1
+              "data.tapIns.charityCentsRemaining" : 1
+              "data.tapIns.charityCentsRaised"    : 1
+            }
+            Statistics.consumerLoyaltyProgress options.userId, orgIds, fieldsToReturn, cb
+            return
+
+          bizMedias : (cb)->
+            if !fetchMedia
+              cb null, null
+              return
+            #loyalty media was requested with loyalties (business media for now)
+            fieldsToReturn = {
+              "media"
+            }
+            Businesses.getMultiple orgIds, fieldsToReturn, cb
+            return
+        },
+        (error, asyncData)->
+          if error?
+            callback error
+            return
+          #success
+          if !asyncData.loyaltiesProgress? && !asyncData.bizMedias?
+            #if just loyalties just send loyalties
+            dataToSend = loyalties
+          else
+            #if loyalties and  progress and/or media
+            #send back the data as an object..
+            logger.silly asyncData
+            dataToSend = {
+              loyalties : loyalties
+            }
+            if asyncData.loyaltiesProgress?
+              dataToSend['loyaltiesProgress'] = asyncData.loyaltiesProgress
+            if asyncData.bizMedias?
+              dataToSend['bizMedias']         = asyncData.bizMedias
+          callback null, dataToSend
           return
-        callback null, loyalties
         return
     return
+
+  @listByBusiness: (businessId, options, queryOptions, callback)->
+    self = this
+    if !businessId?
+      callback new errors.ValidationError "BusinessId is required..", {"businessId":"required"}
+      return
+    if Object.isString businessId
+      businessId = ObjectId businessId
+    active        = if options.active? then options.active else true; #show active only by default
+    fetchProgress = options.progress
+    fetchMedia    = options.media
+
+    orgIds = [businessId] #This will end up being only one orgId..
+    async.parallel {
+      loyalties : (cb)->
+        if !queryOptions?
+          query = self.query()
+        else
+          query = self.optionParser queryOptions, query
+        query.where "org.id",businessId
+        todaysDate = new Date()
+        query.where "active", active #show only active or unactive..
+        if active
+          query.or [{"dates.start" : {$lte:todaysDate}}, {"dates":{$exists:0}}]
+          query.or [{"dates.end"   : {$lte:todaysDate}}, {"dates":{$exists:0}}]
+        if options.count? && options.count
+          query.count callback
+          return
+        else
+          query.find cb
+        return
+
+      loyaltiesProgress : (cb)->
+        if !fetchProgress
+          cb null, null
+          return
+        #user progress was requested with loyalties
+        fieldsToReturn = {
+          "org.id" : 1
+          "data.tapIns.charityCentsRedeemed"  : 1
+          "data.tapIns.charityCentsRemaining" : 1
+          "data.tapIns.charityCentsRaised"    : 1
+        }
+        Statistics.consumerLoyaltyProgress options.userId, orgIds, fieldsToReturn, cb
+        return
+
+      bizMedias : (cb)->
+        if !fetchMedia
+          cb null, null
+          return
+        #loyalty media was requested with loyalties (business media for now)
+        fieldsToReturn = {
+          "media"
+        }
+        Businesses.getMultiple orgIds, fieldsToReturn, cb
+        return
+    },
+    (error, asyncData)->
+      if error?
+        callback error
+        return
+      #success
+      if !asyncData.loyaltiesProgress? && !asyncData.bizMedias?
+        #if just loyalties just send loyalties
+        dataToSend = async.loyalties
+      else
+        #if loyalties and  progress and/or media
+        #send back the data as an object..
+        dataToSend = {
+          loyalties : asyncData.loyalties
+        }
+        if asyncData.loyaltiesProgress?
+          dataToSend['loyaltiesProgress'] = asyncData.loyaltiesProgress
+        if asyncData.bizMedias?
+          dataToSend['bizMedias']         = asyncData.bizMedias
+      callback null, dataToSend
+      return
+    return
+
 
 
 ## Statistics ##
