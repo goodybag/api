@@ -4392,7 +4392,7 @@ class BusinessTransactions extends API
             logger.debug doc.postToFacebook
             if accessToken? and doc.postToFacebook #post to facebook
               logger.verbose "Posting tapIn to facebook"
-              fb.post '/me/feed', accessToken, {message: "I justed tapped in at #{doc.organizationEntity.name}", link: "http://www.goodybag.com/", name: "Goodybag", picture: "http://www.goodybag.com/static/images/gb-logo.png"}, (error, response)->
+              fb.post '/me/feed', accessToken, {message: "I just tapped in at #{doc.organizationEntity.name} and raised funds for charity :)", link: "http://www.goodybag.com/", name: "Goodybag", picture: "http://www.goodybag.com/static/images/gb-logo.png"}, (error, response)->
                 if error?
                   logger.error error
                 else
