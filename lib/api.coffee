@@ -736,7 +736,7 @@ class Users extends API
       if error?
         callback error
         return
-
+      logger.silly validatedMedia
       update = {}
       if !validatedMedia?
         mediaToReturn = null
@@ -748,6 +748,7 @@ class Users extends API
       self.update id, update, (error, count)-> #error,count
         if error?
           callback error
+          return
         if count==0
           callback new errors.ValidationError {"id":"Consumer Id not found."}
         else
@@ -4040,7 +4041,10 @@ class Medias extends API
           return
         else #!media? - media has yet to be uploaded by transloadit.. mark it with the guid and use tempurls for now
           logger.debug "validateMedia - guid supplied, guid not found (use temp. URLs for now)."
-          validatedMedia.rotateDegrees = media.rotateDegrees if !utils.isBlank(media.rotateDegrees) && media.rotateDegrees!=0
+          if !utils.isBlank(media.rotateDegrees)
+            validatedMedia.rotateDegrees = media.rotateDegrees
+          else
+            validatedMedia.rotateDegrees = 0 #mongoose is casting this even when its undefined and not required..(Consumers.updateMedia)
           if !utils.isBlank(media.tempURL)
             validatedMedia.url = media.tempURL
             validatedMedia.thumb = media.tempURL
