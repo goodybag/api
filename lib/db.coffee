@@ -254,6 +254,7 @@ Consumer = new Schema {
     affiliations  : [ObjectId]
     #interests movies music books?
   }
+
   permissions: {
     email         : {type: Boolean, default: false}
     media         : {type: Boolean, default: true}

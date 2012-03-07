@@ -1444,6 +1444,16 @@ class Consumers extends Users
     @model.findAndModify {_id:  id}, [], {$push:{"events.ids": eventId}, $inc: {honorScore: amount}}, {new: true, safe: true}, callback
 
   @deductFunds: (id, transactionId, amount, callback)->
+    amount = parseFloat(amount)
+    if isNaN(amount)
+      callback ({message: "amount is not a number"})
+      return
+    else if amount <0
+      callback({message: "amount cannot be negative"})
+      return
+
+    amount = Math.abs(amount.toFixed(2))
+
     if Object.isString(id)
       id = new ObjectId(id)
     if Object.isString(transactionId)
@@ -1452,6 +1462,16 @@ class Consumers extends Users
     @model.collection.findAndModify {_id: id, 'funds.remaining': {$gte: amount}, 'transactions.ids': {$ne: transactionId}}, [], {$addToSet: {"transactions.ids": transactionId}, $inc: {'funds.remaining': -1*amount }}, {new: true, safe: true}, callback
 
   @depositFunds: (id, transactionId, amount, callback)->
+    amount = parseFloat(amount)
+    if isNaN(amount)
+      callback ({message: "amount is not a number"})
+      return
+    else if amount <0
+      callback({message: "amount cannot be negative"})
+      return
+
+    amount = Math.abs(amount.toFixed(2))
+
     if Object.isString(id)
       id = new ObjectId(id)
 
@@ -1709,9 +1729,14 @@ class Consumers extends Users
 
   @addFunds: (id, amount, callback)->
     amount = parseFloat(amount)
-    if amount <0
+    if isNaN(amount)
+      callback ({message: "amount is not a number"})
+      return
+    else if amount <0
       callback({message: "amount cannot be negative"})
       return
+
+    amount = Math.abs(amount.toFixed(2))
 
     $update = {$inc: {"funds.remaining": amount, "funds.allocated": amount} }
 
@@ -4299,6 +4324,10 @@ class BusinessTransactions extends API
 
     timestamp = Date.create(data.timestamp)
 
+    amount = undefined
+    if data.amount?
+      amount = if !isNaN(parseFloat(data.amount)) then Math.abs(parseFloat(amount)).toFixed(2) else undefined
+
     doc = {
       organizationEntity: {
         type          : data.organizationEntity.type
@@ -4312,13 +4341,13 @@ class BusinessTransactions extends API
       transactionId   : if !utils.isBlank(data.transactionId) then data.transactionId+"" else undefined #make string
       date            : Date.create(timestamp)
       time            : new Date(0,0,0, timestamp.getHours(), timestamp.getMinutes(), timestamp.getSeconds(), timestamp.getMilliseconds()) #this is for slicing by time
-      amount          : if data.amount? then parseFloat(data.amount).round(2) else undefined
+      amount          : amount
       receipt         : if !utils.isBlank(data.receipt) then new Binary(data.receipt) else undefined
       hasReceipt      : if !utils.isBlank(data.receipt) then true else false
 
       donationType    : defaults.bt.donationType #we should pull this out from the organization later
-      donationValue   : parseFloat(defaults.bt.donationValue).round(2) #we should pull this out from the organization
-      donationAmount  : parseFloat(defaults.bt.donationValue).round(2)
+      donationValue   : Math.abs(parseFloat(defaults.bt.donationValue).toFixed(2)) #we should pull this out from the organization (#this is the amount the business has pledged)
+      donationAmount  : Math.abs(parseFloat(defaults.bt.donationValue).toFixed(2)) #this is the amount totalled after any additions (such as more funds for posting to facebook)
     }
 
     self = this
@@ -4340,10 +4369,10 @@ class BusinessTransactions extends API
               accessToken = if consumer.facebook? then consumer.facebook.access_token else null
               logger.debug(consumer)
               doc.postToFacebook = if consumer.tapinsToFacebook? and consumer.tapinsToFacebook then true else false
-              doc.donationAmount = if consumer.tapinsToFacebook? and consumer.tapinsToFacebook then (doc.donationAmount + defaults.bt.donationFacebook).round(2) else doc.donationAmount
+              doc.donationAmount = if consumer.tapinsToFacebook? and consumer.tapinsToFacebook then (doc.donationAmount + parseFloat(defaults.bt.donationFacebook)).toFixed(2) else doc.donationAmount
               cb(null)
             else
-              cb(null) #insert the transaction anyway, it is an invalid or unassigned bar code though
+              cb(null) #insert the transaction anyway, it is an invalid or unassigned bar code though. The transaction will save it to the appropriate collection (UnassociatedBarcodeStatistics)
               #cb(new errors.ValidationError {"DNE": "Consumer Does Not Exist"})
         else
           cb(null)
@@ -4365,17 +4394,20 @@ class BusinessTransactions extends API
       save: (cb)=> #save it and write to the statistics table
         transactionData = {
           amount: doc.amount
+          donationAmount: doc.donationAmount
           charityCentsRaised: globals.defaults.tapIns.charityCentsRaised;
         }
         if doc.postToFacebook
           transactionData.charityCentsRaised = globals.defaults.tapIns.charityCentsRaisedFB;
 
-        statTransaction = @createTransaction(choices.transactions.states.PENDING, choices.transactions.actions.STAT_BT_TAPPED, transactionData, choices.transactions.directions.INBOUND, doc.organizationEntity)
+        btTappedTransaction = undefined
+        if doc.userEntity?
+          btTappedTransaction = @createTransaction(choices.transactions.states.PENDING, choices.transactions.actions.BT_TAPPED, transactionData, choices.transactions.directions.INBOUND, doc.userEntity)
 
-        doc.transactions = {}
-        doc.transactions.locked = false
-        doc.transactions.ids = [statTransaction.id]
-        doc.transactions.log = [statTransaction]
+          doc.transactions = {}
+          doc.transactions.locked = false
+          doc.transactions.ids = [btTappedTransaction.id]
+          doc.transactions.log = [btTappedTransaction]
 
         @model.collection.insert doc, {safe: true}, (error, bt)->
           bt = bt[0]
@@ -4384,7 +4416,7 @@ class BusinessTransactions extends API
             return
           if doc.userEntity?
             cb(null, true) #success
-            tp.process(bt, statTransaction) #write stat to collection
+            tp.process(bt, btTappedTransaction) #write stat to collection
             Streams.btTapped bt #we don't care about the callback for this stream function
 
             logger.debug accessToken
