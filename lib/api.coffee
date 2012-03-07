@@ -14,7 +14,8 @@ tp = require "./transactions" #transaction processor
 
 logger = loggers.api
 
-configs = globals.configs
+# configs = globals.configs
+config = globals.config
 utils = globals.utils
 choices = globals.choices
 defaults = globals.defaults
@@ -480,14 +481,14 @@ class Users extends API
   #model.findById id, fields, options callback
   #model.findOne
   @_sendFacebookPicToTransloadit = (entityId, screenName, guid, picURL, callback)->
-    logger.debug ("TRANSLOADIT - send fbpic - "+"notifyURL:"+configs.transloadit.notifyURL+",guid:"+guid+",picURL:"+picURL+",entityId:"+entityId)
-    client = new transloadit(configs.transloadit.authKey, configs.transloadit.authSecret)
+    logger.debug ("TRANSLOADIT - send fbpic - "+"notifyURL:"+config.transloadit.notifyURL+",guid:"+guid+",picURL:"+picURL+",entityId:"+entityId)
+    client = new transloadit(config.transloadit.authKey, config.transloadit.authSecret)
     params = {
       auth: {
-        key: configs.transloadit.authKey
+        key: config.transloadit.authKey
       }
-      notify_url: configs.transloadit.notifyURL
-      template_id: configs.transloadit.consumerFromURLTemplateId
+      notify_url: config.transloadit.notifyURL
+      template_id: config.transloadit.consumerFromURLTemplateId
       steps: {
         ':original':
           robot: '/http/import'
@@ -714,7 +715,7 @@ class Users extends API
     self = this
     url = '/oauth/access_token_info'
     options = {
-      client_id:configs.facebook.appId
+      client_id:config.facebook.appId
     }
     fb.get url, facebookAccessToken, options, (error, accessTokenInfo)->
       #we don't care if the nonce has been used or not..
@@ -1140,7 +1141,7 @@ class Consumers extends Users
       if appResponse.code!=200
         callback new errors.HttpError 'Error connecting with Facebook, try again later.', 'facebookBatch:'+urls[0], appResponse.code
         return
-      if JSON.parse(appResponse.body).id != configs.facebook.appId
+      if JSON.parse(appResponse.body).id != config.facebook.appId
         callback new errors.ValidationError {'accessToken':"Incorrect access token. Not for Goodybag's app."}
       if meResponse.code!=200
         callback new errors.HttpError 'Error connecting with Facebook, try again later.', 'facebookBatch:'+urls[1], appResponse.code
