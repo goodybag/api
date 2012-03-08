@@ -2195,6 +2195,23 @@ class Businesses extends API
       return
     return
 
+  @updateIsCharity: (businessId, isCharity, callback)->
+    if !businessId? or businessId.length!=24
+      callback new errors.ValidationError "Please select a business.", {"business":"invalid businessId"}
+      return
+    else
+      if Object.isString businessId
+        businessId = new ObjectId businessId
+    set = {
+      isCharity: isCharity
+    }
+    @model.collection.update {_id: businessId}, {$set:set}, {safe: true}, (error, count)->
+      if error?
+        callback error
+        return
+      callback error, count>0 #success
+    return
+
   @updateIdentity: (id, data, callback)->
     self = this
     if Object.isString(id)
