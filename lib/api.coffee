@@ -2241,7 +2241,7 @@ class Businesses extends API
 
     query = @_query()
     query.where("_id", id)
-    query.where("media.guid", data.guid)
+    query.where("media.guid", guid)
 
     set = {
       media : Medias.mediaFieldsForType mediasDoc, "business"
