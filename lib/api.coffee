@@ -4017,9 +4017,9 @@ class Medias extends API
 
   #validate Media Objects for other collections
   @validateAndGetMediaURLs: (entityType, entityId, mediaFor, media, callback)->
-    validatedMedia = {
-      rotateDegrees : media.rotateDegrees
-    }
+    validatedMedia = {}
+    if (media.rotateDegrees? && !isNaN(parseInt(media.rotateDegrees)))
+      validatedMedia.rotateDegrees = media.rotateDegrees
     if !media?
       callback null, null
       return
@@ -4058,10 +4058,6 @@ class Medias extends API
           return
         else #!media? - media has yet to be uploaded by transloadit.. mark it with the guid and use tempurls for now
           logger.debug "validateMedia - guid supplied, guid not found (use temp. URLs for now)."
-          if !utils.isBlank(media.rotateDegrees)
-            validatedMedia.rotateDegrees = media.rotateDegrees
-          else
-            validatedMedia.rotateDegrees = 0 #mongoose is casting this even when its undefined and not required..(Consumers.updateMedia)
           if !utils.isBlank(media.tempURL)
             validatedMedia.url = media.tempURL
             validatedMedia.thumb = media.tempURL
