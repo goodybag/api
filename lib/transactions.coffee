@@ -152,12 +152,15 @@ _setTransactionErrorAndRefund = (clazz, document, transaction, locking, removeLo
   _setTransactionError(clazz, document, transaction, locking, removeLock, error, $update, callback)
 
 _cleanupTransaction = (document, transaction, transactionContainerApiClass, transactionMemberApiClasses, callback)->
+  prepend = "ID: #{document._id} - TID: #{transaction.id}"
   for apiClass in transactionMemberApiClasses
     apiClass.removeTransactionInvolvement transaction.id, (error, count)->
       if error?
+        logger.error "#{prepend} there were errors cleaning up transactions"
         logger.error error
         callback(error)
         return
+      logger.info "#{prepend} cleaning up transactions - #{count} documents affected"
 
   doc = {
     document: {
@@ -178,6 +181,10 @@ _cleanupTransaction = (document, transaction, transactionContainerApiClass, tran
 
     transactionContainerApiClass.removeTransaction document._id, transaction.id, (error, count)->
       callback(error, count)
+      if !error?
+        logger.info "#{prepend} finished cleaning up transactions"
+      else
+        logger.error "#{prepend} there were errors cleaning up transactions"
       return
 
 #use the entity and amount in the transaction object - this is default what is used
@@ -785,30 +792,27 @@ btTapped = (document, transaction)->
 
     depositFunds: (callback)-> #transfer the funds that were donated for the transaction into the consumer's account
       logger.debug transaction.data
-      if document.userEntity? and document.userEntity.id? #deposit funds if a user exists, otherwise just skip this part
-        if document.userEntity.type is choices.entities.CONSUMER
-          logger.debug "#{prepend} attempting to deposit funds to consumer: #{transaction.entity.id}"
-          __depositFunds api.Consumers, api.BusinessTransactions, document, transaction, document.userEntity, transaction.data.donationAmount, false, false, (error, doc)->
-            if error?
-              logger.error error #mongo errored out
-              callback(error)
-            else if doc?  #transaction was successful, so continue to set processed
-              callback(null, doc)
-            else #null, null passed in which meas insufficient funds, so set error, and exit
-              error = {message: "entity to deposit funds to was not found"}
-              _setTransactionError api.BusinessTransactions, document, transaction, false, false, error, {}, (error, doc)->
-                #we don't care if it set or if it didn't set because:
-                # 1. if there was a mongo error then the poller will pick it up and work on it later
-                # 2. if it did set then fantastic, we will exit because we don't want to set to processed
-                # 3. if it did not set (no error, and no document updated) then we want to exit because
-                #    it is already in an error or processed state. In that case we want to do nothing
-                setProcessed = false
-                callback(null, null)
-        else
-          callback({name:"NullError", message: "Unsupported Entity Type: #{document.userEntity.type}"})
-          return
+      if document.userEntity.type is choices.entities.CONSUMER
+        logger.debug "#{prepend} attempting to deposit funds to consumer: #{transaction.entity.id}"
+        __depositFunds api.Consumers, api.BusinessTransactions, document, transaction, document.userEntity, document.donationAmount, false, false, (error, doc)->
+          if error?
+            logger.error error #mongo errored out
+            callback(error)
+          else if doc?  #transaction was successful, so continue to set processed
+            callback(null, doc)
+          else #null, null passed in which meas insufficient funds, so set error, and exit
+            error = {message: "entity to deposit funds to was not found"}
+            _setTransactionError api.BusinessTransactions, document, transaction, false, false, error, {}, (error, doc)->
+              #we don't care if it set or if it didn't set because:
+              # 1. if there was a mongo error then the poller will pick it up and work on it later
+              # 2. if it did set then fantastic, we will exit because we don't want to set to processed
+              # 3. if it did not set (no error, and no document updated) then we want to exit because
+              #    it is already in an error or processed state. In that case we want to do nothing
+              setProcessed = false
+              callback(null, null)
       else
-        callback(null) #it's ok if the user doesn't exist (they haven't associated their barcodeId to their account)
+        callback({name:"NullError", message: "Unsupported Entity Type: #{document.userEntity.type}"})
+        return
       return
 
     setProcessed: (callback)->
@@ -1686,9 +1690,11 @@ statBtTapped = (document, transaction)->
   logger.info "STAT - User tapped in at a business"
   logger.info "#{prepend} - #{transaction.direction}"
 
+  apiStatClass = undefined
+
   cleanup = (callback)->
     logger.info "#{prepend} cleaning up"
-    _cleanupTransaction document, transaction, api.BusinessTransactions, [api.BusinessTransactions, api.Statistics], callback
+    _cleanupTransaction document, transaction, api.BusinessTransactions, [api.BusinessTransactions, apiStatClass], callback
 
   async.series {
     setProcessing: (callback)->
@@ -1702,9 +1708,18 @@ statBtTapped = (document, transaction)->
     updateStats: (callback)->
       # logger.debug document
       org = document.organizationEntity
-      consumerId = document.userEntity.id
       transactionId = transaction.id
-      api.Statistics.btTapped org, consumerId, transactionId, transaction.data.amount, transaction.data.charityCentsRaised, document.date, (error, count)->
+
+      if document.userEntity? and document.userEntity.id?
+        logger.info "#{prepend} entity found - storing to Statistics"
+        apiStatClass = api.Statistics
+        identifier = document.userEntity.id #consumerId
+      else
+        logger.info "#{prepend} entity not found - storing to UnclaimedBarcodeStatistics"
+        apiStatClass = api.UnclaimedBarcodeStatistics
+        identifier = document.barcodeId
+
+      apiStatClass.btTapped org, identifier, transactionId, document.amount, transaction.data.charityCentsRaised, document.date, (error, count)->
         if error?
           logger.error error #mongo errored out
           callback(error)

@@ -111,9 +111,10 @@ transaction = {
 
   #DEPOSIT OR DEDUCT TO/FROM WHOM? (Sometimes we may use the entity object in the document itself)
   entity: {
-    type          : {type: String, required: true, enum: choices.entities._enum}
-    id            : {type: ObjectId, required: true}
+    type          : {type: String, enum: choices.entities._enum}
+    id            : {type: ObjectId}
     name          : {type: String}
+    screenName    : {type: String}
   }
 
   attempts        : {type: Number, default: 0}
@@ -962,49 +963,72 @@ Statistic.index {'org.type': 1, 'org.id':1, consumerId: 1, "tapIns.charityCentsR
 Statistic.index {'org.type': 1, 'org.id':1, consumerId: 1, "polls.totalAnswered": 1}
 Statistic.index {'org.type': 1, 'org.id':1, consumerId: 1, "polls.lastAnsweredDate": 1}
 
-exports.DBTransaction         = mongoose.model 'DBTransaction', DBTransaction
-exports.Sequence              = mongoose.model 'Sequence', Sequence
-exports.DonationLog           = mongoose.model 'DonationLog', DonationLog
-exports.Consumer              = mongoose.model 'Consumer', Consumer
-exports.Client                = mongoose.model 'Client', Client
-exports.Business              = mongoose.model 'Business', Business
-exports.Poll                  = mongoose.model 'Poll', Poll
-exports.Loyalty               = mongoose.model 'Loyalty', Loyalty
-exports.Discussion            = mongoose.model 'Discussion', Discussion
-exports.Response              = mongoose.model 'Response', Response
-exports.Media                 = mongoose.model 'Media', Media
-exports.ClientInvitation      = mongoose.model 'ClientInvitation', ClientInvitation
-exports.Tag                   = mongoose.model 'Tag', Tag
-exports.EventRequest          = mongoose.model 'EventRequest', EventRequest
-exports.Stream                = mongoose.model 'Stream', Stream
-exports.Event                 = mongoose.model 'Event', Event
-exports.BusinessTransaction   = mongoose.model 'BusinessTransaction', BusinessTransaction
-exports.BusinessRequest       = mongoose.model 'BusinessRequest', BusinessRequest
-exports.PasswordResetRequest  = mongoose.model 'PasswordResetRequest', PasswordResetRequest
-exports.Statistic             = mongoose.model 'Statistic', Statistic
-exports.Organization          = mongoose.model 'Organization', Organization
-exports.Referral              = mongoose.model 'Referral', Referral
+
+#CURRENTLY BEING TRACKED: (ALWAYS UPDATE THIS LIST PLEASE AND THE INDEXES)
+#tapIns:
+  #totalTapIns
+  #totalAmountPurchased
+  #lastVisited
+  #charityCentsRaised
+
+UnclaimedBarcodeStatistic = new Schema {
+  org                     : organization
+  barcodeId               : {type: String, required: true}
+  data                    : {}
+}
+
+UnclaimedBarcodeStatistic.index {'org.type': 1, 'org.id':1, barcodeID: 1}, {unique: true}
+
+UnclaimedBarcodeStatistic.index {'org.type': 1, 'org.id':1, barcodeId: 1, "tapIns.totalTapIns": 1}
+UnclaimedBarcodeStatistic.index {'org.type': 1, 'org.id':1, barcodeId: 1, "tapIns.totalAmountPurchased": 1}
+UnclaimedBarcodeStatistic.index {'org.type': 1, 'org.id':1, barcodeId: 1, "tapIns.lastVisited": 1}
+UnclaimedBarcodeStatistic.index {'org.type': 1, 'org.id':1, barcodeId: 1, "tapIns.charityCentsRaised": 1}
+
+exports.DBTransaction             = mongoose.model 'DBTransaction', DBTransaction
+exports.Sequence                  = mongoose.model 'Sequence', Sequence
+exports.DonationLog               = mongoose.model 'DonationLog', DonationLog
+exports.Consumer                  = mongoose.model 'Consumer', Consumer
+exports.Client                    = mongoose.model 'Client', Client
+exports.Business                  = mongoose.model 'Business', Business
+exports.Poll                      = mongoose.model 'Poll', Poll
+exports.Loyalty                   = mongoose.model 'Loyalty', Loyalty
+exports.Discussion                = mongoose.model 'Discussion', Discussion
+exports.Response                  = mongoose.model 'Response', Response
+exports.Media                     = mongoose.model 'Media', Media
+exports.ClientInvitation          = mongoose.model 'ClientInvitation', ClientInvitation
+exports.Tag                       = mongoose.model 'Tag', Tag
+exports.EventRequest              = mongoose.model 'EventRequest', EventRequest
+exports.Stream                    = mongoose.model 'Stream', Stream
+exports.Event                     = mongoose.model 'Event', Event
+exports.BusinessTransaction       = mongoose.model 'BusinessTransaction', BusinessTransaction
+exports.BusinessRequest           = mongoose.model 'BusinessRequest', BusinessRequest
+exports.PasswordResetRequest      = mongoose.model 'PasswordResetRequest', PasswordResetRequest
+exports.Statistic                 = mongoose.model 'Statistic', Statistic
+exports.UnclaimedBarcodeStatistic = mongoose.model 'UnclaimedBarcodeStatistic', Statistic
+exports.Organization              = mongoose.model 'Organization', Organization
+exports.Referral                  = mongoose.model 'Referral', Referral
 
 exports.schemas = {
-  Sequence             : Sequence
-  Consumer             : Consumer
-  Client               : Client
-  DonationLog          : DonationLog
-  Business             : Business
-  Poll                 : Poll
-  Loyalty              : Loyalty
-  Discussion           : Discussion
-  Response             : Response
-  Media                : Media
-  ClientInvitation     : ClientInvitation
-  Tag                  : Tag
-  EventRequest         : EventRequest
-  Stream               : Stream
-  Event                : Event
-  BusinessTransaction  : BusinessTransaction
-  BusinessRequest      : BusinessRequest
-  PasswordResetRequest : PasswordResetRequest
-  Statistic            : Statistic
-  Organization         : Organization
-  Referral             : Referral
+  Sequence                  : Sequence
+  Consumer                  : Consumer
+  Client                    : Client
+  DonationLog               : DonationLog
+  Business                  : Business
+  Poll                      : Poll
+  Loyalty                   : Loyalty
+  Discussion                : Discussion
+  Response                  : Response
+  Media                     : Media
+  ClientInvitation          : ClientInvitation
+  Tag                       : Tag
+  EventRequest              : EventRequest
+  Stream                    : Stream
+  Event                     : Event
+  BusinessTransaction       : BusinessTransaction
+  BusinessRequest           : BusinessRequest
+  PasswordResetRequest      : PasswordResetRequest
+  Statistic                 : Statistic
+  UnclaimedBarcodeStatistic : UnclaimedBarcodeStatistic
+  Organization              : Organization
+  Referral                  : Referral
 }

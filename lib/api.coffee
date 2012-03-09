@@ -47,6 +47,7 @@ BusinessTransaction = db.BusinessTransaction
 BusinessRequest = db.BusinessRequest
 PasswordResetRequest = db.PasswordResetRequest
 Statistic = db.Statistic
+UnclaimedBarcodeStatistic = db.UnclaimedBarcodeStatistic
 Organization = db.Organization
 Referral = db.Referral
 #TODO:
@@ -176,7 +177,8 @@ class API
 
   #TRANSACTIONS
   @createTransaction: (state, action, data, direction, entity)->
-    if Object.isString(entity.id)
+    #we are doing a check for entity because we can have transactions that don't refer to an entity. An example of this is the STAT_BT_TAPPED transaction
+    if entity? and Object.isString(entity.id)
       entity.id = new ObjectId(entity.id)
 
     transaction = {
@@ -191,7 +193,7 @@ class API
       }
       data: data
       direction: direction
-      entity: entity
+      entity: if entity? then entity else undefined
     }
 
     return transaction
@@ -4393,45 +4395,41 @@ class BusinessTransactions extends API
 
       save: (cb)=> #save it and write to the statistics table
         transactionData = {
-          amount: doc.amount
-          donationAmount: doc.donationAmount
-          charityCentsRaised: globals.defaults.tapIns.charityCentsRaised;
+          charityCentsRaised: if !isNaN(parseFloat(globals.defaults.tapIns.charityCentsRaised)) then parseFloat(globals.defaults.tapIns.charityCentsRaised).toFixed(2) else 0
         }
+
         if doc.postToFacebook
           transactionData.charityCentsRaised = globals.defaults.tapIns.charityCentsRaisedFB;
 
-        btTappedTransaction = undefined
+        transaction = undefined
         if doc.userEntity?
-          btTappedTransaction = @createTransaction(choices.transactions.states.PENDING, choices.transactions.actions.BT_TAPPED, transactionData, choices.transactions.directions.INBOUND, doc.userEntity)
+          transaction = @createTransaction(choices.transactions.states.PENDING, choices.transactions.actions.BT_TAPPED, transactionData, choices.transactions.directions.OUTBOUND, doc.userEntity)
+        else
+          transaction = @createTransaction(choices.transactions.states.PENDING, choices.transactions.actions.STAT_BT_TAPPED, transactionData, choices.transactions.directions.OUTBOUND, undefined)
 
-          doc.transactions = {}
-          doc.transactions.locked = false
-          doc.transactions.ids = [btTappedTransaction.id]
-          doc.transactions.log = [btTappedTransaction]
+        doc.transactions = {}
+        doc.transactions.locked = false
+        doc.transactions.ids = [transaction.id]
+        doc.transactions.log = [transaction]
 
         @model.collection.insert doc, {safe: true}, (error, bt)->
           bt = bt[0]
           if error?
             cb(error)
             return
+          tp.process(bt, transaction) #process transaction - either add funds to consumer object then update stats or just update unclaimed stats if there is no user to add funds too
+          Streams.btTapped bt #we don't care about the callback for this stream function
           if doc.userEntity?
             cb(null, true) #success
-            tp.process(bt, btTappedTransaction) #write stat to collection
-            Streams.btTapped bt #we don't care about the callback for this stream function
-
             logger.debug accessToken
             logger.debug doc.postToFacebook
             if accessToken? and doc.postToFacebook #post to facebook
               logger.verbose "Posting tapIn to facebook"
-              fb.post '/me/feed', accessToken, {message: "I just tapped in at #{doc.organizationEntity.name} and raised funds for charity :)", link: "http://www.goodybag.com/", name: "Goodybag", picture: "http://www.goodybag.com/static/images/gb-logo.png"}, (error, response)->
+              fb.post 'me/feed', accessToken, {message: "I just tapped in at #{doc.organizationEntity.name} and raised funds for charity :)", link: "http://www.goodybag.com/", name: "Goodybag", picture: "http://www.goodybag.com/static/images/gb-logo.png"}, (error, response)->
                 if error?
                   logger.error error
                 else
                   logger.debug response
-            return
-          else
-            Streams.btTapped bt #we don't care about the callback for this stream function
-            cb(null, true) #success
             return
           return
     }, (error, results)->
@@ -5321,46 +5319,214 @@ class Loyalties extends API
       callback null, true
     return
 
-  @listAllActive: (options, callback)->
-    query = @query()
-    if options?
-      query = @optionParser options, query
-    todaysDate = new Date()
-    query.where "active", true #show only active or unactive..
-    query.where {"dates.start" : {$lte:todaysDate}}
-    query.where {"dates.end"   : {$gte:todaysDate}}
-    query.find callback
-    return
+  @list: (options, queryOptions, callback)->
+    active        = if options.active? then options.active else true; #show active only by default
+    fetchMedia    = options.media
+    fetchProgress = options.progress
 
-  @listActiveForBusiness: (businessId, options, callback)->
-    @listForBusiness(businessId, true, options, callback)
-    return
-
-  @listForBusiness: (businessId, active, options, callback)->
-    if Object.isString businessId
-      businessId = ObjectId businessId
-    query = @optionParser options
-    query.where "org.id",businessId
-    if Object.isObject active
-      callback = options
-      options = active
-    else if active?
-      todaysDate = new Date()
-      query.where "active", active #show only active or unactive..
-      query.where {"dates.start" : {$lte:todaysDate}}
-      query.where {"dates.end"   : {$gte:todaysDate}}
-    if options.count? && options.count
-      query.count callback
-      return
+    if !queryOptions?
+      query = @query()
     else
-      query.find (error, loyalties)->
-        if error?
-          callback error
+      query = @optionParser queryOptions, query
+    todaysDate = new Date()
+    query.where "active", active #show only active or unactive..
+    if active
+      query.where {"dates.start" : {$lte:todaysDate}}
+      query.or [{"dates.end"   : {$lte:todaysDate}}, {"dates.end":{$exists:false}}]
+    query.find (error, loyalties)->
+      if !options.progress && !options.media
+        callback error, loyalties
+        return
+      else # fetch progress and/or media
+        orgIds = []
+        for loyalty in loyalties
+          if orgIds.indexOf(loyalty.org.id.toString()) == -1
+            orgIds.add loyalty.org.id.toString()
+
+        async.parallel {
+          loyaltiesProgress : (cb)->
+            if !fetchProgress
+              cb null, null
+              return
+            if !options.userId?
+              callback new errors.ValidationError "UserId is required to fetch loyalty progress." , {"userId":"required for loyalty progress."}
+            #user progress was requested with loyalties
+            fieldsToReturn = {
+              "org.id" : 1
+              "data.tapIns.charityCentsRedeemed"  : 1
+              "data.tapIns.charityCentsRemaining" : 1
+              "data.tapIns.charityCentsRaised"    : 1
+            }
+            Statistics.consumerLoyaltyProgress options.userId, orgIds, fieldsToReturn, cb
+            return
+
+          bizMedias : (cb)->
+            if !fetchMedia
+              cb null, null
+              return
+            #loyalty media was requested with loyalties (business media for now)
+            fieldsToReturn = {
+              "media"
+            }
+            Businesses.getMultiple orgIds, fieldsToReturn, cb
+            return
+        },
+        (error, asyncData)->
+          if error?
+            callback error
+            return
+          #success
+          if !asyncData.loyaltiesProgress? && !asyncData.bizMedias?
+            #if just loyalties just send loyalties
+            dataToSend = loyalties
+          else
+            #if loyalties and  progress and/or media
+            #send back the data as an object..
+            logger.silly asyncData
+            dataToSend = {
+              loyalties : loyalties
+            }
+            if asyncData.loyaltiesProgress?
+              dataToSend['loyaltiesProgress'] = asyncData.loyaltiesProgress
+            if asyncData.bizMedias?
+              dataToSend['bizMedias']         = asyncData.bizMedias
+          callback null, dataToSend
           return
-        callback null, loyalties
         return
     return
 
+  @listByBusiness: (businessId, options, queryOptions, callback)->
+    self = this
+    if !businessId?
+      callback new errors.ValidationError "BusinessId is required..", {"businessId":"required"}
+      return
+    if Object.isString businessId
+      businessId = ObjectId businessId
+    active        = if options.active? then options.active else true; #show active only by default
+    fetchProgress = options.progress
+    fetchMedia    = options.media
+
+    orgIds = [businessId] #This will end up being only one orgId..
+    async.parallel {
+      loyalties : (cb)->
+        if !queryOptions?
+          query = self.query()
+        else
+          query = self.optionParser queryOptions, query
+        query.where "org.id",businessId
+        todaysDate = new Date()
+        query.where "active", active #show only active or unactive..
+        if active
+          query.or [{"dates.start" : {$lte:todaysDate}}, {"dates":{$exists:0}}]
+          query.or [{"dates.end"   : {$lte:todaysDate}}, {"dates":{$exists:0}}]
+        if options.count? && options.count
+          query.count callback
+          return
+        else
+          query.find cb
+        return
+
+      loyaltiesProgress : (cb)->
+        if !fetchProgress
+          cb null, null
+          return
+        #user progress was requested with loyalties
+        fieldsToReturn = {
+          "org.id" : 1
+          "data.tapIns.charityCentsRedeemed"  : 1
+          "data.tapIns.charityCentsRemaining" : 1
+          "data.tapIns.charityCentsRaised"    : 1
+        }
+        Statistics.consumerLoyaltyProgress options.userId, orgIds, fieldsToReturn, cb
+        return
+
+      bizMedias : (cb)->
+        if !fetchMedia
+          cb null, null
+          return
+        #loyalty media was requested with loyalties (business media for now)
+        fieldsToReturn = {
+          "media"
+        }
+        Businesses.getMultiple orgIds, fieldsToReturn, cb
+        return
+    },
+    (error, asyncData)->
+      if error?
+        callback error
+        return
+      #success
+      if !asyncData.loyaltiesProgress? && !asyncData.bizMedias?
+        #if just loyalties just send loyalties
+        dataToSend = async.loyalties
+      else
+        #if loyalties and  progress and/or media
+        #send back the data as an object..
+        dataToSend = {
+          loyalties : asyncData.loyalties
+        }
+        if asyncData.loyaltiesProgress?
+          dataToSend['loyaltiesProgress'] = asyncData.loyaltiesProgress
+        if asyncData.bizMedias?
+          dataToSend['bizMedias']         = asyncData.bizMedias
+      callback null, dataToSend
+      return
+    return
+
+
+## UnclaimedBarcodeStatistics ##
+class UnclaimedBarcodeStatistics extends API
+  @model: UnclaimedBarcodeStatistic
+
+  @add: (data, callback)->
+    obj = {
+      org: {
+        type                : data.org.type
+        id                  : data.org.id
+      }
+      barcodeId             : data.barcodeId
+      data                  : data.data || {}
+    }
+
+    instance = new @model(obj)
+    instance.save(callback)
+
+
+  @btTapped: (orgEntity, barcodeId, transactionId, spent, charityCentsRaised, timestamp, callback)->
+    if Object.isString(orgEntity.id)
+      orgEntity.id = new ObjectId(orgEntity.id)
+
+    if Object.isString(transactionId)
+      transactionId = new ObjectId(transactionId)
+
+    $inc = {}
+    $inc["data.tapIns.totalTapIns"] = 1
+    if spent?
+      $inc["data.tapIns.totalAmountPurchased"] = if isNaN(parseFloat(spent)) then 0 else parseFloat(spent).toFixed(2) #parse just incase it's a string
+    if charityCentsRaised?
+      $inc["data.tapIns.charityCentsRaised"] = if isNaN(parseInt(charityCentsRaised)) then 0 else parseInt(charityCentsRaised) #parse just incase it's a string
+
+    $set = {}
+    $set["data.tapIns.lastVisited"] = new Date(timestamp) #if it is a string it will become a date hopefully
+
+    $push = {}
+    $push["transactions.ids"] = transactionId
+
+    $update = {
+      $set: $set
+      $inc: $inc
+      $push: $push
+    }
+
+    # We do this because we don't care about the name or anything else for this business in the statistics collection
+    # Hence we strip away any other properties for the purposes of the query
+    org = {
+      type  : orgEntity.type
+      id    : orgEntity.id
+    }
+
+    @model.collection.update {org: org, barcodeId: barcodeId}, $update, {safe: true, upsert: true }, callback
+    return
 
 ## Statistics ##
 class Statistics extends API
@@ -5455,10 +5621,10 @@ class Statistics extends API
     $inc = {}
     $inc["data.tapIns.totalTapIns"] = 1
     if spent?
-      $inc["data.tapIns.totalAmountPurchased"] = if isNaN(parseFloat(spent)) then 0 else parseFloat(spent) #parse just incase it's a string
+      $inc["data.tapIns.totalAmountPurchased"] = if isNaN(parseFloat(spent)) then 0 else parseFloat(spent).toFixed(2) #parse just incase it's a string
     if charityCentsRaised?
-      $inc["data.tapIns.charityCentsRaised"] = if isNaN(parseFloat(charityCentsRaised)) then 0 else parseFloat(charityCentsRaised) #parse just incase it's a string
-      $inc["data.tapIns.charityCentsRemaining"] = if isNaN(parseFloat(charityCentsRaised)) then 0 else parseFloat(charityCentsRaised) #parse just incase it's a string
+      $inc["data.tapIns.charityCentsRaised"] = if isNaN(parseInt(charityCentsRaised)) then 0 else parseInt(charityCentsRaised) #parse just incase it's a string
+      $inc["data.tapIns.charityCentsRemaining"] = if isNaN(parseInt(charityCentsRaised)) then 0 else parseInt(charityCentsRaised) #parse just incase it's a string
 
     $set = {}
     $set["data.tapIns.lastVisited"] = new Date(timestamp) #if it is a string it will become a date hopefully
@@ -5599,6 +5765,7 @@ exports.BusinessTransactions = BusinessTransactions
 exports.BusinessRequests = BusinessRequests
 exports.Streams = Streams
 exports.Statistics = Statistics
+exports.UnclaimedBarcodeStatistics = UnclaimedBarcodeStatistics
 exports.Organizations = Organizations
 exports.PasswordResetRequests = PasswordResetRequests
 exports.Referrals = Referrals
