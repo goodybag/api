@@ -2,7 +2,6 @@ exports = module.exports
 
 bcrypt = require "bcrypt"
 generatePassword = require "password-generator"
-hashlib = require "hashlib"
 util = require "util"
 async = require "async"
 
@@ -24,6 +23,7 @@ transloadit = globals.transloadit
 guidGen = globals.guid
 fb = globals.facebook
 urlShortner = globals.urlShortner
+hashlib = globals.hashlib
 
 ObjectId = globals.mongoose.Types.ObjectId
 Binary = globals.mongoose.mongo.BSONPure.Binary
