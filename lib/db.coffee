@@ -977,7 +977,7 @@ UnclaimedBarcodeStatistic = new Schema {
   data                    : {}
 }
 
-UnclaimedBarcodeStatistic.index {'org.type': 1, 'org.id':1, barcodeID: 1}, {unique: true}
+UnclaimedBarcodeStatistic.index {'org.type': 1, 'org.id':1, barcodeId: 1}, {unique: true}
 
 UnclaimedBarcodeStatistic.index {'org.type': 1, 'org.id':1, barcodeId: 1, "tapIns.totalTapIns": 1}
 UnclaimedBarcodeStatistic.index {'org.type': 1, 'org.id':1, barcodeId: 1, "tapIns.totalAmountPurchased": 1}
@@ -1004,7 +1004,7 @@ exports.BusinessTransaction       = mongoose.model 'BusinessTransaction', Busine
 exports.BusinessRequest           = mongoose.model 'BusinessRequest', BusinessRequest
 exports.PasswordResetRequest      = mongoose.model 'PasswordResetRequest', PasswordResetRequest
 exports.Statistic                 = mongoose.model 'Statistic', Statistic
-exports.UnclaimedBarcodeStatistic = mongoose.model 'UnclaimedBarcodeStatistic', Statistic
+exports.UnclaimedBarcodeStatistic = mongoose.model 'UnclaimedBarcodeStatistic', UnclaimedBarcodeStatistic
 exports.Organization              = mongoose.model 'Organization', Organization
 exports.Referral                  = mongoose.model 'Referral', Referral
 
