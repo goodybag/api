@@ -5008,7 +5008,7 @@ class Streams extends API
       btDoc.userEntity = {}
       btDoc.userEntity.type = choices.entities.CONSUMER
       btDoc.userEntity.id = new ObjectId("000000000000000000000000")
-      btDoc.userEntity.name = "Anonymous"
+      btDoc.userEntity.name = "Someone"
 
     tapIn = {type: choices.objects.TAPIN, id: btDoc._id}
     who = btDoc.userEntity
@@ -5025,7 +5025,9 @@ class Streams extends API
       }
 
       events            : [choices.eventTypes.BT_TAPPED]
-      data              : {}
+      data              : {
+        donationAmount  : btDoc.donationAmount
+      }
 
       feeds: {
         global          : true #unless a user's preferences are do that
