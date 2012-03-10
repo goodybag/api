@@ -868,7 +868,7 @@ class Users extends API
     data = {}
     data.changeEmail =
       newEmail: newEmail
-      key: hashlib.md5(globals.secretWord + newEmail+(new Date().toString()))+'-'+generatePassword(12, false, /\d/)
+      key: hashlib.md5(config.secretWord + newEmail+(new Date().toString()))+'-'+generatePassword(12, false, /\d/)
       expirationDate: Date.create("next week")
     @updateWithPassword id, password, data, (error, count)-> #error,count
       if count==0
@@ -894,7 +894,7 @@ class Users extends API
     data = {}
     data.changeEmail =
       newEmail: newEmail
-      key: hashlib.md5(globals.secretWord + newEmail+(new Date().toString()))+'-'+generatePassword(12, false, /\d/)
+      key: hashlib.md5(config.secretWord + newEmail+(new Date().toString()))+'-'+generatePassword(12, false, /\d/)
       expirationDate: Date.create("next week")
     @updateWithFacebookAuthNonce id, facebookAccessToken, facebookAuthNonce, data, (error, count)-> #error,count
       if error
@@ -1224,7 +1224,7 @@ class Consumers extends Users
           else
             # Brand New User!
             # generate a random password and screenName...
-            consumer.password = hashlib.md5(globals.secretWord + facebookData.me.email+(new Date().toString()))+'-'+generatePassword(12, false, /\d/)
+            consumer.password = hashlib.md5(config.secretWord + facebookData.me.email+(new Date().toString()))+'-'+generatePassword(12, false, /\d/)
             consumer.screenName = new ObjectId()
             self.encryptPassword consumer.password, (error, hash)->
               if error?
@@ -1980,7 +1980,7 @@ class Clients extends API
       #the new email address requires verification
       query = Clients._query()
       query.where("_id", id)
-      key = hashlib.md5(globals.secretWord + newEmail+(new Date().toString()))+'-'+generatePassword(12, false, /\d/)
+      key = hashlib.md5(config.secretWord + newEmail+(new Date().toString()))+'-'+generatePassword(12, false, /\d/)
       set = {
         changeEmail: {
           newEmail: newEmail
@@ -4133,7 +4133,7 @@ class ClientInvitations extends API
   @model = ClientInvitation
 
   @add = (businessId, groupName, email, callback)->
-    key = hashlib.md5(globals.secretWord + email+(new Date().toString()))+'-'+generatePassword(12, false, /\d/)
+    key = hashlib.md5(config.secretWord + email+(new Date().toString()))+'-'+generatePassword(12, false, /\d/)
     @_add {businessId: businessId, groupName: groupName, email: email, key: key}, callback
 
   @list = (businessId, groupName, callback)->
@@ -5243,7 +5243,7 @@ class PasswordResetRequests extends API
         entity:
           type: type
           id: user._id
-        key: hashlib.md5(globals.secretWord+email+(new Date().toString()))
+        key: hashlib.md5(config.secretWord+email+(new Date().toString()))
       instance = new @model request
       instance.save callback
       return
