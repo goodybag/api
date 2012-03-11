@@ -451,6 +451,7 @@ class Sequences extends API
       else
         callback(null, doc[key])
 
+
 class DonationLogs extends API
   @model = DonationLog
 
@@ -476,6 +477,7 @@ class DonationLogs extends API
     instance = new @model(data)
     instance.save callback
     return
+
 
 class Users extends API
   #start potential new API functions
@@ -934,6 +936,7 @@ class Users extends API
       return
     return
 
+
 class Consumers extends Users
   @model = Consumer
 
@@ -1100,8 +1103,6 @@ class Consumers extends Users
           return
         callback null, count #should be 1 or 0, since update by Id
         return
-
-
 
   @register: (data, fieldsToReturn, callback)->
     self = this
@@ -4376,6 +4377,21 @@ class BusinessTransactions extends API
     self = this
     accessToken = null
     async.series {
+      findRecentTapIns: (cb)->
+        if doc.barcodeId?
+          BusinessTransactions.findLastTapInByBarcodeIdAtBusinessSince doc.barcodeId, doc.organizationEntity.id, doc.date.clone().addHours(-3), (error, bt)->
+            if error?
+              cb(error, null)
+              return
+            else if bt?
+              logger.verbose "Ignoring tapIn - occcured within 3 hour time frame at this business"
+              cb({name: "IgnoreTapIn", message: "User has tapped in multiple times with in a 3 hour time frame"}) #do not change the name without changing it in the callback below
+              return
+            else
+              cb(null)
+
+        else
+          cb(null)
       findConsumer: (cb)-> #find only if there was a barcode that needed to be analyzed
         if doc.barcodeId?
           Consumers.model.collection.findOne {barcodeId: doc.barcodeId}, {_id:1, firstName:1, lastName:1, screenName:1, tapinsToFacebook:1, "facebook.access_token": 1}, (error, consumer)->
@@ -4434,10 +4450,10 @@ class BusinessTransactions extends API
         doc.transactions.log = [transaction]
 
         @model.collection.insert doc, {safe: true}, (error, bt)->
-          bt = bt[0]
           if error?
             cb(error)
             return
+          bt = bt[0]
           tp.process(bt, transaction) #process transaction - either add funds to consumer object then update stats or just update unclaimed stats if there is no user to add funds too
           Streams.btTapped bt #we don't care about the callback for this stream function
           if doc.userEntity?
@@ -4455,11 +4471,21 @@ class BusinessTransactions extends API
           return
     }, (error, results)->
       if error?
+        if error.name? and error.name is "IgnoreTapIn"
+          callback(null) #don't report an error back to the device, we are going to ignore the tapIn
+          return
         callback(error)
         return
       else if results.save?
         callback(null)
         return
+
+  @findLastTapInByBarcodeIdAtBusinessSince: (barcodeId, businessId, since, callback)->
+    if Object.isString(businessId)
+      businessId = new ObjectId(businessId)
+
+    @model.collection.findOne {barcodeId: barcodeId, "organizationEntity.id": businessId, date: {$gte: since}}, {sort:{date: -1}, limit: 1}, callback
+    return
 
   @findOneRecentTapIn: (businessId, locationId, registerId, callback)->
     if Object.isString(businessId)
@@ -5236,6 +5262,7 @@ class Streams extends API
           return
         callback error, {activities: activities, consumers: consumers}
 
+
 class PasswordResetRequests extends API
   @model: PasswordResetRequest
 
@@ -5327,6 +5354,7 @@ class PasswordResetRequests extends API
         return
       return
     return
+
 
 class Loyalties extends API
   @model = Loyalty
@@ -5570,6 +5598,7 @@ class UnclaimedBarcodeStatistics extends API
     @model.collection.update {org: org, barcodeId: barcodeId}, $update, {safe: true, upsert: true }, callback
     return
 
+
 ## Statistics ##
 class Statistics extends API
   @model: Statistic
@@ -5716,6 +5745,7 @@ class Statistics extends API
   @setTransactionProcessing: @__setTransactionProcessing
   @setTransactionProcessed: @__setTransactionProcessed
   @setTransactionError: @__setTransactionError
+
 
 class Referrals extends API
   @model = Referral
