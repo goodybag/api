@@ -607,7 +607,7 @@ class Users extends API
               callback(null, false)
               return
       else
-        callback new error.ValidationError "Invalid id", {"id", "invalid"}
+        callback new errors.ValidationError "Invalid id", {"id": "invalid"}
         return
 
   @login: (email, password, fieldsToReturn, callback)->
@@ -724,7 +724,7 @@ class Users extends API
       #we don't care if the nonce has been used or not..
       #verify that the nonce from FB matches the nonce from the user..
       if(accessTokenInfo.auth_nonce != facebookAuthNonce)
-        callback new errors.ValidationError('Facebook authentication error.', {'Auth Nonce':'Incorrect.'})
+        callback new errors.ValidationError('Facebook authentication errors.', {'Auth Nonce':'Incorrect.'})
       else
         set = data
         self.update id, {$set:set}, callback
@@ -739,7 +739,7 @@ class Users extends API
       if error?
         callback error
         return
-
+      logger.silly validatedMedia
       update = {}
       if !validatedMedia?
         mediaToReturn = null
@@ -751,6 +751,7 @@ class Users extends API
       self.update id, update, (error, count)-> #error,count
         if error?
           callback error
+          return
         if count==0
           callback new errors.ValidationError {"id":"Consumer Id not found."}
         else
@@ -876,7 +877,7 @@ class Users extends API
       if count==0
         callback new errors.ValidationError({"password":"Incorrect password."}) #assuming id is correct..
         return
-      #success or error..
+      #success or errors..
       callback error, data.changeEmail
       return
     return
@@ -926,7 +927,7 @@ class Users extends API
         return
       query.update {$set:{email:user.changeEmail.newEmail, changeEmail:null}}, (error, count)->
         if error?
-          if error.code is 11000 or error.code is 11001
+          if errors.code is 11000 or errors.code is 11001
             callback new errors.ValidationError "Email Already Exists", {"email": "Email Already Exists"} #email exists error
           else
             callback error #dberror
@@ -979,7 +980,7 @@ class Consumers extends Users
       logger.silly error
       logger.silly count
       if error?
-        if error.code == 11000 or error.code == 11001
+        if errors.code == 11000 or errors.code == 11001
           callback new errors.ValidationError "Sorry, that Alias is already taken.", {"screenName":"not unique"}
           return
         else
@@ -2162,9 +2163,10 @@ class Businesses extends API
     query.where 'type', options.type if options.type?
     return query
 
-  @getMultiple = (idArray, callback)->
+  @getMultiple = (idArray, fieldsToReturn, callback)->
     query = @query()
     query.in("_id",idArray)
+    query.fields(fieldsToReturn)
     query.find callback
     return
 
@@ -2241,6 +2243,23 @@ class Businesses extends API
       return
     return
 
+  @updateIsCharity: (businessId, isCharity, callback)->
+    if !businessId? or businessId.length!=24
+      callback new errors.ValidationError "Please select a business.", {"business":"invalid businessId"}
+      return
+    else
+      if Object.isString businessId
+        businessId = new ObjectId businessId
+    set = {
+      isCharity: isCharity
+    }
+    @model.collection.update {_id: businessId}, {$set:set}, {safe: true}, (error, count)->
+      if error?
+        callback error
+        return
+      callback error, count>0 #success
+    return
+
   @updateIdentity: (id, data, callback)->
     self = this
     if Object.isString(id)
@@ -2270,7 +2289,7 @@ class Businesses extends API
 
     query = @_query()
     query.where("_id", id)
-    query.where("media.guid", data.guid)
+    query.where("media.guid", guid)
 
     set = {
       media : Medias.mediaFieldsForType mediasDoc, "business"
@@ -4046,9 +4065,9 @@ class Medias extends API
 
   #validate Media Objects for other collections
   @validateAndGetMediaURLs: (entityType, entityId, mediaFor, media, callback)->
-    validatedMedia = {
-      rotateDegrees : media.rotateDegrees
-    }
+    validatedMedia = {}
+    if (media.rotateDegrees? && !isNaN(parseInt(media.rotateDegrees)))
+      validatedMedia.rotateDegrees = media.rotateDegrees
     if !media?
       callback null, null
       return
@@ -4087,7 +4106,6 @@ class Medias extends API
           return
         else #!media? - media has yet to be uploaded by transloadit.. mark it with the guid and use tempurls for now
           logger.debug "validateMedia - guid supplied, guid not found (use temp. URLs for now)."
-          validatedMedia.rotateDegrees = media.rotateDegrees if !utils.isBlank(media.rotateDegrees) && media.rotateDegrees!=0
           if !utils.isBlank(media.tempURL)
             validatedMedia.url = media.tempURL
             validatedMedia.thumb = media.tempURL
