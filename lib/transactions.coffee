@@ -46,7 +46,7 @@ process = (document, transaction)-> #this is just a router
       btTapped(document, transaction)
 
     #BT - BARCODE CLAIMED
-    when choices.transactions.actions.BT_BARCODE_CLAIM
+    when choices.transactions.actions.BT_BARCODE_CLAIMED
       btBarcodeClaimed(document, transaction)
 
     #STAT - POLLS
@@ -58,8 +58,12 @@ process = (document, transaction)-> #this is just a router
       statBtTapped(document, transaction)
 
     #STAT - BARCODE CLAIMED
-    when choices.transactions.actions.STAT_BARCODE_CLAIM
+    when choices.transactions.actions.STAT_BARCODE_CLAIMED
       statBarcodeClaimed(document, transaction)
+
+    #UNCLAIMED BARCODE STAT - BARCODE CLAIMED
+    when choices.transactions.actions.UCBS_CLAIMED
+      ucbsClaimed(document, transaction)
 
 _setTransactionProcessing = (clazz, document, transaction, locking, callback)->
   prepend = "ID: #{document._id} - TID: #{transaction.id}"
@@ -1824,7 +1828,7 @@ statBarcodeClaimed = (document, transaction)->
   logger.info "STAT - User claimed barcode"
   logger.info "#{prepend} - #{transaction.direction}"
 
-  apiStatClass = undefined
+  totalCharityCentsRaised = 0
 
   cleanup = (callback)->
     logger.info "#{prepend} cleaning up"
@@ -1842,6 +1846,8 @@ statBarcodeClaimed = (document, transaction)->
       charityCentsRaised = unclaimedBarcodeStatistic.data.tapIns.charityCentsRaised || 0
       timestamp = unclaimedBarcodeStatistic.data.tapIns.lastVisited
       totalTapIns = unclaimedBarcodeStatistic.data.tapIns.totalTapIns || 0
+
+      totalCharityCentsRaised += charityCentsRaised
     else # if there is no data then there is nothing to copy in the first place
       callback()
       return
@@ -1868,40 +1874,107 @@ statBarcodeClaimed = (document, transaction)->
       claimId = transactionId
       barcodeId = document.barcodeId
 
-      logger.info "#{prepend} CLAIMING BARCODE"
+      logger.info "#{prepend} claiming barcode"
       api.UnclaimedBarcodeStatistics.claimBarcodeId barcodeId, transactionId, (error, count)->
         if error?
           logger.error error
           callback(error)
           return
 
-        logger.info "#{prepend} GET CLAIMED"
+        logger.info "#{prepend} get claimed"
         api.UnclaimedBarcodeStatistics.getClaimed claimId, (error, unclaimedBarcodeStatistics)->
           if error?
             logger.error error
             callback(error)
             return
 
-          logger.info "#{prepend} LOOP THROUGH UNCLAIMED"
+          logger.info "#{prepend} loop through unclaimed"
           async.forEach unclaimedBarcodeStatistics, copyStats, (error)->
             if error?
               callback(error)
               return
+            callback()
+            return
 
-            logger.info "#{prepend} REMOVE CLAIMED"
-            api.UnclaimedBarcodeStatistics.removeClaimed claimId, (error, count)->
-              if error?
-                callback(error)
-                return
-              callback()
-              return
+    setProcessed: (callback)->
+      funds = if !isNaN(parseInt(totalCharityCentsRaised)) then parseFloat(totalCharityCentsRaised/100) else 0
+
+      ucbsClaimedTransaction = api.Consumers.createTransaction(
+        choices.transactions.states.PENDING
+        , choices.transactions.actions.UCBS_CLAIMED
+        , {claimId: transaction.id}
+        , choices.transactions.directions.OUTBOUND
+        , transaction.entity
+      )
+
+      $inc = {"funds.remaining": funds, "funds.allocated": funds}
+
+      $pushAll = {
+        "transactions.ids": [ucbsClaimedTransaction.id]
+        "transactions.temp": [ucbsClaimedTransaction]
+      }
+
+      $update = {
+        $pushAll: $pushAll
+        $inc: $inc
+      }
+      _setTransactionProcessedAndCreateNew api.Consumers, document, transaction, [ucbsClaimedTransaction], false, false, $update, callback
+      return
+      #if it went through great, if it didn't go through then the poller will take care of it,
+      #no other state changes need to occur
+
+  },
+  (error, results)->
+    clean = false
+    if error?
+      logger.error error
+      if error.name is "TransactionAlreadyCompleted" #we recevied a null document while trying to set the state - the state is already set to processed or error, just needs to cleaned up
+        clean = true
+      else
+        logger.error "#{prepend} the poller will try later" #we received some other type of error, so we will try again later
+        return
+    else if results and results.setProcessed?
+      clean = true
+
+    if clean is true
+      cleanup (error, dbTransaction)-> #start cleaning up
+        if error?
+          logger.error error
+          logger.error "#{prepend} unable to properly clean up - the poller will try later"
+
+#OUTBOUND
+ucbsClaimed = (document, transaction)->
+  prepend = "ID: #{document._id} - TID: #{transaction.id}"
+  logger.info "UCBS - Barcode has been claimed so remove the old unclaimed barcode statistics data"
+  logger.info "#{prepend} - #{transaction.direction}"
+
+  cleanup = (callback)->
+    logger.info "#{prepend} cleaning up"
+    _cleanupTransaction document, transaction, api.Consumers, [api.Consumers, api.UnclaimedBarcodeStatistics], callback
+
+  async.series {
+    setProcessing: (callback)->
+      _setTransactionProcessing api.Consumers, document, transaction, false, (error, doc)->
+        #We need to replace the passed in document with this new one because
+        #the document passed in doesn't have the entity object (we had removed it)
+        document = doc
+        callback(error, doc)
+      return
+
+    removeClaimedStatistics: (callback)->
+      logger.info "#{prepend} removing claimed Barcode Statistic from UnclaimedBarcodeStatistics collection"
+      api.UnclaimedBarcodeStatistics.removeClaimed transaction.data.claimId, (error, count)->
+        if error?
+          callback(error)
+          return
+        callback()
+        return
 
     setProcessed: (callback)->
       _setTransactionProcessed api.Consumers, document, transaction, false, false, {}, callback
       return
       #if it went through great, if it didn't go through then the poller will take care of it,
       #no other state changes need to occur
-
   },
   (error, results)->
     clean = false

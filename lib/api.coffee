@@ -1025,8 +1025,8 @@ class Consumers extends Users
 
     transactionData = {}
 
-    btTransaction = @createTransaction(choices.transactions.states.PENDING, choices.transactions.actions.BT_BARCODE_CLAIM, transactionData, choices.transactions.directions.OUTBOUND, entity)
-    statTransaction = @createTransaction(choices.transactions.states.PENDING, choices.transactions.actions.STAT_BARCODE_CLAIM, transactionData, choices.transactions.directions.OUTBOUND, entity)
+    btTransaction = @createTransaction(choices.transactions.states.PENDING, choices.transactions.actions.BT_BARCODE_CLAIMED, transactionData, choices.transactions.directions.OUTBOUND, entity)
+    statTransaction = @createTransaction(choices.transactions.states.PENDING, choices.transactions.actions.STAT_BARCODE_CLAIMED, transactionData, choices.transactions.directions.OUTBOUND, entity)
 
     $set = {
       barcodeId: barcodeId
@@ -1040,15 +1040,18 @@ class Consumers extends Users
     $update = {$pushAll: $pushAll, $set: $set}
 
     fieldsToReturn = {_id: 1, barcodeId: 1}
-    @model.collection.findAndModify {_id: entity.id}, [], $update, {safe: true, fields: fieldsToReturn}, (error, consumer)->
+    @model.collection.findAndModify {_id: entity.id, barcodeId: {$ne: barcodeId}}, [], $update, {safe: true, fields: fieldsToReturn, new: true}, (error, consumer)->
       if error?
         if error.code is 11000 or error.code is 11001
-          callback new errors.ValidationError "TapIn is already in use", {"barcodeId": "barcode is already in use"}
+          callback new errors.ValidationError "TapIn code is already in use", {"barcodeId": "tapIn code is already in use"}
           return
         callback error
         return
+      else if !consumer? #if there is no consumer object that means that you are already using this barcodeId, so error, because we don't want to run the transactions twice!!
+        callback new errors.ValidationError "This is already your TapIn code", {"barcodeId": "this is already your tapIn code"}
+        return
       #success
-      #tp.process(consumer, btTransaction)
+      tp.process(consumer, btTransaction)
       tp.process(consumer, statTransaction)
       success = if consumer? then true else false
       callback null, success
