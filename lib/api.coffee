@@ -124,6 +124,18 @@ class API
         obj[k] = v
       obj.save callback
 
+  #NEW update, everything should be migrated to this..
+  @_update: (id, updateDoc, dbOptions, callback)->
+    if Object.isString id
+      id = new ObjectId id
+    if Object.isFunction dbOptions
+      callback = dbOptions
+      dbOptions = {safe:true}
+    #id typecheck is done in .update
+    where = {_id:id}
+    @model.update where, updateDoc, dbOptions, callback
+    return
+
   @remove = (id, callback)->
     return @_remove(id, callback)
 
@@ -2112,6 +2124,7 @@ class Businesses extends API
     query.in('clients', [options.clientId]) if options.clientId?
     query.where 'locations.tapins', true if options.tapins?
     query.where 'isCharity', true if options.charity?
+    query.where 'gbEquipped', true if options.equipped?
     query.where 'type', options.type if options.type?
     return query
 
