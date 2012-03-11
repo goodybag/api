@@ -4392,6 +4392,8 @@ class BusinessTransactions extends API
       donationAmount  : if !isNaN(defaults.bt.donationValue) then parseFloat(Math.abs(parseFloat(defaults.bt.donationValue).toFixed(2))) else 0  #this is the amount totalled after any additions (such as more funds for posting to facebook)
     }
 
+    logger.debug doc
+
     self = this
     accessToken = null
     async.series {
