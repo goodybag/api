@@ -46,7 +46,7 @@ process = (document, transaction)-> #this is just a router
       btTapped(document, transaction)
 
     #BT - BARCODE CLAIMED
-    when choices.transactions.action.BT_BARCODE_CLAIM
+    when choices.transactions.actions.BT_BARCODE_CLAIM
       btBarcodeClaimed(document, transaction)
 
     #STAT - POLLS
@@ -58,7 +58,7 @@ process = (document, transaction)-> #this is just a router
       statBtTapped(document, transaction)
 
     #STAT - BARCODE CLAIMED
-    when choices.transactions.action.STAT_BARCODE_CLAIM
+    when choices.transactions.actions.STAT_BARCODE_CLAIM
       statBarcodeClaimed(document, transaction)
 
 _setTransactionProcessing = (clazz, document, transaction, locking, callback)->
@@ -893,7 +893,7 @@ btBarcodeClaimed = (document, transaction)->
     claimBarcode: (callback)->
       # logger.debug document
       transactionId = transaction.id
-      api.BusinessTransaction.claimBarcodeId transaction.entity, document.barcodeId, (error, count)->
+      api.BusinessTransactions.claimBarcodeId transaction.entity, document.barcodeId, (error, count)->
         if error?
           logger.error error #mongo errored out
           callback(error)
@@ -1819,6 +1819,7 @@ statBtTapped = (document, transaction)->
 
 #OUTBOUND
 statBarcodeClaimed = (document, transaction)->
+  logger.silly document
   prepend = "ID: #{document._id} - TID: #{transaction.id}"
   logger.info "STAT - User claimed barcode"
   logger.info "#{prepend} - #{transaction.direction}"
@@ -1827,19 +1828,20 @@ statBarcodeClaimed = (document, transaction)->
 
   cleanup = (callback)->
     logger.info "#{prepend} cleaning up"
-    _cleanupTransaction document, transaction, api.BusinessTransactions, [api.BusinessTransactions, apiStatClass], callback
+    _cleanupTransaction document, transaction, api.Consumers, [api.Consumers, api.Statistics], callback
 
-  copyStats = (unclaimedStatistic, callback)->
+  copyStats = (unclaimedBarcodeStatistic, callback)->
     logger.info "#{prepend} copying from UnclaimedBarcodeStatistics to Statistics"
+    logger.silly unclaimedBarcodeStatistic
 
-    org = unclaimedStatistic.org
+    org = unclaimedBarcodeStatistic.org
     consumerId = transaction.entity.id
 
-    if unClaimedStatistics.data?
-      spent = unclaimedStatistic.data.totalAmountPurchased || 0
-      charityCentsRaised = unclaimedStatistic.data.charityCentsRaised || 0
-      timestamp = unclaimedStatistic.data.lastVisited
-      totalTapIns = unclaimedStatistic.data.totalTapIns || 0
+    if unclaimedBarcodeStatistic.data? and unclaimedBarcodeStatistic.data.tapIns?
+      spent = unclaimedBarcodeStatistic.data.tapIns.totalAmountPurchased || 0
+      charityCentsRaised = unclaimedBarcodeStatistic.data.tapIns.charityCentsRaised || 0
+      timestamp = unclaimedBarcodeStatistic.data.tapIns.lastVisited
+      totalTapIns = unclaimedBarcodeStatistic.data.tapIns.totalTapIns || 0
     else # if there is no data then there is nothing to copy in the first place
       callback()
       return
@@ -1853,7 +1855,7 @@ statBarcodeClaimed = (document, transaction)->
 
   async.series {
     setProcessing: (callback)->
-      _setTransactionProcessing api.BusinessTransactions, document, transaction, false, (error, doc)->
+      _setTransactionProcessing api.Consumers, document, transaction, false, (error, doc)->
         #We need to replace the passed in document with this new one because
         #the document passed in doesn't have the entity object (we had removed it)
         document = doc
@@ -1863,24 +1865,30 @@ statBarcodeClaimed = (document, transaction)->
     updateStats: (callback)->
       # logger.debug document
       transactionId = transaction.id
+      claimId = transactionId
+      barcodeId = document.barcodeId
 
-      api.UnclaimedBarcodeStatistics.claimBarcodeId barcodeId, transaction.id, (error, count)->
+      logger.info "#{prepend} CLAIMING BARCODE"
+      api.UnclaimedBarcodeStatistics.claimBarcodeId barcodeId, transactionId, (error, count)->
         if error?
           logger.error error
           callback(error)
           return
 
-        api.UnclaimedBarcodeStatistics.getClaimed barcodeId, transaction.id, (error, unclaimedStats)->
+        logger.info "#{prepend} GET CLAIMED"
+        api.UnclaimedBarcodeStatistics.getClaimed claimId, (error, unclaimedBarcodeStatistics)->
           if error?
             logger.error error
             callback(error)
             return
 
-          async.forEach unclaimedStats, copyStats, (error)->
+          logger.info "#{prepend} LOOP THROUGH UNCLAIMED"
+          async.forEach unclaimedBarcodeStatistics, copyStats, (error)->
             if error?
               callback(error)
               return
 
+            logger.info "#{prepend} REMOVE CLAIMED"
             api.UnclaimedBarcodeStatistics.removeClaimed claimId, (error, count)->
               if error?
                 callback(error)
@@ -1889,7 +1897,7 @@ statBarcodeClaimed = (document, transaction)->
               return
 
     setProcessed: (callback)->
-      _setTransactionProcessed api.BusinessTransactions, document, transaction, false, false, {}, callback
+      _setTransactionProcessed api.Consumers, document, transaction, false, false, {}, callback
       return
       #if it went through great, if it didn't go through then the poller will take care of it,
       #no other state changes need to occur

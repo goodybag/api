@@ -1028,7 +1028,7 @@ class Consumers extends Users
     btTransaction = @createTransaction(choices.transactions.states.PENDING, choices.transactions.actions.BT_BARCODE_CLAIM, transactionData, choices.transactions.directions.OUTBOUND, entity)
     statTransaction = @createTransaction(choices.transactions.states.PENDING, choices.transactions.actions.STAT_BARCODE_CLAIM, transactionData, choices.transactions.directions.OUTBOUND, entity)
 
-    $set: {
+    $set = {
       barcodeId: barcodeId
     }
 
@@ -1037,7 +1037,7 @@ class Consumers extends Users
       "transactions.log": [btTransaction, statTransaction]
     }
 
-    $update = {$push: $push, $set: $set}
+    $update = {$pushAll: $pushAll, $set: $set}
 
     fieldsToReturn = {_id: 1, barcodeId: 1}
     @model.collection.findAndModify {_id: entity.id}, [], $update, {safe: true, fields: fieldsToReturn}, (error, consumer)->
@@ -1048,9 +1048,9 @@ class Consumers extends Users
         callback error
         return
       #success
-      tp.process(consumer, btTransaction)
+      #tp.process(consumer, btTransaction)
       tp.process(consumer, statTransaction)
-      success = count>0
+      success = if consumer? then true else false
       callback null, success
     return
 
@@ -1472,7 +1472,7 @@ class Consumers extends Users
       callback({message: "amount cannot be negative"})
       return
 
-    amount = Math.abs(amount.toFixed(2))
+    amount = parseFloat(Math.abs(amount.toFixed(2)))
 
     if Object.isString(id)
       id = new ObjectId(id)
@@ -1490,7 +1490,7 @@ class Consumers extends Users
       callback({message: "amount cannot be negative"})
       return
 
-    amount = Math.abs(amount.toFixed(2))
+    amount = parseFloat(Math.abs(amount.toFixed(2)))
 
     if Object.isString(id)
       id = new ObjectId(id)
@@ -1756,7 +1756,7 @@ class Consumers extends Users
       callback({message: "amount cannot be negative"})
       return
 
-    amount = Math.abs(amount.toFixed(2))
+    amount = parseFloat(Math.abs(amount.toFixed(2)))
 
     $update = {$inc: {"funds.remaining": amount, "funds.allocated": amount} }
 
@@ -4346,7 +4346,7 @@ class BusinessTransactions extends API
 
     amount = undefined
     if data.amount?
-      amount = if !isNaN(parseFloat(data.amount)) then Math.abs(parseFloat(amount)).toFixed(2) else undefined
+      amount = if !isNaN(parseFloat(data.amount)) then parseFloat(Math.abs(parseFloat(amount)).toFixed(2)) else undefined
 
     doc = {
       organizationEntity: {
@@ -4366,8 +4366,8 @@ class BusinessTransactions extends API
       hasReceipt      : if !utils.isBlank(data.receipt) then true else false
 
       donationType    : defaults.bt.donationType #we should pull this out from the organization later
-      donationValue   : Math.abs(parseFloat(defaults.bt.donationValue).toFixed(2)) #we should pull this out from the organization (#this is the amount the business has pledged)
-      donationAmount  : Math.abs(parseFloat(defaults.bt.donationValue).toFixed(2)) #this is the amount totalled after any additions (such as more funds for posting to facebook)
+      donationValue   : if !isNaN(defaults.bt.donationValue) then parseFloat(Math.abs(parseFloat(defaults.bt.donationValue).toFixed(2))) else 0 #we should pull this out from the organization (#this is the amount the business has pledged)
+      donationAmount  : if !isNaN(defaults.bt.donationValue) then parseFloat(Math.abs(parseFloat(defaults.bt.donationValue).toFixed(2))) else 0  #this is the amount totalled after any additions (such as more funds for posting to facebook)
     }
 
     self = this
@@ -4389,7 +4389,7 @@ class BusinessTransactions extends API
               accessToken = if consumer.facebook? then consumer.facebook.access_token else null
               logger.debug(consumer)
               doc.postToFacebook = if consumer.tapinsToFacebook? and consumer.tapinsToFacebook then true else false
-              doc.donationAmount = if consumer.tapinsToFacebook? and consumer.tapinsToFacebook then (doc.donationAmount + parseFloat(defaults.bt.donationFacebook)).toFixed(2) else doc.donationAmount
+              doc.donationAmount = if consumer.tapinsToFacebook? and consumer.tapinsToFacebook then parseFloat((doc.donationAmount + parseFloat(defaults.bt.donationFacebook)).toFixed(2)) else doc.donationAmount
               cb(null)
             else
               cb(null) #insert the transaction anyway, it is an invalid or unassigned bar code though. The transaction will save it to the appropriate collection (UnassociatedBarcodeStatistics)
@@ -4413,7 +4413,7 @@ class BusinessTransactions extends API
 
       save: (cb)=> #save it and write to the statistics table
         transactionData = {
-          charityCentsRaised: if !isNaN(parseFloat(globals.defaults.tapIns.charityCentsRaised)) then parseFloat(globals.defaults.tapIns.charityCentsRaised).toFixed(2) else 0
+          charityCentsRaised: if !isNaN(parseFloat(globals.defaults.tapIns.charityCentsRaised)) then parseFloat(parseFloat(globals.defaults.tapIns.charityCentsRaised).toFixed(2)) else 0
         }
 
         if doc.postToFacebook
@@ -5516,17 +5516,14 @@ class UnclaimedBarcodeStatistics extends API
     @model.collection.update {barcodeId: barcodeId}, {$set: {claimId: claimId}}, {safe:true}, callback
     return
 
-  @getClaimed: (claimId, barcodeId, callback)->
-    if Object.isString(claimId)
+  @getClaimed: (claimId, callback)->
+    if Object.isString(claimId) #this is really just the id of the transaction that is claiming this barcode
       claimId = new ObjectId(claimId)
 
-    @model.collection.find {claimId: claimId, barcodeId: barcodeId}, (err, cursor)->
+    @model.collection.find {claimId: claimId}, (err, cursor)->
       if error?
         callback(error)
         return
-      cursor.limit(options.limit)
-      cursor.skip(options.skip)
-      cursor.sort($sort)
       cursor.toArray (error, unclaimedBarcodeStatistics)->
         callback(error, unclaimedBarcodeStatistics)
       return
@@ -5544,7 +5541,7 @@ class UnclaimedBarcodeStatistics extends API
     $inc = {}
     $inc["data.tapIns.totalTapIns"] = 1
     if spent?
-      $inc["data.tapIns.totalAmountPurchased"] = if isNaN(parseFloat(spent)) then 0 else parseFloat(spent).toFixed(2) #parse just incase it's a string
+      $inc["data.tapIns.totalAmountPurchased"] = if isNaN(parseFloat(spent)) then 0 else parseFloat(parseFloat(spent).toFixed(2)) #parse just incase it's a string
     if charityCentsRaised?
       $inc["data.tapIns.charityCentsRaised"] = if isNaN(parseInt(charityCentsRaised)) then 0 else parseInt(charityCentsRaised) #parse just incase it's a string
 
@@ -5668,7 +5665,7 @@ class Statistics extends API
     $inc = {}
     $inc["data.tapIns.totalTapIns"] = totalTapIns
     if spent?
-      $inc["data.tapIns.totalAmountPurchased"] = if isNaN(parseFloat(spent)) then 0 else parseFloat(spent).toFixed(2) #parse just incase it's a string
+      $inc["data.tapIns.totalAmountPurchased"] = if isNaN(parseFloat(spent)) then 0 else parseFloat(parseFloat(spent).toFixed(2)) #parse just incase it's a string
     if charityCentsRaised?
       $inc["data.tapIns.charityCentsRaised"] = if isNaN(parseInt(charityCentsRaised)) then 0 else parseInt(charityCentsRaised) #parse just incase it's a string
       $inc["data.tapIns.charityCentsRemaining"] = if isNaN(parseInt(charityCentsRaised)) then 0 else parseInt(charityCentsRaised) #parse just incase it's a string
