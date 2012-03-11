@@ -14,7 +14,7 @@ tp = require "./transactions" #transaction processor
 
 logger = loggers.api
 
-configs = globals.configs
+config = globals.config
 utils = globals.utils
 choices = globals.choices
 defaults = globals.defaults
@@ -482,14 +482,14 @@ class Users extends API
   #model.findById id, fields, options callback
   #model.findOne
   @_sendFacebookPicToTransloadit = (entityId, screenName, guid, picURL, callback)->
-    logger.debug ("TRANSLOADIT - send fbpic - "+"notifyURL:"+configs.transloadit.notifyURL+",guid:"+guid+",picURL:"+picURL+",entityId:"+entityId)
-    client = new transloadit(configs.transloadit.authKey, configs.transloadit.authSecret)
+    logger.debug ("TRANSLOADIT - send fbpic - "+"notifyURL:"+config.transloadit.notifyURL+",guid:"+guid+",picURL:"+picURL+",entityId:"+entityId)
+    client = new transloadit(config.transloadit.authKey, config.transloadit.authSecret)
     params = {
       auth: {
-        key: configs.transloadit.authKey
+        key: config.transloadit.authKey
       }
-      notify_url: configs.transloadit.notifyURL
-      template_id: configs.transloadit.consumerFromURLTemplateId
+      notify_url: config.transloadit.notifyURL
+      template_id: config.transloadit.consumerFromURLTemplateId
       steps: {
         ':original':
           robot: '/http/import'
@@ -716,7 +716,7 @@ class Users extends API
     self = this
     url = '/oauth/access_token_info'
     options = {
-      client_id:configs.facebook.appId
+      client_id:config.facebook.appId
     }
     fb.get url, facebookAccessToken, options, (error, accessTokenInfo)->
       #we don't care if the nonce has been used or not..
@@ -1022,7 +1022,25 @@ class Consumers extends Users
     else if barcodeId.length!=10
       callback new errors.ValidationError "Invalid TapIn Id", {"barcodeId": "invalid barcode id"}
       return
-    @update entity.id, {barcodeId: barcodeId}, (error, count)->
+
+    transactionData = {}
+
+    btTransaction = @createTransaction(choices.transactions.states.PENDING, choices.transactions.actions.BT_BARCODE_CLAIM, transactionData, choices.transactions.directions.OUTBOUND, entity)
+    statTransaction = @createTransaction(choices.transactions.states.PENDING, choices.transactions.actions.STAT_BARCODE_CLAIM, transactionData, choices.transactions.directions.OUTBOUND, entity)
+
+    $set: {
+      barcodeId: barcodeId
+    }
+
+    $pushAll = {
+      "transactions.ids": [btTransaction.id, statTransaction.id]
+      "transactions.log": [btTransaction, statTransaction]
+    }
+
+    $update = {$push: $push, $set: $set}
+
+    fieldsToReturn = {_id: 1, barcodeId: 1}
+    @model.collection.findAndModify {_id: entity.id}, [], $update, {safe: true, fields: fieldsToReturn}, (error, consumer)->
       if error?
         if error.code is 11000 or error.code is 11001
           callback new errors.ValidationError "TapIn is already in use", {"barcodeId": "barcode is already in use"}
@@ -1030,10 +1048,10 @@ class Consumers extends Users
         callback error
         return
       #success
+      tp.process(consumer, btTransaction)
+      tp.process(consumer, statTransaction)
       success = count>0
       callback null, success
-      BusinessTransactions.claimBarcodeId entity, barcodeId, (error, bt)->
-        return
     return
 
   ###
@@ -1142,7 +1160,7 @@ class Consumers extends Users
       if appResponse.code!=200
         callback new errors.HttpError 'Error connecting with Facebook, try again later.', 'facebookBatch:'+urls[0], appResponse.code
         return
-      if JSON.parse(appResponse.body).id != configs.facebook.appId
+      if JSON.parse(appResponse.body).id != config.facebook.appId
         callback new errors.ValidationError {'accessToken':"Incorrect access token. Not for Goodybag's app."}
       if meResponse.code!=200
         callback new errors.HttpError 'Error connecting with Facebook, try again later.', 'facebookBatch:'+urls[1], appResponse.code
@@ -5491,6 +5509,30 @@ class UnclaimedBarcodeStatistics extends API
     instance = new @model(obj)
     instance.save(callback)
 
+  @claimBarcodeId: (barcodeId, claimId, callback)->
+    if Object.isString(claimId)
+      claimId = new ObjectId(claimId)
+
+    @model.collection.update {barcodeId: barcodeId}, {$set: {claimId: claimId}}, {safe:true}, callback
+    return
+
+  @getClaimed: (claimId, barcodeId, callback)->
+    if Object.isString(claimId)
+      claimId = new ObjectId(claimId)
+
+    @model.collection.find {claimId: claimId, barcodeId: barcodeId}, (err, cursor)->
+      if error?
+        callback(error)
+        return
+      cursor.limit(options.limit)
+      cursor.skip(options.skip)
+      cursor.sort($sort)
+      cursor.toArray (error, unclaimedBarcodeStatistics)->
+        callback(error, unclaimedBarcodeStatistics)
+      return
+
+  @removeClaimed: (claimId, callback)->
+    @model.collection.remove {claimId: claimId}, {safe: true}, callback
 
   @btTapped: (orgEntity, barcodeId, transactionId, spent, charityCentsRaised, timestamp, callback)->
     if Object.isString(orgEntity.id)
@@ -5608,7 +5650,12 @@ class Statistics extends API
 
   @eventRsvped: (org, consumerId, transactionId, timestamp, callback)->
 
-  @btTapped: (orgEntity, consumerId, transactionId, spent, charityCentsRaised, timestamp, callback)->
+  #we accept the totalTapIns as a parameter because we use it when you claim a barcode, in that case you may have more than just one tapIn that is getting transfered in.
+  @btTapped: (orgEntity, consumerId, transactionId, spent, charityCentsRaised, timestamp, totalTapIns, callback)->
+    if Object.isFunction(totalTapIns)
+      callback = totalTapIns
+      totalTapIns = 1
+
     if Object.isString(orgEntity.id)
       orgEntity.id = new ObjectId(orgEntity.id)
 
@@ -5619,7 +5666,7 @@ class Statistics extends API
       transactionId = new ObjectId(transactionId)
 
     $inc = {}
-    $inc["data.tapIns.totalTapIns"] = 1
+    $inc["data.tapIns.totalTapIns"] = totalTapIns
     if spent?
       $inc["data.tapIns.totalAmountPurchased"] = if isNaN(parseFloat(spent)) then 0 else parseFloat(spent).toFixed(2) #parse just incase it's a string
     if charityCentsRaised?

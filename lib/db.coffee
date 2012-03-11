@@ -975,14 +975,18 @@ UnclaimedBarcodeStatistic = new Schema {
   org                     : organization
   barcodeId               : {type: String, required: true}
   data                    : {}
+
+  claimId                 : {type: ObjectId}
 }
 
 UnclaimedBarcodeStatistic.index {'org.type': 1, 'org.id':1, barcodeId: 1}, {unique: true}
+UnclaimedBarcodeStatistic.index {claimId: 1, barcodeId: 1} #used when claiming a barcode
 
 UnclaimedBarcodeStatistic.index {'org.type': 1, 'org.id':1, barcodeId: 1, "tapIns.totalTapIns": 1}
 UnclaimedBarcodeStatistic.index {'org.type': 1, 'org.id':1, barcodeId: 1, "tapIns.totalAmountPurchased": 1}
 UnclaimedBarcodeStatistic.index {'org.type': 1, 'org.id':1, barcodeId: 1, "tapIns.lastVisited": 1}
 UnclaimedBarcodeStatistic.index {'org.type': 1, 'org.id':1, barcodeId: 1, "tapIns.charityCentsRaised": 1}
+
 
 exports.DBTransaction             = mongoose.model 'DBTransaction', DBTransaction
 exports.Sequence                  = mongoose.model 'Sequence', Sequence
