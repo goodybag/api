@@ -4364,7 +4364,10 @@ class BusinessTransactions extends API
     if Object.isString(data.registerId)
       data.registerId = new ObjectId(data.registerId)
 
-    timestamp = Date.create(data.timestamp)
+    if !isNaN(parseFloat(data.timestamp)) #if it is a number
+      timestamp = Date.create(parseFloat(data.timestamp))
+    else #if it is not a number then try and create a date
+      timestamp = Date.create(data.timestamp)
 
     amount = undefined
     if data.amount?
@@ -4381,7 +4384,7 @@ class BusinessTransactions extends API
       registerId      : data.registerId
       barcodeId       : if !utils.isBlank(data.barcodeId) then data.barcodeId+"" else undefined #make string
       transactionId   : if !utils.isBlank(data.transactionId) then data.transactionId+"" else undefined #make string
-      date            : Date.create(timestamp)
+      date            : timestamp
       time            : new Date(0,0,0, timestamp.getHours(), timestamp.getMinutes(), timestamp.getSeconds(), timestamp.getMilliseconds()) #this is for slicing by time
       amount          : amount
       receipt         : if !utils.isBlank(data.receipt) then new Binary(data.receipt) else undefined
@@ -4392,6 +4395,8 @@ class BusinessTransactions extends API
       donationAmount  : if !isNaN(defaults.bt.donationValue) then parseFloat(Math.abs(parseFloat(defaults.bt.donationValue).toFixed(2))) else 0  #this is the amount totalled after any additions (such as more funds for posting to facebook)
     }
 
+    logger.debug data.timestamp
+    logger.debug doc.date
     logger.debug doc
 
     self = this
@@ -4404,7 +4409,7 @@ class BusinessTransactions extends API
               cb(error, null)
               return
             else if bt?
-              logger.verbose "Ignoring tapIn - occcured within 3 hour time frame at this business"
+              logger.warn "Ignoring tapIn - occcured within 3 hour time frame at this business"
               cb({name: "IgnoreTapIn", message: "User has tapped in multiple times with in a 3 hour time frame"}) #do not change the name without changing it in the callback below
               return
             else
