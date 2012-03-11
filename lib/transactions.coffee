@@ -1,11 +1,18 @@
 async = require "async"
 
 globals = require "globals"
+config = globals.config
+hashlib = globals.hashlib
 loggers = require "./loggers"
 api = require "./api"
 
 logger = loggers.transaction
 choices = globals.choices
+
+pubnub = globals.pubnub.init({
+  publish_key   : config.pubnub.pubKey
+  subscribe_key : config.pubnub.subKey
+})
 
 process = (document, transaction)-> #this is just a router
   logger.debug "FINDING PROCESSOR FOR: #{transaction.action}"
@@ -1918,7 +1925,15 @@ statBarcodeClaimed = (document, transaction)->
         $pushAll: $pushAll
         $inc: $inc
       }
-      _setTransactionProcessedAndCreateNew api.Consumers, document, transaction, [ucbsClaimedTransaction], false, false, $update, callback
+      _setTransactionProcessedAndCreateNew api.Consumers, document, transaction, [ucbsClaimedTransaction], false, false, $update, (error, consumer)->
+        callback(error, consumer)
+        if error? or !consumer?
+          return
+        socketChannel = hashlib.md5(transaction.entity.id.toString()+config.secretWord)
+        pubnub.publish({
+            channel : socketChannel,
+            message : "refreshUserHeader"
+          })
       return
       #if it went through great, if it didn't go through then the poller will take care of it,
       #no other state changes need to occur
