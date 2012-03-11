@@ -767,7 +767,17 @@ consumerDonated = (document, transaction)->
       }
       logger.silly "$update"
       logger.silly $update
-      _setTransactionProcessedAndCreateNew(api.Consumers, document, transaction, [donationLogTransaction], false, false, $update, callback)
+      _setTransactionProcessedAndCreateNew api.Consumers, document, transaction, [donationLogTransaction], false, false, $update, (error, consumer)->
+        callback(error, consumer)
+        if error? or !consumer?
+          return
+        socketChannel = hashlib.md5(document._id.toString()+config.secretWord)
+        pubnub.publish({
+          channel : socketChannel,
+          message : "refreshUserHeader"
+        })
+        return
+
       #if it went through great, if it didn't go through then the poller will take care of it
       #, no other state changes need to occur
   },
@@ -1931,9 +1941,10 @@ statBarcodeClaimed = (document, transaction)->
           return
         socketChannel = hashlib.md5(transaction.entity.id.toString()+config.secretWord)
         pubnub.publish({
-            channel : socketChannel,
-            message : "refreshUserHeader"
-          })
+          channel : socketChannel,
+          message : "refreshUserHeader"
+        })
+        return
       return
       #if it went through great, if it didn't go through then the poller will take care of it,
       #no other state changes need to occur
