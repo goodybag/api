@@ -41,6 +41,14 @@ process = (document, transaction)-> #this is just a router
     when choices.transactions.actions.DONATION_LOG_CONSUMER_DONATED
       donationLogConsumerDonated(document, transaction)
 
+    #FINANCIAL - BUSINESS TRANSACTIONS
+    when choices.transactions.actions.BT_TAPPED
+      btTapped(document, transaction)
+
+    #BT - BARCODE CLAIMED
+    when choices.transactions.actions.BT_BARCODE_CLAIMED
+      btBarcodeClaimed(document, transaction)
+
     #STAT - POLLS
     when choices.transactions.actions.STAT_POLL_ANSWERED
       statPollAnswered(document, transaction)
@@ -48,6 +56,14 @@ process = (document, transaction)-> #this is just a router
     #STAT - TAPINS
     when choices.transactions.actions.STAT_BT_TAPPED
       statBtTapped(document, transaction)
+
+    #STAT - BARCODE CLAIMED
+    when choices.transactions.actions.STAT_BARCODE_CLAIMED
+      statBarcodeClaimed(document, transaction)
+
+    #UNCLAIMED BARCODE STAT - BARCODE CLAIMED
+    when choices.transactions.actions.UCBS_CLAIMED
+      ucbsClaimed(document, transaction)
 
 _setTransactionProcessing = (clazz, document, transaction, locking, callback)->
   prepend = "ID: #{document._id} - TID: #{transaction.id}"
@@ -148,12 +164,15 @@ _setTransactionErrorAndRefund = (clazz, document, transaction, locking, removeLo
   _setTransactionError(clazz, document, transaction, locking, removeLock, error, $update, callback)
 
 _cleanupTransaction = (document, transaction, transactionContainerApiClass, transactionMemberApiClasses, callback)->
+  prepend = "ID: #{document._id} - TID: #{transaction.id}"
   for apiClass in transactionMemberApiClasses
     apiClass.removeTransactionInvolvement transaction.id, (error, count)->
       if error?
+        logger.error "#{prepend} there were errors cleaning up transactions"
         logger.error error
         callback(error)
         return
+      logger.info "#{prepend} cleaning up transactions - #{count} documents affected"
 
   doc = {
     document: {
@@ -174,6 +193,10 @@ _cleanupTransaction = (document, transaction, transactionContainerApiClass, tran
 
     transactionContainerApiClass.removeTransaction document._id, transaction.id, (error, count)->
       callback(error, count)
+      if !error?
+        logger.info "#{prepend} finished cleaning up transactions"
+      else
+        logger.error "#{prepend} there were errors cleaning up transactions"
       return
 
 #use the entity and amount in the transaction object - this is default what is used
@@ -761,6 +784,152 @@ consumerDonated = (document, transaction)->
         return
     return
   return
+
+btTapped = (document, transaction)->
+  prepend = "ID: #{document._id} - TID: #{transaction.id}"
+  logger.info "Creating transaction for business transaction"
+  logger.info "#{prepend} - #{transaction.direction}"
+
+  cleanup = (callback)->
+    logger.info "#{prepend} cleaning up"
+    _cleanupTransaction document, transaction, api.BusinessTransactions, [api.BusinessTransactions, api.Consumers], callback
+
+  setProcessed = true #setProcessed, unless something sets this to false
+  async.series {
+    setProcessing: (callback)->
+      _setTransactionProcessing api.BusinessTransactions, document, transaction, false, (error, doc)->
+        document = doc #we do this because the entities object is missing when the poll is answered
+        callback error, doc
+      return
+
+    depositFunds: (callback)-> #transfer the funds that were donated for the transaction into the consumer's account
+      logger.debug transaction.data
+      if document.userEntity.type is choices.entities.CONSUMER
+        logger.debug "#{prepend} attempting to deposit funds to consumer: #{transaction.entity.id}"
+        __depositFunds api.Consumers, api.BusinessTransactions, document, transaction, document.userEntity, document.donationAmount, false, false, (error, doc)->
+          if error?
+            logger.error error #mongo errored out
+            callback(error)
+          else if doc?  #transaction was successful, so continue to set processed
+            callback(null, doc)
+          else #null, null passed in which meas insufficient funds, so set error, and exit
+            error = {message: "entity to deposit funds to was not found"}
+            _setTransactionError api.BusinessTransactions, document, transaction, false, false, error, {}, (error, doc)->
+              #we don't care if it set or if it didn't set because:
+              # 1. if there was a mongo error then the poller will pick it up and work on it later
+              # 2. if it did set then fantastic, we will exit because we don't want to set to processed
+              # 3. if it did not set (no error, and no document updated) then we want to exit because
+              #    it is already in an error or processed state. In that case we want to do nothing
+              setProcessed = false
+              callback(null, null)
+      else
+        callback({name:"NullError", message: "Unsupported Entity Type: #{document.userEntity.type}"})
+        return
+      return
+
+    setProcessed: (callback)->
+      if setProcessed is false
+        callback() #we are not suppose to set to processed so exit cleanly
+        return
+
+      #Create Business Transaction Statistic Transaction
+      statTransaction = api.BusinessTransactions.createTransaction(
+        choices.transactions.states.PENDING
+        , choices.transactions.actions.STAT_BT_TAPPED
+        , {timestamp: transaction.data.timestamp}
+        , choices.transactions.directions.OUTBOUND
+        , transaction.entity
+      )
+
+      statTransaction.data = transaction.data
+
+      $pushAll = {
+        "transactions.ids": [statTransaction.id]
+        "transactions.temp": [statTransaction]
+      }
+
+      $update = {
+        $pushAll: $pushAll
+      }
+
+      _setTransactionProcessedAndCreateNew api.BusinessTransactions, document, transaction, [statTransaction], false, false, $update, callback
+      #if it went through great, if it didn't go through then the poller will take care of it
+      #, no other state changes need to occur
+
+  },
+  (error, results)->
+    clean = false
+    if error?
+      logger.error error
+      if error.name is "TransactionAlreadyCompleted" #we recevied a null document while trying to set the state - the state is already set to processed or error, just needs to cleaned up
+        clean = true
+      else
+        logger.error "#{prepend} the poller will try later" #we received some other type of error, so we will try again later
+        return
+    else if results and results.setProcessed?
+      clean = true
+
+    if clean is true
+      cleanup (error, dbTransaction)-> #start cleaning up
+        if error?
+          logger.error error
+          logger.error "#{prepend} unable to properly clean up - the poller will try later"
+
+#OUTBOUND
+btBarcodeClaimed = (document, transaction)->
+  prepend = "ID: #{document._id} - TID: #{transaction.id}"
+  logger.info "BT - User claimed barcode"
+  logger.info "#{prepend} - #{transaction.direction}"
+
+  cleanup = (callback)->
+    logger.info "#{prepend} cleaning up"
+    _cleanupTransaction document, transaction, api.Consumers, [api.Consumers, api.BusinessTransactions], callback
+
+  async.series {
+    setProcessing: (callback)->
+      _setTransactionProcessing api.Consumers, document, transaction, false, (error, doc)->
+        #We need to replace the passed in document with this new one because
+        #the document passed in doesn't have the entity object (we had removed it)
+        document = doc
+        callback(error, doc)
+      return
+
+    claimBarcode: (callback)->
+      # logger.debug document
+      transactionId = transaction.id
+      api.BusinessTransactions.claimBarcodeId transaction.entity, document.barcodeId, (error, count)->
+        if error?
+          logger.error error #mongo errored out
+          callback(error)
+        else if count>0
+          callback(null, count)
+        else #we've already updated all previous barcodes
+          callback(null, null)
+
+    setProcessed: (callback)->
+      _setTransactionProcessed api.Consumers, document, transaction, false, false, {}, callback
+      return
+      #if it went through great, if it didn't go through then the poller will take care of it,
+      #no other state changes need to occur
+
+  },
+  (error, results)->
+    clean = false
+    if error?
+      logger.error error
+      if error.name is "TransactionAlreadyCompleted" #we recevied a null document while trying to set the state - the state is already set to processed or error, just needs to cleaned up
+        clean = true
+      else
+        logger.error "#{prepend} the poller will try later" #we received some other type of error, so we will try again later
+        return
+    else if results and results.setProcessed?
+      clean = true
+
+    if clean is true
+      cleanup (error, dbTransaction)-> #start cleaning up
+        if error?
+          logger.error error
+          logger.error "#{prepend} unable to properly clean up - the poller will try later"
 
 donationLogConsumerDonated = (document, transaction)->
   prepend = "ID: #{document._id} - TID: #{transaction.id}"
@@ -1589,9 +1758,11 @@ statBtTapped = (document, transaction)->
   logger.info "STAT - User tapped in at a business"
   logger.info "#{prepend} - #{transaction.direction}"
 
+  apiStatClass = undefined
+
   cleanup = (callback)->
     logger.info "#{prepend} cleaning up"
-    _cleanupTransaction document, transaction, api.BusinessTransactions, [api.BusinessTransactions, api.Statistics], callback
+    _cleanupTransaction document, transaction, api.BusinessTransactions, [api.BusinessTransactions, apiStatClass], callback
 
   async.series {
     setProcessing: (callback)->
@@ -1605,9 +1776,18 @@ statBtTapped = (document, transaction)->
     updateStats: (callback)->
       # logger.debug document
       org = document.organizationEntity
-      consumerId = document.userEntity.id
       transactionId = transaction.id
-      api.Statistics.btTapped org, consumerId, transactionId, transaction.data.amount, transaction.data.charityCentsRaised, document.date, (error, count)->
+
+      if document.userEntity? and document.userEntity.id?
+        logger.info "#{prepend} entity found - storing to Statistics"
+        apiStatClass = api.Statistics
+        identifier = document.userEntity.id #consumerId
+      else
+        logger.info "#{prepend} entity not found - storing to UnclaimedBarcodeStatistics"
+        apiStatClass = api.UnclaimedBarcodeStatistics
+        identifier = document.barcodeId
+
+      apiStatClass.btTapped org, identifier, transactionId, document.amount, transaction.data.charityCentsRaised, document.date, (error, count)->
         if error?
           logger.error error #mongo errored out
           callback(error)
@@ -1622,6 +1802,179 @@ statBtTapped = (document, transaction)->
       #if it went through great, if it didn't go through then the poller will take care of it,
       #no other state changes need to occur
 
+  },
+  (error, results)->
+    clean = false
+    if error?
+      logger.error error
+      if error.name is "TransactionAlreadyCompleted" #we recevied a null document while trying to set the state - the state is already set to processed or error, just needs to cleaned up
+        clean = true
+      else
+        logger.error "#{prepend} the poller will try later" #we received some other type of error, so we will try again later
+        return
+    else if results and results.setProcessed?
+      clean = true
+
+    if clean is true
+      cleanup (error, dbTransaction)-> #start cleaning up
+        if error?
+          logger.error error
+          logger.error "#{prepend} unable to properly clean up - the poller will try later"
+
+#OUTBOUND
+statBarcodeClaimed = (document, transaction)->
+  logger.silly document
+  prepend = "ID: #{document._id} - TID: #{transaction.id}"
+  logger.info "STAT - User claimed barcode"
+  logger.info "#{prepend} - #{transaction.direction}"
+
+  totalCharityCentsRaised = 0
+
+  cleanup = (callback)->
+    logger.info "#{prepend} cleaning up"
+    _cleanupTransaction document, transaction, api.Consumers, [api.Consumers, api.Statistics], callback
+
+  copyStats = (unclaimedBarcodeStatistic, callback)->
+    logger.info "#{prepend} copying from UnclaimedBarcodeStatistics to Statistics"
+    logger.silly unclaimedBarcodeStatistic
+
+    org = unclaimedBarcodeStatistic.org
+    consumerId = transaction.entity.id
+
+    if unclaimedBarcodeStatistic.data? and unclaimedBarcodeStatistic.data.tapIns?
+      spent = unclaimedBarcodeStatistic.data.tapIns.totalAmountPurchased || 0
+      charityCentsRaised = unclaimedBarcodeStatistic.data.tapIns.charityCentsRaised || 0
+      timestamp = unclaimedBarcodeStatistic.data.tapIns.lastVisited
+      totalTapIns = unclaimedBarcodeStatistic.data.tapIns.totalTapIns || 0
+
+      totalCharityCentsRaised += charityCentsRaised
+    else # if there is no data then there is nothing to copy in the first place
+      callback()
+      return
+
+    api.Statistics.btTapped org, consumerId, transaction.id, spent, charityCentsRaised, timestamp, totalTapIns, (error, count)->
+      if error?
+        callback(error)
+        return
+      callback()
+      return
+
+  async.series {
+    setProcessing: (callback)->
+      _setTransactionProcessing api.Consumers, document, transaction, false, (error, doc)->
+        #We need to replace the passed in document with this new one because
+        #the document passed in doesn't have the entity object (we had removed it)
+        document = doc
+        callback(error, doc)
+      return
+
+    updateStats: (callback)->
+      # logger.debug document
+      transactionId = transaction.id
+      claimId = transactionId
+      barcodeId = document.barcodeId
+
+      logger.info "#{prepend} claiming barcode"
+      api.UnclaimedBarcodeStatistics.claimBarcodeId barcodeId, transactionId, (error, count)->
+        if error?
+          logger.error error
+          callback(error)
+          return
+
+        logger.info "#{prepend} get claimed"
+        api.UnclaimedBarcodeStatistics.getClaimed claimId, (error, unclaimedBarcodeStatistics)->
+          if error?
+            logger.error error
+            callback(error)
+            return
+
+          logger.info "#{prepend} loop through unclaimed"
+          async.forEach unclaimedBarcodeStatistics, copyStats, (error)->
+            if error?
+              callback(error)
+              return
+            callback()
+            return
+
+    setProcessed: (callback)->
+      funds = if !isNaN(parseInt(totalCharityCentsRaised)) then parseFloat(totalCharityCentsRaised/100) else 0
+
+      ucbsClaimedTransaction = api.Consumers.createTransaction(
+        choices.transactions.states.PENDING
+        , choices.transactions.actions.UCBS_CLAIMED
+        , {claimId: transaction.id}
+        , choices.transactions.directions.OUTBOUND
+        , transaction.entity
+      )
+
+      $inc = {"funds.remaining": funds, "funds.allocated": funds}
+
+      $pushAll = {
+        "transactions.ids": [ucbsClaimedTransaction.id]
+        "transactions.temp": [ucbsClaimedTransaction]
+      }
+
+      $update = {
+        $pushAll: $pushAll
+        $inc: $inc
+      }
+      _setTransactionProcessedAndCreateNew api.Consumers, document, transaction, [ucbsClaimedTransaction], false, false, $update, callback
+      return
+      #if it went through great, if it didn't go through then the poller will take care of it,
+      #no other state changes need to occur
+
+  },
+  (error, results)->
+    clean = false
+    if error?
+      logger.error error
+      if error.name is "TransactionAlreadyCompleted" #we recevied a null document while trying to set the state - the state is already set to processed or error, just needs to cleaned up
+        clean = true
+      else
+        logger.error "#{prepend} the poller will try later" #we received some other type of error, so we will try again later
+        return
+    else if results and results.setProcessed?
+      clean = true
+
+    if clean is true
+      cleanup (error, dbTransaction)-> #start cleaning up
+        if error?
+          logger.error error
+          logger.error "#{prepend} unable to properly clean up - the poller will try later"
+
+#OUTBOUND
+ucbsClaimed = (document, transaction)->
+  prepend = "ID: #{document._id} - TID: #{transaction.id}"
+  logger.info "UCBS - Barcode has been claimed so remove the old unclaimed barcode statistics data"
+  logger.info "#{prepend} - #{transaction.direction}"
+
+  cleanup = (callback)->
+    logger.info "#{prepend} cleaning up"
+    _cleanupTransaction document, transaction, api.Consumers, [api.Consumers, api.UnclaimedBarcodeStatistics], callback
+
+  async.series {
+    setProcessing: (callback)->
+      _setTransactionProcessing api.Consumers, document, transaction, false, (error, doc)->
+        #We need to replace the passed in document with this new one because
+        #the document passed in doesn't have the entity object (we had removed it)
+        document = doc
+        callback(error, doc)
+      return
+
+    removeClaimedStatistics: (callback)->
+      logger.info "#{prepend} removing claimed Barcode Statistic from UnclaimedBarcodeStatistics collection"
+      api.UnclaimedBarcodeStatistics.removeClaimed transaction.data.claimId, (error, count)->
+        if error?
+          callback(error)
+          return
+        callback()
+        return
+
+    setProcessed: (callback)->
+      _setTransactionProcessed api.Consumers, document, transaction, false, false, {}, callback
+      return
+      #if it went through great, if it didn't go through then the poller will take care of it,
+      #no other state changes need to occur
   },
   (error, results)->
     clean = false

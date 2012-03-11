@@ -13,7 +13,6 @@ tp = require "./transactions" #transaction processor
 
 logger = loggers.api
 
-# configs = globals.configs
 config = globals.config
 utils = globals.utils
 choices = globals.choices
@@ -48,6 +47,7 @@ BusinessTransaction = db.BusinessTransaction
 BusinessRequest = db.BusinessRequest
 PasswordResetRequest = db.PasswordResetRequest
 Statistic = db.Statistic
+UnclaimedBarcodeStatistic = db.UnclaimedBarcodeStatistic
 Organization = db.Organization
 Referral = db.Referral
 #TODO:
@@ -177,7 +177,8 @@ class API
 
   #TRANSACTIONS
   @createTransaction: (state, action, data, direction, entity)->
-    if Object.isString(entity.id)
+    #we are doing a check for entity because we can have transactions that don't refer to an entity. An example of this is the STAT_BT_TAPPED transaction
+    if entity? and Object.isString(entity.id)
       entity.id = new ObjectId(entity.id)
 
     transaction = {
@@ -192,7 +193,7 @@ class API
       }
       data: data
       direction: direction
-      entity: entity
+      entity: if entity? then entity else undefined
     }
 
     return transaction
@@ -450,6 +451,7 @@ class Sequences extends API
       else
         callback(null, doc[key])
 
+
 class DonationLogs extends API
   @model = DonationLog
 
@@ -475,6 +477,7 @@ class DonationLogs extends API
     instance = new @model(data)
     instance.save callback
     return
+
 
 class Users extends API
   #start potential new API functions
@@ -934,6 +937,7 @@ class Users extends API
       return
     return
 
+
 class Consumers extends Users
   @model = Consumer
 
@@ -1022,18 +1026,39 @@ class Consumers extends Users
     else if barcodeId.length!=10
       callback new errors.ValidationError "Invalid TapIn Id", {"barcodeId": "invalid barcode id"}
       return
-    @update entity.id, {barcodeId: barcodeId}, (error, count)->
+
+    transactionData = {}
+
+    btTransaction = @createTransaction(choices.transactions.states.PENDING, choices.transactions.actions.BT_BARCODE_CLAIMED, transactionData, choices.transactions.directions.OUTBOUND, entity)
+    statTransaction = @createTransaction(choices.transactions.states.PENDING, choices.transactions.actions.STAT_BARCODE_CLAIMED, transactionData, choices.transactions.directions.OUTBOUND, entity)
+
+    $set = {
+      barcodeId: barcodeId
+    }
+
+    $pushAll = {
+      "transactions.ids": [btTransaction.id, statTransaction.id]
+      "transactions.log": [btTransaction, statTransaction]
+    }
+
+    $update = {$pushAll: $pushAll, $set: $set}
+
+    fieldsToReturn = {_id: 1, barcodeId: 1}
+    @model.collection.findAndModify {_id: entity.id, barcodeId: {$ne: barcodeId}}, [], $update, {safe: true, fields: fieldsToReturn, new: true}, (error, consumer)->
       if error?
-        if errors.code is 11000 or error.code is 11001
-          callback new errors.ValidationError "TapIn is already in use", {"barcodeId": "barcode is already in use"}
+        if error.code is 11000 or error.code is 11001
+          callback new errors.ValidationError "TapIn code is already in use", {"barcodeId": "tapIn code is already in use"}
           return
         callback error
         return
-      #success
-      success = count>0
-      callback null, success
-      BusinessTransactions.claimBarcodeId entity, barcodeId, (error, bt)->
+      else if !consumer? #if there is no consumer object that means that you are already using this barcodeId, so error, because we don't want to run the transactions twice!!
+        callback new errors.ValidationError "This is already your TapIn code", {"barcodeId": "this is already your tapIn code"}
         return
+      #success
+      tp.process(consumer, btTransaction)
+      tp.process(consumer, statTransaction)
+      success = if consumer? then true else false
+      callback null, success
     return
 
   ###
@@ -1079,8 +1104,6 @@ class Consumers extends Users
           return
         callback null, count #should be 1 or 0, since update by Id
         return
-
-
 
   @register: (data, fieldsToReturn, callback)->
     self = this
@@ -1446,6 +1469,16 @@ class Consumers extends Users
     @model.findAndModify {_id:  id}, [], {$push:{"events.ids": eventId}, $inc: {honorScore: amount}}, {new: true, safe: true}, callback
 
   @deductFunds: (id, transactionId, amount, callback)->
+    amount = parseFloat(amount)
+    if isNaN(amount)
+      callback ({message: "amount is not a number"})
+      return
+    else if amount <0
+      callback({message: "amount cannot be negative"})
+      return
+
+    amount = parseFloat(Math.abs(amount.toFixed(2)))
+
     if Object.isString(id)
       id = new ObjectId(id)
     if Object.isString(transactionId)
@@ -1454,6 +1487,16 @@ class Consumers extends Users
     @model.collection.findAndModify {_id: id, 'funds.remaining': {$gte: amount}, 'transactions.ids': {$ne: transactionId}}, [], {$addToSet: {"transactions.ids": transactionId}, $inc: {'funds.remaining': -1*amount }}, {new: true, safe: true}, callback
 
   @depositFunds: (id, transactionId, amount, callback)->
+    amount = parseFloat(amount)
+    if isNaN(amount)
+      callback ({message: "amount is not a number"})
+      return
+    else if amount <0
+      callback({message: "amount cannot be negative"})
+      return
+
+    amount = parseFloat(Math.abs(amount.toFixed(2)))
+
     if Object.isString(id)
       id = new ObjectId(id)
 
@@ -1711,9 +1754,14 @@ class Consumers extends Users
 
   @addFunds: (id, amount, callback)->
     amount = parseFloat(amount)
-    if amount <0
+    if isNaN(amount)
+      callback ({message: "amount is not a number"})
+      return
+    else if amount <0
       callback({message: "amount cannot be negative"})
       return
+
+    amount = parseFloat(Math.abs(amount.toFixed(2)))
 
     $update = {$inc: {"funds.remaining": amount, "funds.allocated": amount} }
 
@@ -4318,6 +4366,10 @@ class BusinessTransactions extends API
 
     timestamp = Date.create(data.timestamp)
 
+    amount = undefined
+    if data.amount?
+      amount = if !isNaN(parseFloat(data.amount)) then parseFloat(Math.abs(parseFloat(amount)).toFixed(2)) else undefined
+
     doc = {
       organizationEntity: {
         type          : data.organizationEntity.type
@@ -4331,18 +4383,33 @@ class BusinessTransactions extends API
       transactionId   : if !utils.isBlank(data.transactionId) then data.transactionId+"" else undefined #make string
       date            : Date.create(timestamp)
       time            : new Date(0,0,0, timestamp.getHours(), timestamp.getMinutes(), timestamp.getSeconds(), timestamp.getMilliseconds()) #this is for slicing by time
-      amount          : if data.amount? then parseFloat(data.amount).round(2) else undefined
+      amount          : amount
       receipt         : if !utils.isBlank(data.receipt) then new Binary(data.receipt) else undefined
       hasReceipt      : if !utils.isBlank(data.receipt) then true else false
 
       donationType    : defaults.bt.donationType #we should pull this out from the organization later
-      donationValue   : parseFloat(defaults.bt.donationValue).round(2) #we should pull this out from the organization
-      donationAmount  : parseFloat(defaults.bt.donationValue).round(2)
+      donationValue   : if !isNaN(defaults.bt.donationValue) then parseFloat(Math.abs(parseFloat(defaults.bt.donationValue).toFixed(2))) else 0 #we should pull this out from the organization (#this is the amount the business has pledged)
+      donationAmount  : if !isNaN(defaults.bt.donationValue) then parseFloat(Math.abs(parseFloat(defaults.bt.donationValue).toFixed(2))) else 0  #this is the amount totalled after any additions (such as more funds for posting to facebook)
     }
 
     self = this
     accessToken = null
     async.series {
+      findRecentTapIns: (cb)->
+        if doc.barcodeId?
+          BusinessTransactions.findLastTapInByBarcodeIdAtBusinessSince doc.barcodeId, doc.organizationEntity.id, doc.date.clone().addHours(-3), (error, bt)->
+            if error?
+              cb(error, null)
+              return
+            else if bt?
+              logger.verbose "Ignoring tapIn - occcured within 3 hour time frame at this business"
+              cb({name: "IgnoreTapIn", message: "User has tapped in multiple times with in a 3 hour time frame"}) #do not change the name without changing it in the callback below
+              return
+            else
+              cb(null)
+
+        else
+          cb(null)
       findConsumer: (cb)-> #find only if there was a barcode that needed to be analyzed
         if doc.barcodeId?
           Consumers.model.collection.findOne {barcodeId: doc.barcodeId}, {_id:1, firstName:1, lastName:1, screenName:1, tapinsToFacebook:1, "facebook.access_token": 1}, (error, consumer)->
@@ -4359,10 +4426,10 @@ class BusinessTransactions extends API
               accessToken = if consumer.facebook? then consumer.facebook.access_token else null
               logger.debug(consumer)
               doc.postToFacebook = if consumer.tapinsToFacebook? and consumer.tapinsToFacebook then true else false
-              doc.donationAmount = if consumer.tapinsToFacebook? and consumer.tapinsToFacebook then (doc.donationAmount + defaults.bt.donationFacebook).round(2) else doc.donationAmount
+              doc.donationAmount = if consumer.tapinsToFacebook? and consumer.tapinsToFacebook then parseFloat((doc.donationAmount + parseFloat(defaults.bt.donationFacebook)).toFixed(2)) else doc.donationAmount
               cb(null)
             else
-              cb(null) #insert the transaction anyway, it is an invalid or unassigned bar code though
+              cb(null) #insert the transaction anyway, it is an invalid or unassigned bar code though. The transaction will save it to the appropriate collection (UnassociatedBarcodeStatistics)
               #cb(new errors.ValidationError {"DNE": "Consumer Does Not Exist"})
         else
           cb(null)
@@ -4383,51 +4450,60 @@ class BusinessTransactions extends API
 
       save: (cb)=> #save it and write to the statistics table
         transactionData = {
-          amount: doc.amount
-          charityCentsRaised: globals.defaults.tapIns.charityCentsRaised;
+          charityCentsRaised: if !isNaN(parseFloat(globals.defaults.tapIns.charityCentsRaised)) then parseFloat(parseFloat(globals.defaults.tapIns.charityCentsRaised).toFixed(2)) else 0
         }
+
         if doc.postToFacebook
           transactionData.charityCentsRaised = globals.defaults.tapIns.charityCentsRaisedFB;
 
-        statTransaction = @createTransaction(choices.transactions.states.PENDING, choices.transactions.actions.STAT_BT_TAPPED, transactionData, choices.transactions.directions.INBOUND, doc.organizationEntity)
+        transaction = undefined
+        if doc.userEntity?
+          transaction = @createTransaction(choices.transactions.states.PENDING, choices.transactions.actions.BT_TAPPED, transactionData, choices.transactions.directions.OUTBOUND, doc.userEntity)
+        else
+          transaction = @createTransaction(choices.transactions.states.PENDING, choices.transactions.actions.STAT_BT_TAPPED, transactionData, choices.transactions.directions.OUTBOUND, undefined)
 
         doc.transactions = {}
         doc.transactions.locked = false
-        doc.transactions.ids = [statTransaction.id]
-        doc.transactions.log = [statTransaction]
+        doc.transactions.ids = [transaction.id]
+        doc.transactions.log = [transaction]
 
         @model.collection.insert doc, {safe: true}, (error, bt)->
-          bt = bt[0]
           if error?
             cb(error)
             return
+          bt = bt[0]
+          tp.process(bt, transaction) #process transaction - either add funds to consumer object then update stats or just update unclaimed stats if there is no user to add funds too
+          Streams.btTapped bt #we don't care about the callback for this stream function
           if doc.userEntity?
             cb(null, true) #success
-            tp.process(bt, statTransaction) #write stat to collection
-            Streams.btTapped bt #we don't care about the callback for this stream function
-
             logger.debug accessToken
             logger.debug doc.postToFacebook
             if accessToken? and doc.postToFacebook #post to facebook
               logger.verbose "Posting tapIn to facebook"
-              fb.post '/me/feed', accessToken, {message: "I just tapped in at #{doc.organizationEntity.name} and raised funds for charity :)", link: "http://www.goodybag.com/", name: "Goodybag", picture: "http://www.goodybag.com/static/images/gb-logo.png"}, (error, response)->
+              fb.post 'me/feed', accessToken, {message: "I just tapped in at #{doc.organizationEntity.name} and raised funds for charity :)", link: "http://www.goodybag.com/", name: "Goodybag", picture: "http://www.goodybag.com/static/images/gb-logo.png"}, (error, response)->
                 if error?
                   logger.error error
                 else
                   logger.debug response
             return
-          else
-            Streams.btTapped bt #we don't care about the callback for this stream function
-            cb(null, true) #success
-            return
           return
     }, (error, results)->
       if error?
+        if error.name? and error.name is "IgnoreTapIn"
+          callback(null) #don't report an error back to the device, we are going to ignore the tapIn
+          return
         callback(error)
         return
       else if results.save?
         callback(null)
         return
+
+  @findLastTapInByBarcodeIdAtBusinessSince: (barcodeId, businessId, since, callback)->
+    if Object.isString(businessId)
+      businessId = new ObjectId(businessId)
+
+    @model.collection.findOne {barcodeId: barcodeId, "organizationEntity.id": businessId, date: {$gte: since}}, {sort:{date: -1}, limit: 1}, callback
+    return
 
   @findOneRecentTapIn: (businessId, locationId, registerId, callback)->
     if Object.isString(businessId)
@@ -5206,6 +5282,7 @@ class Streams extends API
           return
         callback error, {activities: activities, consumers: consumers}
 
+
 class PasswordResetRequests extends API
   @model: PasswordResetRequest
 
@@ -5297,6 +5374,7 @@ class PasswordResetRequests extends API
         return
       return
     return
+
 
 class Loyalties extends API
   @model = Loyalty
@@ -5465,6 +5543,81 @@ class Loyalties extends API
     return
 
 
+## UnclaimedBarcodeStatistics ##
+class UnclaimedBarcodeStatistics extends API
+  @model: UnclaimedBarcodeStatistic
+
+  @add: (data, callback)->
+    obj = {
+      org: {
+        type                : data.org.type
+        id                  : data.org.id
+      }
+      barcodeId             : data.barcodeId
+      data                  : data.data || {}
+    }
+
+    instance = new @model(obj)
+    instance.save(callback)
+
+  @claimBarcodeId: (barcodeId, claimId, callback)->
+    if Object.isString(claimId)
+      claimId = new ObjectId(claimId)
+
+    @model.collection.update {barcodeId: barcodeId}, {$set: {claimId: claimId}}, {safe:true}, callback
+    return
+
+  @getClaimed: (claimId, callback)->
+    if Object.isString(claimId) #this is really just the id of the transaction that is claiming this barcode
+      claimId = new ObjectId(claimId)
+
+    @model.collection.find {claimId: claimId}, (err, cursor)->
+      if error?
+        callback(error)
+        return
+      cursor.toArray (error, unclaimedBarcodeStatistics)->
+        callback(error, unclaimedBarcodeStatistics)
+      return
+
+  @removeClaimed: (claimId, callback)->
+    @model.collection.remove {claimId: claimId}, {safe: true}, callback
+
+  @btTapped: (orgEntity, barcodeId, transactionId, spent, charityCentsRaised, timestamp, callback)->
+    if Object.isString(orgEntity.id)
+      orgEntity.id = new ObjectId(orgEntity.id)
+
+    if Object.isString(transactionId)
+      transactionId = new ObjectId(transactionId)
+
+    $inc = {}
+    $inc["data.tapIns.totalTapIns"] = 1
+    if spent?
+      $inc["data.tapIns.totalAmountPurchased"] = if isNaN(parseFloat(spent)) then 0 else parseFloat(parseFloat(spent).toFixed(2)) #parse just incase it's a string
+    if charityCentsRaised?
+      $inc["data.tapIns.charityCentsRaised"] = if isNaN(parseInt(charityCentsRaised)) then 0 else parseInt(charityCentsRaised) #parse just incase it's a string
+
+    $set = {}
+    $set["data.tapIns.lastVisited"] = new Date(timestamp) #if it is a string it will become a date hopefully
+
+    $push = {}
+    $push["transactions.ids"] = transactionId
+
+    $update = {
+      $set: $set
+      $inc: $inc
+      $push: $push
+    }
+
+    # We do this because we don't care about the name or anything else for this business in the statistics collection
+    # Hence we strip away any other properties for the purposes of the query
+    org = {
+      type  : orgEntity.type
+      id    : orgEntity.id
+    }
+
+    @model.collection.update {org: org, barcodeId: barcodeId}, $update, {safe: true, upsert: true }, callback
+    return
+
 
 ## Statistics ##
 class Statistics extends API
@@ -5546,7 +5699,12 @@ class Statistics extends API
 
   @eventRsvped: (org, consumerId, transactionId, timestamp, callback)->
 
-  @btTapped: (orgEntity, consumerId, transactionId, spent, charityCentsRaised, timestamp, callback)->
+  #we accept the totalTapIns as a parameter because we use it when you claim a barcode, in that case you may have more than just one tapIn that is getting transfered in.
+  @btTapped: (orgEntity, consumerId, transactionId, spent, charityCentsRaised, timestamp, totalTapIns, callback)->
+    if Object.isFunction(totalTapIns)
+      callback = totalTapIns
+      totalTapIns = 1
+
     if Object.isString(orgEntity.id)
       orgEntity.id = new ObjectId(orgEntity.id)
 
@@ -5557,12 +5715,12 @@ class Statistics extends API
       transactionId = new ObjectId(transactionId)
 
     $inc = {}
-    $inc["data.tapIns.totalTapIns"] = 1
+    $inc["data.tapIns.totalTapIns"] = totalTapIns
     if spent?
-      $inc["data.tapIns.totalAmountPurchased"] = if isNaN(parseFloat(spent)) then 0 else parseFloat(spent) #parse just incase it's a string
+      $inc["data.tapIns.totalAmountPurchased"] = if isNaN(parseFloat(spent)) then 0 else parseFloat(parseFloat(spent).toFixed(2)) #parse just incase it's a string
     if charityCentsRaised?
-      $inc["data.tapIns.charityCentsRaised"] = if isNaN(parseFloat(charityCentsRaised)) then 0 else parseFloat(charityCentsRaised) #parse just incase it's a string
-      $inc["data.tapIns.charityCentsRemaining"] = if isNaN(parseFloat(charityCentsRaised)) then 0 else parseFloat(charityCentsRaised) #parse just incase it's a string
+      $inc["data.tapIns.charityCentsRaised"] = if isNaN(parseInt(charityCentsRaised)) then 0 else parseInt(charityCentsRaised) #parse just incase it's a string
+      $inc["data.tapIns.charityCentsRemaining"] = if isNaN(parseInt(charityCentsRaised)) then 0 else parseInt(charityCentsRaised) #parse just incase it's a string
 
     $set = {}
     $set["data.tapIns.lastVisited"] = new Date(timestamp) #if it is a string it will become a date hopefully
@@ -5607,6 +5765,7 @@ class Statistics extends API
   @setTransactionProcessing: @__setTransactionProcessing
   @setTransactionProcessed: @__setTransactionProcessed
   @setTransactionError: @__setTransactionError
+
 
 class Referrals extends API
   @model = Referral
@@ -5703,6 +5862,7 @@ exports.BusinessTransactions = BusinessTransactions
 exports.BusinessRequests = BusinessRequests
 exports.Streams = Streams
 exports.Statistics = Statistics
+exports.UnclaimedBarcodeStatistics = UnclaimedBarcodeStatistics
 exports.Organizations = Organizations
 exports.PasswordResetRequests = PasswordResetRequests
 exports.Referrals = Referrals
