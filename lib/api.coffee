@@ -993,7 +993,7 @@ class Consumers extends Users
       logger.silly error
       logger.silly count
       if error?
-        if errors.code == 11000 or errors.code == 11001
+        if error.code == 11000 or error.code == 11001
           callback new errors.ValidationError "Sorry, that Alias is already taken.", {"screenName":"not unique"}
           return
         else
