@@ -171,6 +171,7 @@ class API
       fieldsToReturn = {} #all..
     query = @optionParser(options)
     query.fields fieldsToReturn
+    logger.silly fieldsToReturn
     logger.debug query
     query.exec callback
     return
