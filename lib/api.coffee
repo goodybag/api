@@ -994,7 +994,10 @@ class Consumers extends Users
       logger.silly count
       if error?
         if error.code == 11000 or error.code == 11001
-          callback new errors.ValidationError "Sorry, that Alias is already taken.", {"screenName":"not unique"}
+          if(error.message.indexOf("barcodeId"))
+            callback new errors.ValidationError "Sorry, that TapIn Id is already taken.", {"TapIn Id":"not unique"}
+          else
+            callback new errors.ValidationError "Sorry, that Alias is already taken.", {"screenName":"not unique"}
           return
         else
           callback error
