@@ -9,10 +9,7 @@ api = require "./api"
 logger = loggers.transaction
 choices = globals.choices
 
-pubnub = globals.pubnub.init({
-  publish_key   : config.pubnub.pubKey
-  subscribe_key : config.pubnub.subKey
-})
+utils = globals.utils
 
 process = (document, transaction)-> #this is just a router
   logger.debug "FINDING PROCESSOR FOR: #{transaction.action}"
@@ -771,11 +768,8 @@ consumerDonated = (document, transaction)->
         callback(error, consumer)
         if error? or !consumer?
           return
-        socketChannel = hashlib.md5(document._id.toString()+config.secretWord)
-        pubnub.publish({
-          channel : socketChannel,
-          message : "refreshUserHeader"
-        })
+        socketChannel = document._id.toString()
+        utils.sendMessage(socketChannel, "refreshUserHeader")
         return
 
       #if it went through great, if it didn't go through then the poller will take care of it
