@@ -1467,7 +1467,7 @@ class Consumers extends Users
           #consumer db gets updated after transaction completes.
           consumerToReturn = Object.clone(consumer, true)
           consumerToReturn.funds.donated += totalAmount
-          callback null, consumerToReturn
+          callback null, consumerToReturn, charitiesVerified
           for transaction in transactions
             tp.process(consumer, transaction)
           return
