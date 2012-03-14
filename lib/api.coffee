@@ -2541,38 +2541,48 @@ class Polls extends API # Campaigns
             cb null, entity
 
         validatedMediaQuestion: (cb)->
-          Medias.validateAndGetMediaURLs pollData.entity.type, pollData.entity.id, "poll", pollData.mediaQuestion, (error, validatedMedia)->
-            if error?
-              cb error
+          if !pollDate.mediaQuestion?
+            Medias.validateAndGetMediaURLs pollData.entity.type, pollData.entity.id, "poll", pollData.mediaQuestion, (error, validatedMedia)->
+              if error?
+                cb error
+                return
+              #mediaCheck - if validated media is null.. delete media from the poll pollData.
+              if !validatedMedia?
+                delete pollData.mediaQuestion
+                cb null, null
+              else
+                pollData.mediaQuestion = validatedMedia
+                cb null, validatedMedia
               return
-            #mediaCheck - if validated media is null.. delete media from the poll pollData.
-            if !validatedMedia?
-              delete pollData.mediaQuestion
-              cb null, null
-            else
-              pollData.mediaQuestion = validatedMedia
-              cb null, validatedMedia
-            return
+          else
+            delete pollData.mediaQuestion
+            cb null, null #consumers will have a null media object
 
         validatedMediaResults: (cb)->
-          Medias.validateAndGetMediaURLs pollData.entity.type, pollData.entity.id, "poll", pollData.mediaResults, (error, validatedMedia)->
-            if error?
-              cb error
+          if !pollDate.mediaResults?
+            Medias.validateAndGetMediaURLs pollData.entity.type, pollData.entity.id, "poll", pollData.mediaResults, (error, validatedMedia)->
+              if error?
+                cb error
+                return
+              #mediaCheck - if validated media is null.. delete media from the poll data.
+              if !validatedMedia?
+                delete pollData.mediaResults
+                cb null, null
+              else
+                pollData.mediaResults = validatedMedia
+                cb null, validatedMedia
               return
-            #mediaCheck - if validated media is null.. delete media from the poll data.
-            if !validatedMedia?
-              delete pollData.mediaResults
-              cb null, null
-            else
-              pollData.mediaResults = validatedMedia
-              cb null, validatedMedia
-            return
+          else
+            delete pollData.mediaResults
+            cb null, null #consumers will have a null media object
       },
       (error, asyncResults)-> #asyn.parallel callback
         if error?
           callback error
           return
 
+        #note: pollData was modified above in the validateMedia checks above..
+        #note: pollData was modified above in the validateMedia checks above..
         #note: pollData was modified above in the validateMedia checks above..
         logger.debug "POLL pollData"
         logger.debug pollData
@@ -4083,7 +4093,7 @@ class Medias extends API
   #validate Media Objects for other collections
   @validateAndGetMediaURLs: (entityType, entityId, mediaFor, media, callback)->
     validatedMedia = {}
-    if (media.rotateDegrees? && !isNaN(parseInt(media.rotateDegrees)))
+    if (!utils.isBlank(media.rotateDegrees) && !isNaN(parseInt(media.rotateDegrees)))
       validatedMedia.rotateDegrees = media.rotateDegrees
     if !media?
       callback null, null
