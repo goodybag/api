@@ -2187,6 +2187,12 @@ class Businesses extends API
     query.find callback
     return
 
+
+  @getOneEquipped = (id, fieldsToReturn, callback)->
+    query = @_queryOne()
+    @model.findOne {_id: id, 'gbEquipped': true}, fieldsToReturn, callback
+
+
   @add = (clientId, data, callback)->
     instance = new @model()
     for own k,v of data
