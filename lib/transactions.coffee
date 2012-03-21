@@ -1933,11 +1933,8 @@ statBarcodeClaimed = (document, transaction)->
         callback(error, consumer)
         if error? or !consumer?
           return
-        socketChannel = hashlib.md5(transaction.entity.id.toString()+config.secretWord)
-        pubnub.publish({
-          channel : socketChannel,
-          message : "refreshUserHeader"
-        })
+        socketChannel = transaction.entity.id.toString()
+        utils.sendMessage(socketChannel, "refreshUserHeader")
         return
       return
       #if it went through great, if it didn't go through then the poller will take care of it,

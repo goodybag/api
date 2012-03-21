@@ -184,7 +184,17 @@ DBTransaction.index {"by.type": 1, "by.id": 1}
 ##################################
 Sequence = new Schema {
   urlShortner: {type: Number, default: 0}
+  barcodeId: {type: Number, default: 0}
 }
+
+####################
+# BARCODE ##########
+####################
+Barcode = new Schema {
+  barcodeId: {type: String, required: true}
+}
+
+Barcode.index {"barcodeId": 1}, {unique: true}
 
 
 ##################################
@@ -1011,6 +1021,7 @@ exports.Statistic                 = mongoose.model 'Statistic', Statistic
 exports.UnclaimedBarcodeStatistic = mongoose.model 'UnclaimedBarcodeStatistic', UnclaimedBarcodeStatistic
 exports.Organization              = mongoose.model 'Organization', Organization
 exports.Referral                  = mongoose.model 'Referral', Referral
+exports.Barcode                   = mongoose.model 'Barcode', Barcode
 
 exports.schemas = {
   Sequence                  : Sequence
@@ -1035,4 +1046,5 @@ exports.schemas = {
   UnclaimedBarcodeStatistic : UnclaimedBarcodeStatistic
   Organization              : Organization
   Referral                  : Referral
+  Barcode                   : Barcode
 }

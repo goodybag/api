@@ -50,6 +50,8 @@ Statistic = db.Statistic
 UnclaimedBarcodeStatistic = db.UnclaimedBarcodeStatistic
 Organization = db.Organization
 Referral = db.Referral
+Barcode = db.Barcode
+
 #TODO:
 #Make sure that all necessary fields exist for each function before sending the query to the db
 
@@ -422,7 +424,6 @@ class API
     }
 
     @model.findOne $query, callback
-
 
 ## DBTransactions ##
 class DBTransactions extends API
@@ -954,12 +955,12 @@ class Users extends API
 class Consumers extends Users
   @model = Consumer
 
-  @initialUpdate: (id, data, callback)->
-    where = {
-      _id : new ObjectId(id)
-      #setScreenName: false #maybe, see below..
-    }
+  @initialUpdate: (entity, data, callback)->
+    if Object.isString(entity.id)
+      entity.id = new ObjectId(entity.id)
+
     set = {}
+
     if !utils.isBlank(data.barcodeId)
       logger.silly "addBarcodeId"
       set.barcodeId = data.barcodeId
@@ -975,7 +976,6 @@ class Consumers extends Users
       return
     else
       logger.silly "addScreenName"
-      where.setScreenName = false # if screenName is sent make sure it is already not set.
       set.screenName = data.screenName
       set.setScreenName = true
 
@@ -983,32 +983,47 @@ class Consumers extends Users
       callback new errors.ValidationError "Nothing to update..", {"update":"required"}
       return
 
-    logger.silly "where"
-    logger.silly where
-    logger.silly "set"
-    logger.silly set
+    entity.screenName = data.screenName
 
-    @model.update where, {$set:set}, (error, count)->
-      logger.silly "db results"
-      logger.silly error
-      logger.silly count
+    $pushAll = {}
+    if set.barcodeId?
+      transactionData = {}
+
+      btTransaction = @createTransaction(choices.transactions.states.PENDING, choices.transactions.actions.BT_BARCODE_CLAIMED, transactionData, choices.transactions.directions.OUTBOUND, entity)
+      statTransaction = @createTransaction(choices.transactions.states.PENDING, choices.transactions.actions.STAT_BARCODE_CLAIMED, transactionData, choices.transactions.directions.OUTBOUND, entity)
+
+      $pushAll = {
+        "transactions.ids": [btTransaction.id, statTransaction.id]
+        "transactions.log": [btTransaction, statTransaction]
+      }
+
+    $update = {$pushAll: $pushAll, $set: set}
+
+    $query = {_id: entity.id, setScreenName: false}
+
+    if set.barcodeId?
+       $query.barcodeId = {$ne: set.barcodeId}
+
+    fieldsToReturn = {_id: 1, barcodeId: 1}
+    @model.collection.findAndModify $query, [], $update, {safe: true, fields: fieldsToReturn, new: true}, (error, consumer)->
       if error?
-        if error.code == 11000 or error.code == 11001
+        if error.code is 11000 or error.code is 11001
           if(error.message.indexOf("barcodeId"))
             callback new errors.ValidationError "Sorry, that TapIn Id is already taken.", {"TapIn Id":"not unique"}
           else
             callback new errors.ValidationError "Sorry, that Alias is already taken.", {"screenName":"not unique"}
           return
-        else
-          callback error
-          return
+        callback error
+        return
+      else if !consumer? #if there is no consumer object that means that you are already using this barcodeId, so error, because we don't want to run the transactions twice!!
+        callback new errors.ValidationError "This is already your TapIn code, or you've already set your alias", {"barcodeId": "this is already your tapIn code", "screenname": "already set"}
+        return
       #success
-      if count>0
-        callback error, true
-      else
-        #screen name already set or id not found... id is coming from session
-        callback new errors.ValidationError "Sorry, you can only set your Alias once.", {"screenName":"already set"}
-      return
+      if set.barcodeId?
+        tp.process(consumer, btTransaction)
+        tp.process(consumer, statTransaction)
+      success = if consumer? then true else false
+      callback null, success
     return
 
   # List all consumers (limit to 25 at a time for now - not taking in a limit arg on purpose)
@@ -1038,9 +1053,6 @@ class Consumers extends Users
 
     if !barcodeId?
       callback(null, false)
-      return
-    else if barcodeId.length!=10
-      callback new errors.ValidationError "Invalid TapIn Id", {"barcodeId": "invalid barcode id"}
       return
 
     transactionData = {}
@@ -5883,6 +5895,35 @@ class Referrals extends API
         else if choices.entities.BUSINESS
           Businesses.addFunds(doc.entity.id, doc.incentives.referrer)
 
+class Barcodes extends API
+  @model = Barcode
+
+  @assignNew: (entity, callback)->
+    self = this
+    Sequences.next "barcodeId", (error, value)=>
+      value = defaults.barcode.offset + value
+      security = utils.randomBarcodeSecurityString(3)
+      barcodeId = "#{value}-#{security}"
+      @model.collection.insert {barcodeId: barcodeId}, {safe: true}, (error, barcode)->
+        if error?
+          callback(error)
+          return
+        else if barcode?
+          barcode = barcode[0]
+          logger.silly "UPDATING CONSUMER BARCODE TO #{barcodeId}"
+          Consumers.updateBarcodeId entity, barcodeId, (error, success)->
+            if error?
+              callback(error)
+              return
+            if success is true
+              callback(error, barcode)
+              return
+            else
+              callback({"name": "barcodeAssociationError", message: "unable to properly associate barcodeId with user"})
+              return
+        else
+          callback(null, null)
+          return
 
 exports.DBTransactions = DBTransactions
 exports.Consumers = Consumers
@@ -5906,3 +5947,4 @@ exports.UnclaimedBarcodeStatistics = UnclaimedBarcodeStatistics
 exports.Organizations = Organizations
 exports.PasswordResetRequests = PasswordResetRequests
 exports.Referrals = Referrals
+exports.Barcodes = Barcodes
