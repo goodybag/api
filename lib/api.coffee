@@ -650,8 +650,7 @@ class Users extends API
           if error? or !success
             callback new errors.ValidationError "Invalid Password", {"login":"invalid password"}
           else
-            if addedPasswordToFields? and addedPasswordToFields
-              delete consumer.password
+            delete consumer._doc.password
             callback null, consumer
           return
       else
