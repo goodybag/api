@@ -389,6 +389,8 @@ Business = new Schema {
   }
   gbEquipped    : {type: Boolean, default: false}
 
+  pin           : {type: String, required: true }
+
   transactions  : transactions
 
   permissions: { #permissions for groups
@@ -997,6 +999,20 @@ UnclaimedBarcodeStatistic.index {'org.type': 1, 'org.id':1, barcodeId: 1, "tapIn
 UnclaimedBarcodeStatistic.index {'org.type': 1, 'org.id':1, barcodeId: 1, "tapIns.lastVisited": 1}
 UnclaimedBarcodeStatistic.index {'org.type': 1, 'org.id':1, barcodeId: 1, "tapIns.charityCentsRaised": 1}
 
+##########################
+# Card Requests ##########
+##########################
+CardRequest = new Schema {
+  entity: {
+    type                : {type: String, required: true, enum: choices.entities._enum}
+    id                  : {type: ObjectId, required: true}
+  }
+  dates: {
+    requested           : {type: Date, required: true}
+    responded           : {type: Date}
+  }
+}
+
 
 exports.DBTransaction             = mongoose.model 'DBTransaction', DBTransaction
 exports.Sequence                  = mongoose.model 'Sequence', Sequence
@@ -1022,6 +1038,7 @@ exports.UnclaimedBarcodeStatistic = mongoose.model 'UnclaimedBarcodeStatistic', 
 exports.Organization              = mongoose.model 'Organization', Organization
 exports.Referral                  = mongoose.model 'Referral', Referral
 exports.Barcode                   = mongoose.model 'Barcode', Barcode
+exports.CardRequest               = mongoose.model 'CardRequest', CardRequest
 
 exports.schemas = {
   Sequence                  : Sequence
@@ -1047,4 +1064,5 @@ exports.schemas = {
   Organization              : Organization
   Referral                  : Referral
   Barcode                   : Barcode
+  CardRequest               : CardRequest
 }
