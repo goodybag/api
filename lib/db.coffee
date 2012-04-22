@@ -1020,6 +1020,9 @@ EmailSubmission = new Schema {
   entity: {
     type                : {type: String, required: true, enum: choices.entities._enum}
   }
+  businessId            : {type: ObjectId, required: true}
+  registerId            : {type: ObjectId, required: true}
+  locationId            : {type: ObjectId, required: true}
   email                 : {type: String, validate: Email, required: true}
   date                  : {type: Date, required: true }
 }
@@ -1050,6 +1053,7 @@ exports.Organization              = mongoose.model 'Organization', Organization
 exports.Referral                  = mongoose.model 'Referral', Referral
 exports.Barcode                   = mongoose.model 'Barcode', Barcode
 exports.CardRequest               = mongoose.model 'CardRequest', CardRequest
+exports.EmailSubmission           = mongoose.model 'EmailSubmission', EmailSubmission
 
 exports.schemas = {
   Sequence                  : Sequence
@@ -1076,4 +1080,5 @@ exports.schemas = {
   Referral                  : Referral
   Barcode                   : Barcode
   CardRequest               : CardRequest
+  EmailSubmission           : EmailSubmission
 }

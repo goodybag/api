@@ -52,6 +52,7 @@ Organization = db.Organization
 Referral = db.Referral
 Barcode = db.Barcode
 CardRequest = db.CardRequest
+EmailSubmission = db.EmailSubmission
 
 #TODO:
 #Make sure that all necessary fields exist for each function before sending the query to the db
@@ -5934,6 +5935,9 @@ class CardRequests extends API
     $query = {'entity.id': id, 'dates.responded': {$exists: false}}
     @model.findOne $query, callback
 
+class EmailSubmissions extends API
+  @model = EmailSubmission
+
 
 exports.DBTransactions = DBTransactions
 exports.Consumers = Consumers
@@ -5959,3 +5963,4 @@ exports.PasswordResetRequests = PasswordResetRequests
 exports.Referrals = Referrals
 exports.Barcodes = Barcodes
 exports.CardRequests = CardRequests
+exports.EmailSubmission = EmailSubmission
