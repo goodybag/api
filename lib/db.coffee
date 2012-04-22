@@ -1013,6 +1013,17 @@ CardRequest = new Schema {
   }
 }
 
+#############################
+# Email Submission ##########
+#############################
+EmailSubmission = new Schema {
+  entity: {
+    type                : {type: String, required: true, enum: choices.entities._enum}
+  }
+  email                 : {type: String, validate: Email, required: true}
+  date                  : {type: Date, required: true }
+}
+
 
 exports.DBTransaction             = mongoose.model 'DBTransaction', DBTransaction
 exports.Sequence                  = mongoose.model 'Sequence', Sequence
