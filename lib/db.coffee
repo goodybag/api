@@ -389,7 +389,7 @@ Business = new Schema {
   }
   gbEquipped    : {type: Boolean, default: false}
 
-  pin           : {type: String, validate /[0-9]/ }
+  pin           : {type: String, validate: /[0-9]/ }
 
   transactions  : transactions
 
