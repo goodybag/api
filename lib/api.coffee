@@ -5972,4 +5972,4 @@ exports.PasswordResetRequests = PasswordResetRequests
 exports.Referrals = Referrals
 exports.Barcodes = Barcodes
 exports.CardRequests = CardRequests
-exports.EmailSubmission = EmailSubmission
+exports.EmailSubmissions = EmailSubmissions
