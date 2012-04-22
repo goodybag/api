@@ -5938,6 +5938,15 @@ class CardRequests extends API
 class EmailSubmissions extends API
   @model = EmailSubmission
 
+  @add: (data, callback)->
+    if Object.isString data.businessId
+      data.businessId = new ObjectId data.businessId
+    if Object.isString data.locationId
+      data.locationId = new ObjectId data.locationId
+    if Object.isString data.registerId
+      data.registerId = new ObjectId data.registerId
+    @_add data, callback
+
 
 exports.DBTransactions = DBTransactions
 exports.Consumers = Consumers
