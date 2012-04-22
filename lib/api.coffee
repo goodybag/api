@@ -51,6 +51,7 @@ UnclaimedBarcodeStatistic = db.UnclaimedBarcodeStatistic
 Organization = db.Organization
 Referral = db.Referral
 Barcode = db.Barcode
+CardRequest = db.CardRequest
 
 #TODO:
 #Make sure that all necessary fields exist for each function before sending the query to the db
@@ -5703,15 +5704,15 @@ class Statistics extends API
     return
 
   #Give me a list of people who have tapped in to a business before and therefore are customers
-  @withTapIns: (org, skip, callback)->
+  @withTapIns: (org, options, callback)->
     if Object.isString(org.id)
       org.id = new ObjectId(org.id)
     @model.collection.find {"org.type": org.type, "org.id": org.id, "data.tapIns.totalTapIns": {$gt: 0}}, (error, cursor)->
       if error?
         callback(error)
         return
-      cursor.limit(25)
-      cursor.skip(skip || 0)
+      cursor.limit(options.limit || 25)
+      cursor.skip(options.skip || 0)
       cursor.sort({"data.tapIns.lastVisited": -1})
       cursor.toArray (error, statistics)->
         logger.debug(statistics)
@@ -5924,6 +5925,16 @@ class Barcodes extends API
           callback(null, null)
           return
 
+class CardRequests extends API
+  @model = CardRequest
+
+  @pending: (id, callback)->
+    if Object.isString id
+      id = new ObjectId id
+    $query = {'entity.id': id, 'dates.responded': {$exists: false}}
+    @model.findOne $query, callback
+
+
 exports.DBTransactions = DBTransactions
 exports.Consumers = Consumers
 exports.Clients = Clients
@@ -5947,3 +5958,4 @@ exports.Organizations = Organizations
 exports.PasswordResetRequests = PasswordResetRequests
 exports.Referrals = Referrals
 exports.Barcodes = Barcodes
+exports.CardRequests = CardRequests
