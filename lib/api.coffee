@@ -5228,8 +5228,7 @@ class Streams extends API
     query.sort "dates.lastModified", -1
     query.fields [
       "who.type"
-      , "who.name"
-      , "who.id"
+      , "who.screenName"
       , "by"
       , "what"
       , "when"

@@ -964,9 +964,10 @@ donationLogConsumerDonated = (document, transaction)->
 
     addDonationLog: (callback)->
       consumerEntity = {
-        id   : document._id
-        type : choices.entities.CONSUMER
-        name : document.firstName+" "+document.lastName
+        id         : document._id
+        type       : choices.entities.CONSUMER
+        name       : document.firstName+" "+document.lastName
+        screenName : document.screenName
       }
       charityEntity = transaction.entity
       amount = transaction.data.amount

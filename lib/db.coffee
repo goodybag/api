@@ -697,7 +697,7 @@ Stream = new Schema {
   by: { # if who is an organization, then which user in that organization
     type              : {type: String, enum: choices.entities._enum}
     id                : {type: ObjectId}
-    name              : {type:String}
+    name              : {type: String}
   }
   entitiesInvolved    : [Entity]
   what                : reference #the document this stream object is about
