@@ -5288,6 +5288,7 @@ class Streams extends API
     query.fields [
       "who.type"
       , "who.name"
+      , "who.screenName"
       , "who.id"
       , "by"
       , "what"
