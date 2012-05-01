@@ -1030,14 +1030,14 @@ class Consumers extends Users
   # List all consumers (limit to 25 at a time for now - not taking in a limit arg on purpose)
   @getIdsAndScreenNames: (skip, callback)->
     query = @query()
-    query.only("_id", "screenName")
+    query.only("_id", "screenName", "setScreenName")
     query.skip(skip || 0)
     query.limit(25)
     query.exec callback
 
   @getScreenNamesByIds: (ids, callback)->
     query = @query()
-    query.only("_id", "screenName")
+    query.only(["_id", "screenName", "setScreenName"])
     query.in("_id", ids)
     query.exec callback
     return
