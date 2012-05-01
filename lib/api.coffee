@@ -2205,6 +2205,19 @@ class Businesses extends API
     query = @_queryOne()
     @model.findOne {_id: id, 'gbEquipped': true}, fieldsToReturn, callback
 
+  @encryptCode: (password, callback)->
+    bcrypt.gen_salt 10, (error, salt)=>
+      if error?
+        callback error
+        return
+      bcrypt.encrypt password+defaults.passwordSalt, salt, (error, hash)=>
+        if error?
+          callback error
+          return
+        callback null, hash
+        return
+      return
+    return
 
   @add = (clientId, data, callback)->
     instance = new @model()
