@@ -2204,11 +2204,68 @@ class Businesses extends API
     query.find callback
     return
 
-
   @getOneEquipped = (id, fieldsToReturn, callback)->
     query = @_queryOne()
     @model.findOne {_id: id, 'gbEquipped': true}, fieldsToReturn, callback
 
+  @encryptPin: (password, callback)->
+    bcrypt.gen_salt 10, (error, salt)=>
+      if error?
+        callback error
+        return
+      bcrypt.encrypt password+defaults.passwordSalt, salt, (error, hash)=>
+        if error?
+          callback error
+          return
+        callback null, hash
+        return
+      return
+    return
+
+  @updatePin: (id, pin, callback) ->
+    self = this
+    Businesses.encryptCode pin, (error, hash) ->
+      if error?
+        callback error
+        return
+      Businesses.update id, { pin: hash }, (error, business)->
+        if error?
+          callback error
+          return
+        callback null, business.pin
+        return
+      return
+    return
+
+  @validatePin: (id, pin, callback)->
+    if !id? or !pin?
+      callback { error: "No arguments given" }
+      return
+    Businesses.one id, (error, business)->
+      if error?
+        callback error
+        return
+      if !business?
+        callback error
+        return
+      if !business.pin?
+        Businesses.updatePin business._id, 'asdf', (error, hash) ->
+          if error?
+            callback error
+            return
+          bcrypt.compare pin+defaults.passwordSalt, hash, (error, success)->
+            if error? or !success
+              callback error
+              return
+            callback error, business
+            return
+      else
+        bcrypt.compare pin+defaults.passwordSalt, business.pin, (error, success)->
+          if error? or !success
+            callback { error: "Invalid Pin" }
+            return
+          callback error, business
+          return
 
   @add = (clientId, data, callback)->
     instance = new @model()
