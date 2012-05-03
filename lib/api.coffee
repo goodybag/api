@@ -2220,7 +2220,7 @@ class Businesses extends API
 
   @updatePin: (id, pin, callback) ->
     self = this
-    Businesses.encryptCode pin, (error, hash) ->
+    Businesses.encryptPin pin, (error, hash) ->
       if error?
         callback error
         return
