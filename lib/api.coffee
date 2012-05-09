@@ -32,7 +32,7 @@ Sequence = db.Sequence
 Client = db.Client
 DonationLog = db.DonationLog
 Consumer = db.Consumer
-Loyalty = db.Loyalty
+Goody = db.Goody
 Business = db.Business
 Media = db.Media
 Poll = db.Poll
@@ -5489,172 +5489,192 @@ class PasswordResetRequests extends API
       return
     return
 
+## Goodies ##
+class Goodies extends API
+  @model = Goody
 
-class Loyalties extends API
-  @model = Loyalty
-
+  ### _add_ ###
+  # **data**
+  #
+  # - **org** _Object_ the organization to create the goody for
+  # - **name** _String_ name of the goody
+  # - **description** _[optional] String_ description of the goody
+  # - **active** _Boolean_ is this goody redeemable
+  # - **karmaPoints** _Number_ how many points are needed to redeem this goody
+  #
+  # **callback** _Function_ (error, ObjectId)
   @add: (data, callback)->
-    instance = new @model(data)
-    instance.save (error, loyalty)->
-      if error?
-        callback error
+    try
+      if Object.isString data.org.id
+        options.org.id = ObjectId(data.org.id)
+    catch error
+      callback(error)
+      return
+
+    #some validation, eventually move all validation out to it's own pre-processing proxy
+    if data.karmaPoints % 10 != 0 or data.karmaPoints<10
+      callback(new ValidationError "Invalid KarmaPoints", {karmaPoints:"must be divisible by 10"})
+      return
+
+    doc = {
+      _id         : new ObjectId()
+      org         : data.org
+      name        : data.name
+      description : data.description  || undefined
+      active      : data.active       || true
+      karmaPoints : data.karmaPoints
+    }
+
+    @model.collection.insert doc, {safe: true}, (err, num)->
+      if err?
+        logger.error(err)
+        callback err
+        return
+      else if num<1
+        error = new Error "Goody was not saved!"
+        logger.error(error)
+        callback(error)
+        return
+      callback null, doc._id
+    return
+
+  ### _update_ ###
+  # **data**
+  #
+  # - **org** _Object_ the organization to create the goody for
+  # - **name** _String_ name of the goody
+  # - **description** _String (optional)_ description of the goody
+  # - **active** _Boolean_ is this goody redeemable
+  # - **karmaPoints** _Number_ how many points are needed to redeem this goody
+  #
+  # **callback** _Function_ (error, success)
+  @update: (goodyId, data, callback)->
+    try
+      if Object.isString goodyId
+        goodyId = new ObjectId(goodyId)
+      if Object.isString data.org.id
+        options.org.id = new ObjectId(data.org.id)
+    catch error
+      callback(error)
+      return
+
+    #some validation, eventually move all validation out to it's own pre-processing proxy
+    if data.karmaPoints % 10 != 0 or data.karmaPoints<10
+      callback(new ValidationError "Invalid KarmaPoints", {karmaPoints:"must be divisible by 10"})
+      return
+
+    doc = {
+      org         : data.org
+      name        : data.name
+      description : data.description  || undefined
+      active      : data.active       || true
+      karmaPoints : data.karmaPoints
+    }
+
+    $where = {
+      _id: goodyId
+    }
+
+    @model.collection.update $where, doc, {safe: true}, (err, num)->
+      if err?
+        logger.error(err)
+        callback err
+        return
+      else if num<1
+        error = new Error "Goody was not saved!"
+        logger.error(error)
+        callback(error)
         return
       callback null, true
     return
 
-  @list: (options, queryOptions, callback)->
-    active        = if options.active? then options.active else true; #show active only by default
-    fetchMedia    = options.media
-    fetchProgress = options.progress
+  ### _get_ ###
+  #
+  # **goodyId** _String/ObjectId_ id of the goody we want <br />
+  # **callback** _Function_ (error, goody)
+  @get: (goodyId, callback)->
+    try
+      if Object.isString goodyId
+        goodyId = new ObjectId(goodyId)
+    catch error
+      callback(error)
+      return
+    @model.collection.findOne {_id: goodyId}, (err, goody)->
+      if err?
+        logger.error(err)
+        callback err
+        return
+      callback err, goody
 
-    if !queryOptions?
-      query = @query()
+
+  ### _getByBusiness_ ###
+  #
+  # **businessId** _String/ObjectId_ id of the business we want goodies for
+  #
+  # **options**
+  #
+  # - **active** _Number, default: true_ active goodies vs deactivated goodies
+  # - **sort** _Number, default: 1_  sort ascending(1) or descending(-1)
+  #
+  # **callback** _Function_ (error, goodies)
+  @getByBusiness: (businessId, options, callback)->
+    defaultOpts = {
+      active: true
+      sort  : 1 #least points first
+    }
+
+    try
+      if Object.isString businessId
+        businessId = new ObjectId(businessId)
+    catch error
+      callback(error)
+      return
+
+    if Object.isFunction(options)
+      callback = options
+      options = defaultOpts
     else
-      query = @optionParser queryOptions, query
-    todaysDate = new Date()
-    query.where "active", active #show only active or unactive..
-    if active
-      query.where {"dates.start" : {$lte:todaysDate}}
-      query.or [{"dates.end"   : {$lte:todaysDate}}, {"dates.end":{$exists:false}}]
-    query.find (error, loyalties)->
-      if !options.progress && !options.media
-        callback error, loyalties
-        return
-      else # fetch progress and/or media
-        orgIds = []
-        for loyalty in loyalties
-          if orgIds.indexOf(loyalty.org.id.toString()) == -1
-            orgIds.add loyalty.org.id.toString()
+      options = {
+        active  : options.active  || defaultOpts.active
+        sort    : options.sort    || defaultOpts.sort
+      }
 
-        async.parallel {
-          loyaltiesProgress : (cb)->
-            if !fetchProgress
-              cb null, null
-              return
-            if !options.userId?
-              callback new errors.ValidationError "UserId is required to fetch loyalty progress." , {"userId":"required for loyalty progress."}
-            #user progress was requested with loyalties
-            fieldsToReturn = {
-              "org.id" : 1
-              "data.tapIns.charityCentsRedeemed"  : 1
-              "data.tapIns.charityCentsRemaining" : 1
-              "data.tapIns.charityCentsRaised"    : 1
-            }
-            Statistics.consumerLoyaltyProgress options.userId, orgIds, fieldsToReturn, cb
-            return
+    $query = {
+      "org.id"  : businessId
+      "active"  : options.active
+    }
 
-          bizMedias : (cb)->
-            if !fetchMedia
-              cb null, null
-              return
-            #loyalty media was requested with loyalties (business media for now)
-            fieldsToReturn = {
-              "media"
-            }
-            Businesses.getMultiple orgIds, fieldsToReturn, cb
-            return
-        },
-        (error, asyncData)->
-          if error?
-            callback error
-            return
-          #success
-          if !asyncData.loyaltiesProgress? && !asyncData.bizMedias?
-            #if just loyalties just send loyalties
-            dataToSend = loyalties
-          else
-            #if loyalties and  progress and/or media
-            #send back the data as an object..
-            logger.silly asyncData
-            dataToSend = {
-              loyalties : loyalties
-            }
-            if asyncData.loyaltiesProgress?
-              dataToSend['loyaltiesProgress'] = asyncData.loyaltiesProgress
-            if asyncData.bizMedias?
-              dataToSend['bizMedias']         = asyncData.bizMedias
-          callback null, dataToSend
-          return
+    @model.collection.find $query, {sort: {karmaPoints: 1}}, (err, goodies)->
+      if err?
+        logger.error(err)
+        callback(err)
         return
+      callback(err, goodies)
     return
 
-  @listByBusiness: (businessId, options, queryOptions, callback)->
-    self = this
-    if !businessId?
-      callback new errors.ValidationError "BusinessId is required..", {"businessId":"required"}
+  ### _remove_ ###
+  #
+  # **goodyId** _String/ObjectId_ id of the goody we want to remove <br />
+  # **callback** _Function_ (error)
+  @remove: (goodyId, callback)->
+    try
+      if Object.isString goodyId
+        goodyId = new ObjectId(goodyId)
+    catch error
+      callback(error)
       return
-    if Object.isString businessId
-      businessId = ObjectId businessId
-    active        = if options.active? then options.active else true; #show active only by default
-    fetchProgress = options.progress
-    fetchMedia    = options.media
+    @model.collection.remove {_id: goodyId}, (err)->
+      if err?
+        logger.error(err)
+        callback err
+        return
+      else if num<1
+        error = new Error "Goody was not saved!"
+        logger.error(error)
+        callback(error)
+        return
+      callback(err)
 
-    orgIds = [businessId] #This will end up being only one orgId..
-    async.parallel {
-      loyalties : (cb)->
-        if !queryOptions?
-          query = self.query()
-        else
-          query = self.optionParser queryOptions, query
-        query.where "org.id",businessId
-        todaysDate = new Date()
-        query.where "active", active #show only active or unactive..
-        if active
-          query.where {"dates.start" : {$lte:todaysDate}}
-          query.or [{"dates.end"   : {$lte:todaysDate}}, {"dates.end":{$exists:false}}]
-        if options.count? && options.count
-          query.count callback
-          return
-        else
-          query.find cb
-        return
-
-      loyaltiesProgress : (cb)->
-        if !fetchProgress
-          cb null, null
-          return
-        #user progress was requested with loyalties
-        fieldsToReturn = {
-          "org.id" : 1
-          "data.tapIns.charityCentsRedeemed"  : 1
-          "data.tapIns.charityCentsRemaining" : 1
-          "data.tapIns.charityCentsRaised"    : 1
-        }
-        Statistics.consumerLoyaltyProgress options.userId, orgIds, fieldsToReturn, cb
-        return
-
-      bizMedias : (cb)->
-        if !fetchMedia
-          cb null, null
-          return
-        #loyalty media was requested with loyalties (business media for now)
-        fieldsToReturn = {
-          "media"
-        }
-        Businesses.getMultiple orgIds, fieldsToReturn, cb
-        return
-    },
-    (error, asyncData)->
-      if error?
-        callback error
-        return
-      #success
-      if !asyncData.loyaltiesProgress? && !asyncData.bizMedias?
-        #if just loyalties just send loyalties
-        dataToSend = async.loyalties
-      else
-        #if loyalties and  progress and/or media
-        #send back the data as an object..
-        dataToSend = {
-          loyalties : asyncData.loyalties
-        }
-        if asyncData.loyaltiesProgress?
-          dataToSend['loyaltiesProgress'] = asyncData.loyaltiesProgress
-        if asyncData.bizMedias?
-          dataToSend['bizMedias']         = asyncData.bizMedias
-      callback null, dataToSend
-      return
-    return
 
 
 ## UnclaimedBarcodeStatistics ##
@@ -6009,28 +6029,28 @@ class EmailSubmissions extends API
     @_add data, callback
 
 
-exports.DBTransactions = DBTransactions
-exports.Consumers = Consumers
-exports.Clients = Clients
-exports.DonationLogs = DonationLogs
-exports.Businesses = Businesses
-exports.Polls = Polls
-exports.Discussions = Discussions
-exports.Loyalties = Loyalties
-exports.Statistics = Statistics
-exports.Medias = Medias
-exports.ClientInvitations = ClientInvitations
-exports.Tags = Tags
-exports.EventRequests = EventRequests
-exports.Events = Events
-exports.BusinessTransactions = BusinessTransactions
-exports.BusinessRequests = BusinessRequests
-exports.Streams = Streams
-exports.Statistics = Statistics
+exports.DBTransactions             = DBTransactions
+exports.Consumers                  = Consumers
+exports.Clients                    = Clients
+exports.DonationLogs               = DonationLogs
+exports.Businesses                 = Businesses
+exports.Polls                      = Polls
+exports.Discussions                = Discussions
+exports.Goodies                    = Goodies
+exports.Statistics                 = Statistics
+exports.Medias                     = Medias
+exports.ClientInvitations          = ClientInvitations
+exports.Tags                       = Tags
+exports.EventRequests              = EventRequests
+exports.Events                     = Events
+exports.BusinessTransactions       = BusinessTransactions
+exports.BusinessRequests           = BusinessRequests
+exports.Streams                    = Streams
+exports.Statistics                 = Statistics
 exports.UnclaimedBarcodeStatistics = UnclaimedBarcodeStatistics
-exports.Organizations = Organizations
-exports.PasswordResetRequests = PasswordResetRequests
-exports.Referrals = Referrals
-exports.Barcodes = Barcodes
-exports.CardRequests = CardRequests
-exports.EmailSubmissions = EmailSubmissions
+exports.Organizations              = Organizations
+exports.PasswordResetRequests      = PasswordResetRequests
+exports.Referrals                  = Referrals
+exports.Barcodes                   = Barcodes
+exports.CardRequests               = CardRequests
+exports.EmailSubmissions           = EmailSubmissions
