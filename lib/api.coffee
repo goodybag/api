@@ -2288,7 +2288,7 @@ class Businesses extends API
       else
         bcrypt.compare pin+defaults.passwordSalt, business.pin, (error, success)->
           if error? or !success
-            callback new errors.ValidationError {"pin":"Invalid Pin"}
+            callback new errors.ValidationError "Validation Error", {"pin":"Invalid Pin"}
             return
           callback error, business
           return
