@@ -6026,6 +6026,8 @@ class EmailSubmissions extends API
   @model = EmailSubmission
 
   @add: (data, callback)->
+    if Object.isString data.barcodeId
+      data.barcodeId = new ObjectId data.barcodeId
     if Object.isString data.businessId
       data.businessId = new ObjectId data.businessId
     if Object.isString data.locationId
