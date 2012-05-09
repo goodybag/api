@@ -1020,7 +1020,7 @@ EmailSubmission = new Schema {
   entity: {
     type                : {type: String, required: true, enum: choices.entities._enum}
   }
-  barcodeId             : {type: ObjectId}
+  barcodeId             : {type: String}
   businessId            : {type: ObjectId, required: true}
   registerId            : {type: ObjectId, required: true}
   locationId            : {type: ObjectId, required: true}
