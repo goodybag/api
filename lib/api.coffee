@@ -2192,7 +2192,7 @@ class Businesses extends API
     query = @_optionParser(options, q)
     query.in('clients', [options.clientId]) if options.clientId?
     query.where 'locations.tapins', true if options.tapins?
-    query.where 'isCharity', if options.charity != 'undefined' then options.charity else true
+    query.where 'isCharity', options.charity if options.charity?
     query.where 'gbEquipped', true if options.equipped?
     query.where 'type', options.type if options.type?
     return query
