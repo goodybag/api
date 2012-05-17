@@ -5644,12 +5644,13 @@ class Goodies extends API
       "active"  : options.active
     }
 
-    @model.collection.find $query, {sort: {karmaPoints: 1}}, (err, goodies)->
+    @model.collection.find $query, {sort: {karmaPoints: 1}}, (err, cursor)->
       if err?
         logger.error(err)
         callback(err)
         return
-      callback(err, goodies)
+      cursor.toArray (err, goodies)->
+        callback(err, goodies)
     return
 
   ### _remove_ ###

@@ -40,13 +40,23 @@ function update(){
     , karmaPoints : 300
     };
 
-  api.Goodies.update(new ObjectId("4fb4a8aba37973000000000f"), data, cbConsole);
+  api.Goodies.update(new ObjectId("4fb4a95e5591da000000000f"), data, cbConsole);
+};
+
+function get(){
+  api.Goodies.get("4fb4a95e5591da000000000f", cbConsole);
+};
+
+function getByBusiness(){
+  api.Goodies.getByBusiness("4f5c24edf9e111000000001e", cbConsole);
 };
 
 function remove(){
-  api.Goodies.remove("4fb4a8aba37973000000000f", cbConsole);
+  api.Goodies.remove("4fb4a95e5591da000000000f", cbConsole);
 };
 
 //add();
 //update();
+//get();
+//getByBusiness();
 //remove();
