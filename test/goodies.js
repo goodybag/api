@@ -24,15 +24,17 @@ function add(){
     , name        : "goody"
     , karmaPoints : 150};
 
-  api.Goodies.add(goody, function(err, id){
-    console.error(err);
-    console.log(id);
-  });
+  api.Goodies.add(goody, cbConsole);
 };
 
 function remove(){
   api.Goodies.remove('4fa3b83dffea47820d00000f', cbConsole);
 };
 
-//add();
+function update(){
+  api.Goodies.update(new ObjectId(""), {})
+};
+
+add();
+update();
 remove();

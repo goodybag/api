@@ -5566,8 +5566,8 @@ class Goodies extends API
     doc = {
       org         : data.org
       name        : data.name
-      description : data.description  || undefined
-      active      : data.active       || true
+      description : if data.description?  then data.description   else undefined
+      active      : if data.active?       then data.active        else true
       karmaPoints : data.karmaPoints
     }
 
