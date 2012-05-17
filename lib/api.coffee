@@ -5668,12 +5668,9 @@ class Goodies extends API
         logger.error(err)
         callback err
         return
-      else if num<1
-        error = new Error "Goody was not saved!"
-        logger.error(error)
-        callback(error)
+      else
+        callback(err)
         return
-      callback(err)
 
 
 
