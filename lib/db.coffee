@@ -944,6 +944,7 @@ RedemptionLog = new Schema {
     karmaPoints         : {type: Number, required: true}
   }
   karmaPointsAvailable  : {type: Number, required: true} #how many karmaPoints did the consumer have before the redemption
+  karmaPointsRemaining  : {type: Number, required: true} #how many karmaPoints does the consumer have after the redemption
   dates: {
     created             : {type: Date, default: Date.now, required: true}
     redeemed            : {type: Date, default: Date.now, required: true}
@@ -980,7 +981,7 @@ RedemptionLog = new Schema {
   #totalAnswered
   #lastAnsweredDate
 Statistic = new Schema {
-  org                     : organization
+  org                     : organization #note, we don't care about the organization's name here
   consumerId              : {type: ObjectId, required: true}
   data                    : {} #store counts, totals, dates, etc
 
@@ -988,6 +989,9 @@ Statistic = new Schema {
 }
 
 Statistic.index {'org.type': 1, 'org.id':1, consumerId: 1}, {unique: true}
+
+Statistic.index {consumerId: 1, "org.id": 1}
+Statistic.index {consumerId: 1, "org.type": 1, "org.id": 1}
 
 #THESE ACTUALLY NEEDED DATA INFRONT OF THE LAST COLUM - SO FIX THIS WHEN DOING GOODIES
 Statistic.index {'org.type': 1, 'org.id':1, consumerId: 1, "tapIns.totalTapIns": 1}

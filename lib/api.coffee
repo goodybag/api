@@ -5754,6 +5754,97 @@ class UnclaimedBarcodeStatistics extends API
 class Statistics extends API
   @model: Statistic
 
+  @getKarmaPoints: (consumerId, businessId, callback)->
+    getAll = true #the KarmaPoints for each business
+    try
+      if Object.isString consumerId
+        consumerId = new ObjectId(consumerId)
+    catch error
+      callback(error)
+      return
+
+    if Object.isFunction(businessId)
+      callback = businessId
+    else
+      try
+        if Object.isString businessId
+          businessId = new ObjectId(businessId)
+        getAll = false #the KarmaPoints for a specific business
+      catch error
+        callback(error)
+        return
+
+    $query   = {}
+    $options = {}
+
+    $query["consumerId"] = consumerId
+
+    if !getAll
+      $query["org.type"] = choices.entities.BUSINESS
+      $query["org.id"] = businessId
+      $options["limit"] = 1
+
+    @model.collection.find $query, {consumerId: 1, org: 1, "karmaPoints": 1}, $options, (error, cursor)->
+      if error?
+        logger.error(error)
+        callback(error)
+        return
+      cursor.toArray (error, statistics)->
+        callback(error, statistics)
+      return
+
+  @earnKarmaPoints: (consumerId, businessId, amount, callback)->
+    try
+      if Object.isString consumerId
+        consumerId = new ObjectId(consumerId)
+      if Object.isString businessId
+        businessId = new ObjectId(businessId)
+    catch error
+      callback(error)
+      return
+
+    #verify amount is valid
+    amount = parseInt(amount)
+    if amount < 0
+      callback({message: "amount needs to be a positive integer"})
+      return
+
+    $query = {}
+    $query["consumerId"] = consumerId
+    $query["org.type"]   = choices.entities.BUSINESS
+    $query["org.id"]     = businessId
+
+    @model.collection.update $query, {$inc: {"karmaPoints.raised": amount, "karmaPoints.remaining": amount} }, {safe: true, upsert: true}, (error, count)->
+      if error?
+        logger.error error
+      callback(error, count)
+
+  @useKarmaPoints: (consumerId, businessId, amount, callback)->
+    try
+      if Object.isString consumerId
+        consumerId = new ObjectId(consumerId)
+      if Object.isString businessId
+        businessId = new ObjectId(businessId)
+    catch error
+      callback(error)
+      return
+
+    #verify amount is valid
+    amount = parseInt(amount)
+    if amount < 0
+      callback({message: "amount needs to be a positive integer"})
+      return
+
+    $query = {}
+    $query["consumerId"] = consumerId
+    $query["org.type"]   = choices.entities.BUSINESS
+    $query["org.id"]     = businessId
+
+    @model.collection.update $query, {$inc: {"karmaPoints.remaining": -1 * amount, "karmaPoints.used": amount}}, {safe: true}, (error, count)->
+      if err?
+        logger.error error
+      callback(error, count)
+
   @add: (data, callback)->
     obj = {
       org: {
