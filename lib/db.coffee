@@ -968,7 +968,7 @@ RedemptionLog = new Schema {
   #charityCentsRedeemed [REMOVE]
 
 #karmaPoints
-  #raised
+  #earned
   #remaining
   #used
 
@@ -994,15 +994,28 @@ Statistic.index {consumerId: 1, "org.id": 1}
 Statistic.index {consumerId: 1, "org.type": 1, "org.id": 1}
 
 #THESE ACTUALLY NEEDED DATA INFRONT OF THE LAST COLUM - SO FIX THIS WHEN DOING GOODIES
-Statistic.index {'org.type': 1, 'org.id':1, consumerId: 1, "tapIns.totalTapIns": 1}
-Statistic.index {'org.type': 1, 'org.id':1, consumerId: 1, "tapIns.totalAmountPurchased": 1}
-Statistic.index {'org.type': 1, 'org.id':1, consumerId: 1, "tapIns.lastVisited": 1}
-Statistic.index {'org.type': 1, 'org.id':1, consumerId: 1, "tapIns.charityCentsRedeemed": 1} #REMOVE
-Statistic.index {'org.type': 1, 'org.id':1, consumerId: 1, "tapIns.charityCentsRemaining": 1} #REMOVE
-Statistic.index {'org.type': 1, 'org.id':1, consumerId: 1, "tapIns.charityCentsRaised": 1} #REMOVE
+#we want to stop storing in data eventually - just keep it at the top level
 
-Statistic.index {'org.type': 1, 'org.id':1, consumerId: 1, "polls.totalAnswered": 1}
-Statistic.index {'org.type': 1, 'org.id':1, consumerId: 1, "polls.lastAnsweredDate": 1}
+# Statistic.index {'org.type': 1, 'org.id':1, consumerId: 1, "tapIns.totalTapIns": 1} #REMOVE
+# Statistic.index {'org.type': 1, 'org.id':1, consumerId: 1, "tapIns.totalAmountPurchased": 1} #REMOVE
+# Statistic.index {'org.type': 1, 'org.id':1, consumerId: 1, "tapIns.lastVisited": 1} #REMOVE
+# Statistic.index {'org.type': 1, 'org.id':1, consumerId: 1, "tapIns.charityCentsRedeemed": 1} #REMOVE
+# Statistic.index {'org.type': 1, 'org.id':1, consumerId: 1, "tapIns.charityCentsRemaining": 1} #REMOVE
+# Statistic.index {'org.type': 1, 'org.id':1, consumerId: 1, "tapIns.charityCentsRaised": 1} #REMOVE
+
+# Statistic.index {'org.type': 1, 'org.id':1, consumerId: 1, "polls.totalAnswered": 1} #REMOVE
+# Statistic.index {'org.type': 1, 'org.id':1, consumerId: 1, "polls.lastAnsweredDate": 1} #REMOVE
+
+Statistic.index {'org.type': 1, 'org.id':1, consumerId: 1, "data.tapIns.totalTapIns": 1}
+Statistic.index {'org.type': 1, 'org.id':1, consumerId: 1, "data.tapIns.totalAmountPurchased": 1}
+Statistic.index {'org.type': 1, 'org.id':1, consumerId: 1, "data.tapIns.lastVisited": 1}
+
+Statistic.index {'org.type': 1, 'org.id':1, consumerId: 1, "data.polls.totalAnswered": 1}
+Statistic.index {'org.type': 1, 'org.id':1, consumerId: 1, "data.polls.lastAnsweredDate": 1}
+
+Statistic.index {'org.type': 1, 'org.id':1, consumerId: 1, "data.karmaPoints.earned": 1}
+Statistic.index {'org.type': 1, 'org.id':1, consumerId: 1, "data.karmaPoints.remaining": 1}
+Statistic.index {'org.type': 1, 'org.id':1, consumerId: 1, "data.karmaPoints.used": 1}
 
 
 #CURRENTLY BEING TRACKED: (ALWAYS UPDATE THIS LIST PLEASE AND THE INDEXES)

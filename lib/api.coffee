@@ -5520,6 +5520,8 @@ class Goodies extends API
   @model = Goody
 
   ### _add_ ###
+  # Add goodies for a specific organization
+  #
   # **data**
   #
   # - **org** _Object_ the organization to create the goody for
@@ -5542,12 +5544,16 @@ class Goodies extends API
       callback(new errors.ValidationError "karmaPointsRequireds is invalid", {karmaPointsRequired:"must be divisible by 10"})
       return
 
+    if utils.isBlank(data.name)
+      callback new errors.ValidationError("name is required")
+      return
+
     doc = {
       _id                 : new ObjectId()
       org                 : data.org
       name                : data.name
-      description         : data.description  || undefined
-      active              : data.active       || true
+      description         : if data.description?  then data.description   else undefined
+      active              : if data.active?       then data.active      else true
       karmaPointsRequired : data.karmaPointsRequired
     }
 
@@ -5565,6 +5571,9 @@ class Goodies extends API
     return
 
   ### _update_ ###
+  #
+  # Update the goody
+  #
   # **data**
   #
   # - **org** _Object_ the organization to create the goody for
@@ -5587,6 +5596,10 @@ class Goodies extends API
     #some validation, eventually move all validation out to it's own pre-processing proxy
     if data.karmaPointsRequired % 10 != 0 or data.karmaPointsRequired<10
       callback(new errors.ValidationError "karmaPointsRequired is invalid", {karmaPointsRequired: "must be a factor of 10"})
+      return
+
+    if utils.isBlank(data.name)
+      callback new errors.ValidationError("name is required")
       return
 
     doc = {
@@ -5786,6 +5799,25 @@ class UnclaimedBarcodeStatistics extends API
 class Statistics extends API
   @model: Statistic
 
+  ### _getKarmaPoints_ ###
+  #
+  # Get either of the following:
+  #
+  # - A list of the karmaPoints for a specific consumer and all the businesses they've interacted with
+  # - The karmaPoints for a specific customer-business relation
+  #
+  # Various argument possibilities
+  #
+  # - consumerId, callback
+  # - consumerId, businessId, callback
+  #
+  # **consumerId** _String/ObjectId_ id of the consumer<br />
+  # **businessId** _String/ObjectId_ id of the business
+  #
+  # Various callback possibilities (in order of argument possibilities above)
+  #
+  # - **callback** _Function_ (error, statistics)
+  # - **callback** _Function_ (error, statistic)
   @getKarmaPoints: (consumerId, businessId, callback)->
     getAll = true #the KarmaPoints for each business
     try
@@ -5813,18 +5845,28 @@ class Statistics extends API
 
     if !getAll
       $query["org.type"] = choices.entities.BUSINESS
-      $query["org.id"] = businessId
-      $options["limit"] = 1
+      $query["org.id"]   = businessId
+      $options["limit"]  = 1
 
-    @model.collection.find $query, {consumerId: 1, org: 1, "karmaPoints": 1}, $options, (error, cursor)->
+    @model.collection.find $query, {consumerId: 1, org: 1, "data.karmaPoints": 1}, $options, (error, cursor)->
       if error?
         logger.error(error)
         callback(error)
         return
       cursor.toArray (error, statistics)->
+        if !getAll and statistics.length == 1 #if were only wanted karmaPoints for one specific relationship (not all) then don't give back an array
+          callback(error, statistics[0])
+          return
         callback(error, statistics)
-      return
 
+  ### _earnKarmaPoints_ ###
+  #
+  # Award a consumer KarmaPoints for their interactions with a specific business
+  #
+  # **consumerId** _String/ObjectId_ id of the consumer<br />
+  # **businessId** _String/ObjectId_ id of the business<br />
+  # **amount** _String/ObjectId_ amount of KarmaPoints<br />
+  # **callback** _Function_ (error, count)<br />
   @earnKarmaPoints: (consumerId, businessId, amount, callback)->
     try
       if Object.isString consumerId
@@ -5846,11 +5888,19 @@ class Statistics extends API
     $query["org.type"]   = choices.entities.BUSINESS
     $query["org.id"]     = businessId
 
-    @model.collection.update $query, {$inc: {"karmaPoints.raised": amount, "karmaPoints.remaining": amount} }, {safe: true, upsert: true}, (error, count)->
+    @model.collection.update $query, {$inc: {"data.karmaPoints.earned": amount, "data.karmaPoints.remaining": amount} }, {safe: true, upsert: true}, (error, count)->
       if error?
         logger.error error
       callback(error, count)
 
+  ### _earnKarmaPoints_ ###
+  #
+  # KarmaPoints were used to redeem something so decrement the number of KarmaPoints available for a specific user with a specific business
+  #
+  # **consumerId** _String/ObjectId_ id of the consumer<br />
+  # **businessId** _String/ObjectId_ id of the business<br />
+  # **amount** _String/ObjectId_ amount of KarmaPoints<br />
+  # **callback** _Function_ (error, count)<br />
   @useKarmaPoints: (consumerId, businessId, amount, callback)->
     try
       if Object.isString consumerId
@@ -5872,7 +5922,7 @@ class Statistics extends API
     $query["org.type"]   = choices.entities.BUSINESS
     $query["org.id"]     = businessId
 
-    @model.collection.update $query, {$inc: {"karmaPoints.remaining": -1 * amount, "karmaPoints.used": amount}}, {safe: true}, (error, count)->
+    @model.collection.update $query, {$inc: {"data.karmaPoints.remaining": -1 * amount, "data.karmaPoints.used": amount}}, {safe: true}, (error, count)->
       if err?
         logger.error error
       callback(error, count)

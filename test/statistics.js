@@ -30,9 +30,10 @@ function useKarmaPoints(){
 };
 
 
+earnKarmaPoints();
+getKarmaPointsForBusiness();
 
-// earnKarmaPoints();
-// getKarmaPointsForBusiness();
+useKarmaPoints();
+getKarmaPointsForBusiness();
 
-// useKarmaPoints();
-// getKarmaPointsForBusiness();
+getAllKarmaPoints();
