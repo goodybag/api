@@ -2192,10 +2192,36 @@ class Businesses extends API
     query = @_optionParser(options, q)
     query.in('clients', [options.clientId]) if options.clientId?
     query.where 'locations.tapins', true if options.tapins?
-    query.where 'isCharity', true if options.charity?
+    query.where 'isCharity', options.charity if options.charity?
     query.where 'gbEquipped', true if options.equipped?
     query.where 'type', options.type if options.type?
     return query
+
+  @updateSettings = (id, pin, data, callback)->
+    if Object.isString(id)
+      id = new ObjectId(id)
+
+    $query = {_id: id}
+    $options = {remove: false, new: true, upsert: false}
+
+    Businesses.validatePin id, pin, (error)=>
+      if error?
+        callback error
+        return
+
+      if data.pin?
+        Businesses.encryptPin data.pin, (error, encrypted)=>
+          if error?
+            callback error
+            return
+          data.pin = encrypted
+          $update = @_flattenDoc data
+          @model.collection.findAndModify $query, [], $update, $options, callback
+      else
+        $update = @_flattenDoc data
+        @model.collection.findAndModify $query, [], $update, $options, callback
+      return
+    return
 
   @getMultiple = (idArray, fieldsToReturn, callback)->
     query = @query()
@@ -2224,7 +2250,7 @@ class Businesses extends API
 
   @updatePin: (id, pin, callback) ->
     self = this
-    Businesses.encryptCode pin, (error, hash) ->
+    Businesses.encryptPin pin, (error, hash) ->
       if error?
         callback error
         return
@@ -2239,7 +2265,7 @@ class Businesses extends API
 
   @validatePin: (id, pin, callback)->
     if !id? or !pin?
-      callback { error: "No arguments given" }
+      callback { message: "No arguments given" }
       return
     Businesses.one id, (error, business)->
       if error?
@@ -2262,7 +2288,7 @@ class Businesses extends API
       else
         bcrypt.compare pin+defaults.passwordSalt, business.pin, (error, success)->
           if error? or !success
-            callback { error: "Invalid Pin" }
+            callback new errors.ValidationError "Validation Error", {"pin":"Invalid Pin"}
             return
           callback error, business
           return
