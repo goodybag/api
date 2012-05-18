@@ -5616,6 +5616,8 @@ class Goodies extends API
 
   ### _get_ ###
   #
+  # Only active goodies can be retrieved
+  #
   # **goodyId** _String/ObjectId_ id of the goody we want <br />
   # **callback** _Function_ (error, goody)
   @get: (goodyId, callback)->
@@ -5625,7 +5627,7 @@ class Goodies extends API
     catch error
       callback(error)
       return
-    @model.collection.findOne {_id: goodyId}, (err, goody)->
+    @model.collection.findOne {_id: goodyId, active: true}, (err, goody)->
       if err?
         logger.error(err)
         callback err
@@ -5634,6 +5636,8 @@ class Goodies extends API
 
 
   ### _getByBusiness_ ###
+  #
+  # Get the goodies for a specific business (active goodies)
   #
   # **businessId** _String/ObjectId_ id of the business we want goodies for
   #
@@ -5681,6 +5685,8 @@ class Goodies extends API
 
   ### _remove_ ###
   #
+  # This is really just disabling the goody, we never want to delete information
+  #
   # **goodyId** _String/ObjectId_ id of the goody we want to remove <br />
   # **callback** _Function_ (error)
   @remove: (goodyId, callback)->
@@ -5690,7 +5696,7 @@ class Goodies extends API
     catch error
       callback(error)
       return
-    @model.collection.remove {_id: goodyId}, (err)->
+    @model.collection.update {_id: goodyId}, {$set: {active: false}}, {safe: true}, (err)->
       if err?
         logger.error(err)
         callback err
