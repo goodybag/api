@@ -5552,7 +5552,7 @@ class Goodies extends API
       _id                 : new ObjectId()
       org                 : data.org
       name                : data.name
-      description         : if data.description?  then data.description   else undefined
+      description         : if data.description?  then data.description else undefined
       active              : if data.active?       then data.active      else true
       karmaPointsRequired : data.karmaPointsRequired
     }
@@ -5605,8 +5605,8 @@ class Goodies extends API
     doc = {
       org                 : data.org
       name                : data.name
-      description         : if data.description?  then data.description   else undefined
-      active              : if data.active?       then data.active        else true
+      description         : if data.description?  then data.description else undefined
+      active              : if data.active?       then data.active      else true
       karmaPointsRequired : data.karmaPointsRequired
     }
 
