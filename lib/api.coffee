@@ -5526,7 +5526,7 @@ class Goodies extends API
   # - **name** _String_ name of the goody
   # - **description** _[optional] String_ description of the goody
   # - **active** _Boolean_ is this goody redeemable
-  # - **karmaPoints** _Number_ how many points are needed to redeem this goody
+  # - **karmaPointsRequired** _Number_ how many points are needed to redeem this goody
   #
   # **callback** _Function_ (error, ObjectId)
   @add: (data, callback)->
@@ -5538,17 +5538,17 @@ class Goodies extends API
       return
 
     #some validation, eventually move all validation out to it's own pre-processing proxy
-    if data.karmaPoints % 10 != 0 or data.karmaPoints<10
-      callback(new ValidationError "Invalid KarmaPoints", {karmaPoints:"must be divisible by 10"})
+    if data.karmaPointsRequired % 10 != 0 or data.karmaPointsRequired < 10
+      callback(new errors.ValidationError "karmaPointsRequireds is invalid", {karmaPointsRequired:"must be divisible by 10"})
       return
 
     doc = {
-      _id         : new ObjectId()
-      org         : data.org
-      name        : data.name
-      description : data.description  || undefined
-      active      : data.active       || true
-      karmaPoints : data.karmaPoints
+      _id                 : new ObjectId()
+      org                 : data.org
+      name                : data.name
+      description         : data.description  || undefined
+      active              : data.active       || true
+      karmaPointsRequired : data.karmaPointsRequired
     }
 
     @model.collection.insert doc, {safe: true}, (err, num)->
@@ -5571,7 +5571,7 @@ class Goodies extends API
   # - **name** _String_ name of the goody
   # - **description** _String (optional)_ description of the goody
   # - **active** _Boolean_ is this goody redeemable
-  # - **karmaPoints** _Number_ how many points are needed to redeem this goody
+  # - **karmaPointsRequired** _Number_ how many points are required to redeem this goody
   #
   # **callback** _Function_ (error, success)
   @update: (goodyId, data, callback)->
@@ -5585,16 +5585,16 @@ class Goodies extends API
       return
 
     #some validation, eventually move all validation out to it's own pre-processing proxy
-    if data.karmaPoints % 10 != 0 or data.karmaPoints<10
-      callback(new ValidationError "Invalid KarmaPoints", {karmaPoints:"must be divisible by 10"})
+    if data.karmaPointsRequired % 10 != 0 or data.karmaPointsRequired<10
+      callback(new errors.ValidationError "karmaPointsRequired is invalid", {karmaPointsRequired: "must be a factor of 10"})
       return
 
     doc = {
-      org         : data.org
-      name        : data.name
-      description : if data.description?  then data.description   else undefined
-      active      : if data.active?       then data.active        else true
-      karmaPoints : data.karmaPoints
+      org                 : data.org
+      name                : data.name
+      description         : if data.description?  then data.description   else undefined
+      active              : if data.active?       then data.active        else true
+      karmaPointsRequired : data.karmaPointsRequired
     }
 
     $where = {
@@ -5674,7 +5674,7 @@ class Goodies extends API
       "active"  : options.active
     }
 
-    @model.collection.find $query, {sort: {karmaPoints: 1}}, (err, cursor)->
+    @model.collection.find $query, {sort: {karmaPointsRequired: 1}}, (err, cursor)->
       if err?
         logger.error(err)
         callback(err)

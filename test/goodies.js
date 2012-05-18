@@ -20,9 +20,9 @@ function add(){
     , name  : "Goodybag"};
 
   var goody =
-    { org         : org
-    , name        : "goody"
-    , karmaPoints : 150};
+    { org                 : org
+    , name                : "goody"
+    , karmaPointsRequired : 150};
 
   api.Goodies.add(goody, cbConsole);
 };
@@ -34,29 +34,27 @@ function update(){
     , name  : "Goodybag"};
 
   var data =
-    {
-      org         : org
-    , name        : "goodies"
-    , karmaPoints : 300
-    };
+    { org                 : org
+    , name                : "goodies"
+    , karmaPointsRequired : 300};
 
-  api.Goodies.update(new ObjectId("4fb6999fff64955b3d00000f"), data, cbConsole);
+  api.Goodies.update(new ObjectId("4fb6ae1dc8a817a74800000f"), data, cbConsole);
 };
 
 function get(){
-  api.Goodies.get("4fb6999fff64955b3d00000f", cbConsole);
+  api.Goodies.get("4fb6ae1dc8a817a74800000f", cbConsole);
 };
 
 function getByBusiness(){
-  api.Goodies.getByBusiness("4f5c24edf9e111000000001e", cbConsole);
+  api.Goodies.getByBusiness("4fb6ae1dc8a817a74800000f", cbConsole);
 };
 
 function remove(){
-  api.Goodies.remove("4fb6999fff64955b3d00000f", cbConsole);
+  api.Goodies.remove("4fb6ae1dc8a817a74800000f", cbConsole);
 };
 
 //add();
 //update();
-get();
-getByBusiness();
-remove();
+//get();
+//getByBusiness();
+//remove();

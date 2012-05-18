@@ -924,11 +924,11 @@ Referral.index {type: 1, 'link.url': 1}
 # GOODY ##########
 ##################
 Goody = new Schema {
-  org           : organization
-  name          : {type:String, required:true}
-  description   : {type:String}
-  active        : {type:Boolean, default: false, required:true }
-  karmaPoints   : {type: Number, required:true}
+  org                   : organization
+  name                  : {type:String, required:true}
+  description           : {type:String}
+  active                : {type:Boolean, default: false, required:true }
+  karmaPointsRequired   : {type: Number, required:true}
 }
 
 Goody.index {"org.type": 1, "org.id": 1, "karmaPoints" : -1}
