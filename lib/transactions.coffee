@@ -8,6 +8,7 @@ api = require "./api"
 
 logger = loggers.transaction
 choices = globals.choices
+defaults = globals.defaults
 
 utils = globals.utils
 
@@ -1799,7 +1800,7 @@ statBtTapped = (document, transaction)->
         apiStatClass = api.UnclaimedBarcodeStatistics
         identifier = document.barcodeId
 
-      apiStatClass.btTapped org, identifier, transactionId, document.amount, transaction.data.charityCentsRaised, document.date, (error, count)->
+      apiStatClass.btTapped org, identifier, transactionId, document.amount, transaction.data.karmaPointsEarned, document.date, (error, count)->
         if error?
           logger.error error #mongo errored out
           callback(error)
@@ -1840,7 +1841,7 @@ statBarcodeClaimed = (document, transaction)->
   logger.info "STAT - User claimed barcode"
   logger.info "#{prepend} - #{transaction.direction}"
 
-  totalCharityCentsRaised = 0
+  totalKarmaPointsEarned = 0
 
   cleanup = (callback)->
     logger.info "#{prepend} cleaning up"
@@ -1850,21 +1851,21 @@ statBarcodeClaimed = (document, transaction)->
     logger.info "#{prepend} copying from UnclaimedBarcodeStatistics to Statistics"
     logger.silly unclaimedBarcodeStatistic
 
-    org = unclaimedBarcodeStatistic.org
+    org        = unclaimedBarcodeStatistic.org
     consumerId = transaction.entity.id
 
     if unclaimedBarcodeStatistic.data? and unclaimedBarcodeStatistic.data.tapIns?
-      spent = unclaimedBarcodeStatistic.data.tapIns.totalAmountPurchased || 0
-      charityCentsRaised = unclaimedBarcodeStatistic.data.tapIns.charityCentsRaised || 0
-      timestamp = unclaimedBarcodeStatistic.data.tapIns.lastVisited
-      totalTapIns = unclaimedBarcodeStatistic.data.tapIns.totalTapIns || 0
+      spent             = unclaimedBarcodeStatistic.data.tapIns.totalAmountPurchased || 0
+      karmaPointsEarned = unclaimedBarcodeStatistic.data.karmaPoints.earned || 0
+      timestamp         = unclaimedBarcodeStatistic.data.tapIns.lastVisited
+      totalTapIns       = unclaimedBarcodeStatistic.data.tapIns.totalTapIns || 0
 
-      totalCharityCentsRaised += charityCentsRaised
+      totalKarmaPointsEarned    += karmaPointsEarned
     else # if there is no data then there is nothing to copy in the first place
       callback()
       return
 
-    api.Statistics.btTapped org, consumerId, transaction.id, spent, charityCentsRaised, timestamp, totalTapIns, (error, count)->
+    api.Statistics.btTapped org, consumerId, transaction.id, spent, karmaPointsEarned, timestamp, totalTapIns, (error, count)->
       if error?
         callback(error)
         return
@@ -1909,7 +1910,8 @@ statBarcodeClaimed = (document, transaction)->
             return
 
     setProcessed: (callback)->
-      funds = if !isNaN(parseInt(totalCharityCentsRaised)) then parseFloat(totalCharityCentsRaised/100) else 0
+      #what we are doing here is determining how much the consumer has earned to donate to charity
+      donationAmountEarned = if !isNaN(parseInt(totalTapIns)) then totalTapIns * defaults.bt.donationAmount else 0
 
       ucbsClaimedTransaction = api.Consumers.createTransaction(
         choices.transactions.states.PENDING
@@ -1919,16 +1921,16 @@ statBarcodeClaimed = (document, transaction)->
         , transaction.entity
       )
 
-      $inc = {"funds.remaining": funds, "funds.allocated": funds}
+      $inc = {"funds.remaining": donationAmountEarned, "funds.allocated": donationAmountEarned}
 
       $pushAll = {
-        "transactions.ids": [ucbsClaimedTransaction.id]
-        "transactions.temp": [ucbsClaimedTransaction]
+        "transactions.ids"  : [ucbsClaimedTransaction.id]
+        "transactions.temp" : [ucbsClaimedTransaction]
       }
 
       $update = {
-        $pushAll: $pushAll
-        $inc: $inc
+        $pushAll : $pushAll
+        $inc     : $inc
       }
       _setTransactionProcessedAndCreateNew api.Consumers, document, transaction, [ucbsClaimedTransaction], false, false, $update, (error, consumer)->
         callback(error, consumer)

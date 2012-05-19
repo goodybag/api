@@ -1025,6 +1025,11 @@ Statistic.index {'org.type': 1, 'org.id':1, consumerId: 1, "data.karmaPoints.use
   #lastVisited
   #charityCentsRaised
 
+#karmaPoints
+  #earned
+  #remaining
+  #used
+
 UnclaimedBarcodeStatistic = new Schema {
   org                     : organization
   barcodeId               : {type: String, required: true}
@@ -1045,6 +1050,10 @@ UnclaimedBarcodeStatistic.index {'org.type': 1, 'org.id':1, barcodeId: 1, "data.
 UnclaimedBarcodeStatistic.index {'org.type': 1, 'org.id':1, barcodeId: 1, "data.tapIns.totalAmountPurchased": 1}
 UnclaimedBarcodeStatistic.index {'org.type': 1, 'org.id':1, barcodeId: 1, "data.tapIns.lastVisited": 1}
 UnclaimedBarcodeStatistic.index {'org.type': 1, 'org.id':1, barcodeId: 1, "data.tapIns.charityCentsRaised": 1}
+
+UnclaimedBarcodeStatistic.index {'org.type': 1, 'org.id':1, consumerId: 1, "data.karmaPoints.earned": 1}
+UnclaimedBarcodeStatistic.index {'org.type': 1, 'org.id':1, consumerId: 1, "data.karmaPoints.remaining": 1}
+UnclaimedBarcodeStatistic.index {'org.type': 1, 'org.id':1, consumerId: 1, "data.karmaPoints.used": 1}
 
 ##########################
 # Card Requests ##########

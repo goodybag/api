@@ -4590,11 +4590,11 @@ class BusinessTransactions extends API
 
       save: (cb)=> #save it and write to the statistics table
         transactionData = {
-          charityCentsRaised: if !isNaN(parseFloat(globals.defaults.tapIns.charityCentsRaised)) then parseFloat(parseFloat(globals.defaults.tapIns.charityCentsRaised).toFixed(2)) else 0
+          karmaPointsEarned: if !isNaN(parseFloat(globals.defaults.tapIns.karmaPointsEarned)) then parseFloat(parseFloat(globals.defaults.tapIns.karmaPointsEarned).toFixed(2)) else 0
         }
 
         if doc.postToFacebook
-          transactionData.charityCentsRaised = globals.defaults.tapIns.charityCentsRaisedFB;
+          transactionData.karmaPointsEarned = globals.defaults.tapIns.karmaPointsEarnedFB;
 
         transaction = undefined
         if doc.userEntity?
@@ -4602,10 +4602,10 @@ class BusinessTransactions extends API
         else
           transaction = @createTransaction(choices.transactions.states.PENDING, choices.transactions.actions.STAT_BT_TAPPED, transactionData, choices.transactions.directions.OUTBOUND, undefined)
 
-        doc.transactions = {}
+        doc.transactions        = {}
         doc.transactions.locked = false
-        doc.transactions.ids = [transaction.id]
-        doc.transactions.log = [transaction]
+        doc.transactions.ids    = [transaction.id]
+        doc.transactions.log    = [transaction]
 
         @model.collection.insert doc, {safe: true}, (error, bt)->
           if error?
@@ -5552,8 +5552,8 @@ class Goodies extends API
       _id                 : new ObjectId()
       org                 : data.org
       name                : data.name
-      description         : if data.description?  then data.description else undefined
-      active              : if data.active?       then data.active      else true
+      description         : if data.description? then data.description else undefined
+      active              : if data.active? then data.active else true
       karmaPointsRequired : data.karmaPointsRequired
     }
 
@@ -5605,8 +5605,8 @@ class Goodies extends API
     doc = {
       org                 : data.org
       name                : data.name
-      description         : if data.description?  then data.description else undefined
-      active              : if data.active?       then data.active      else true
+      description         : if data.description? then data.description else undefined
+      active              : if data.active? then data.active else true
       karmaPointsRequired : data.karmaPointsRequired
     }
 
@@ -5718,6 +5718,22 @@ class Goodies extends API
         callback(err)
         return
 
+  @redeem: (goodyId, businessId, locationId, registerId, date)->
+    try
+      if Object.isString goodyId
+        goodyId = new ObjectId(goodyId)
+      if Object.isString businessId
+        businessId = new ObjectId(businessId)
+      if Object.isString locationId
+        locationId = new ObjectId(locationId)
+      if Object.isString registerId
+        registerId = new ObjectId(registerId)
+
+      date = Date.create(date)
+    catch error
+      callback(error)
+      return
+
 
 ## UnclaimedBarcodeStatistics ##
 class UnclaimedBarcodeStatistics extends API
@@ -5758,7 +5774,7 @@ class UnclaimedBarcodeStatistics extends API
   @removeClaimed: (claimId, callback)->
     @model.collection.remove {claimId: claimId}, {safe: true}, callback
 
-  @btTapped: (orgEntity, barcodeId, transactionId, spent, charityCentsRaised, timestamp, callback)->
+  @btTapped: (orgEntity, barcodeId, transactionId, spent, karmaPointsEarned, timestamp, callback)->
     if Object.isString(orgEntity.id)
       orgEntity.id = new ObjectId(orgEntity.id)
 
@@ -5769,8 +5785,9 @@ class UnclaimedBarcodeStatistics extends API
     $inc["data.tapIns.totalTapIns"] = 1
     if spent?
       $inc["data.tapIns.totalAmountPurchased"] = if isNaN(parseFloat(spent)) then 0 else parseFloat(parseFloat(spent).toFixed(2)) #parse just incase it's a string
-    if charityCentsRaised?
-      $inc["data.tapIns.charityCentsRaised"] = if isNaN(parseInt(charityCentsRaised)) then 0 else parseInt(charityCentsRaised) #parse just incase it's a string
+    if karmaPointsEarned?
+      $inc["data.karmaPoints.earned"] = if isNaN(parseInt(karmaPointsEarned)) then 0 else parseInt(karmaPointsEarned) #parse just incase it's a string
+      $inc["data.karmaPoints.remaining"] = if isNaN(parseInt(karmaPointsEarned)) then 0 else parseInt(karmaPointsEarned) #parse just incase it's a string
 
     $set = {}
     $set["data.tapIns.lastVisited"] = new Date(timestamp) #if it is a string it will become a date hopefully
@@ -5844,7 +5861,7 @@ class Statistics extends API
     $query["consumerId"] = consumerId
 
     if !getAll
-      $query["org.type"] = choices.entities.BUSINESS
+      $query["org.type"] = choices.organizations.BUSINESS
       $query["org.id"]   = businessId
       $options["limit"]  = 1
 
@@ -5885,7 +5902,7 @@ class Statistics extends API
 
     $query = {}
     $query["consumerId"] = consumerId
-    $query["org.type"]   = choices.entities.BUSINESS
+    $query["org.type"]   = choices.organizations.BUSINESS
     $query["org.id"]     = businessId
 
     @model.collection.update $query, {$inc: {"data.karmaPoints.earned": amount, "data.karmaPoints.remaining": amount} }, {safe: true, upsert: true}, (error, count)->
@@ -5919,7 +5936,7 @@ class Statistics extends API
 
     $query = {}
     $query["consumerId"] = consumerId
-    $query["org.type"]   = choices.entities.BUSINESS
+    $query["org.type"]   = choices.organizations.BUSINESS
     $query["org.id"]     = businessId
 
     @model.collection.update $query, {$inc: {"data.karmaPoints.remaining": -1 * amount, "data.karmaPoints.used": amount}}, {safe: true}, (error, count)->
@@ -6004,7 +6021,7 @@ class Statistics extends API
   @eventRsvped: (org, consumerId, transactionId, timestamp, callback)->
 
   #we accept the totalTapIns as a parameter because we use it when you claim a barcode, in that case you may have more than just one tapIn that is getting transfered in.
-  @btTapped: (orgEntity, consumerId, transactionId, spent, charityCentsRaised, timestamp, totalTapIns, callback)->
+  @btTapped: (orgEntity, consumerId, transactionId, spent, karmaPointsEarned, timestamp, totalTapIns, callback)->
     if Object.isFunction(totalTapIns)
       callback = totalTapIns
       totalTapIns = 1
@@ -6022,9 +6039,9 @@ class Statistics extends API
     $inc["data.tapIns.totalTapIns"] = totalTapIns
     if spent?
       $inc["data.tapIns.totalAmountPurchased"] = if isNaN(parseFloat(spent)) then 0 else parseFloat(parseFloat(spent).toFixed(2)) #parse just incase it's a string
-    if charityCentsRaised?
-      $inc["data.tapIns.charityCentsRaised"] = if isNaN(parseInt(charityCentsRaised)) then 0 else parseInt(charityCentsRaised) #parse just incase it's a string
-      $inc["data.tapIns.charityCentsRemaining"] = if isNaN(parseInt(charityCentsRaised)) then 0 else parseInt(charityCentsRaised) #parse just incase it's a string
+    if karmaPointsEarned?
+      $inc["data.karmaPoints.earned"] = if isNaN(parseInt(karmaPointsEarned)) then 0 else parseInt(karmaPointsEarned) #parse just incase it's a string
+      $inc["data.karmaPoints.remaining"] = if isNaN(parseInt(karmaPointsEarned)) then 0 else parseInt(karmaPointsEarned) #parse just incase it's a string
 
     $set = {}
     $set["data.tapIns.lastVisited"] = new Date(timestamp) #if it is a string it will become a date hopefully
