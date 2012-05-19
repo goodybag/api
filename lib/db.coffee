@@ -1036,10 +1036,15 @@ UnclaimedBarcodeStatistic = new Schema {
 UnclaimedBarcodeStatistic.index {'org.type': 1, 'org.id':1, barcodeId: 1}, {unique: true}
 UnclaimedBarcodeStatistic.index {claimId: 1, barcodeId: 1} #used when claiming a barcode
 
-UnclaimedBarcodeStatistic.index {'org.type': 1, 'org.id':1, barcodeId: 1, "tapIns.totalTapIns": 1}
-UnclaimedBarcodeStatistic.index {'org.type': 1, 'org.id':1, barcodeId: 1, "tapIns.totalAmountPurchased": 1}
-UnclaimedBarcodeStatistic.index {'org.type': 1, 'org.id':1, barcodeId: 1, "tapIns.lastVisited": 1}
-UnclaimedBarcodeStatistic.index {'org.type': 1, 'org.id':1, barcodeId: 1, "tapIns.charityCentsRaised": 1}
+# UnclaimedBarcodeStatistic.index {'org.type': 1, 'org.id':1, barcodeId: 1, "tapIns.totalTapIns": 1} #REMOVE
+# UnclaimedBarcodeStatistic.index {'org.type': 1, 'org.id':1, barcodeId: 1, "tapIns.totalAmountPurchased": 1} #REMOVE
+# UnclaimedBarcodeStatistic.index {'org.type': 1, 'org.id':1, barcodeId: 1, "tapIns.lastVisited": 1} #REMOVE
+# UnclaimedBarcodeStatistic.index {'org.type': 1, 'org.id':1, barcodeId: 1, "tapIns.charityCentsRaised": 1} #REMOVE
+
+UnclaimedBarcodeStatistic.index {'org.type': 1, 'org.id':1, barcodeId: 1, "data.tapIns.totalTapIns": 1}
+UnclaimedBarcodeStatistic.index {'org.type': 1, 'org.id':1, barcodeId: 1, "data.tapIns.totalAmountPurchased": 1}
+UnclaimedBarcodeStatistic.index {'org.type': 1, 'org.id':1, barcodeId: 1, "data.tapIns.lastVisited": 1}
+UnclaimedBarcodeStatistic.index {'org.type': 1, 'org.id':1, barcodeId: 1, "data.tapIns.charityCentsRaised": 1}
 
 ##########################
 # Card Requests ##########
