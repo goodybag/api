@@ -920,23 +920,37 @@ Referral.index {type: 1, 'link.code': 1}
 Referral.index {type: 1, 'link.url': 1}
 
 
-####################
-# LOYALTY ##########
-####################
-Loyalty = new Schema {
-  name        : {type:String, required:true}
-  #details     : {type:String, required:true} #???do we need this?
-  active      : {type:Boolean, default: false, required:true }
-  org         : organization
-  dates  : {
-    start     : {type:Date, required:true}
-    end       : {type:Date}
-  }
-  funds  : {
-    centsRequired  : {type: Number, required:true}
-  }
+##################
+# GOODY ##########
+##################
+Goody = new Schema {
+  org                   : organization
+  name                  : {type:String, required:true}
+  description           : {type:String}
+  active                : {type:Boolean, default: false, required:true }
+  karmaPointsRequired   : {type: Number, required:true}
 }
 
+Goody.index {"org.type": 1, "org.id": 1, "karmaPoints" : -1}
+
+###########################
+# REDEMPTION LOG ##########
+###########################
+RedemptionLog = new Schema {
+  consumer              : entity
+  org                   : organization
+  goody: {
+    id                  : {type: ObjectId, require: true}
+    karmaPoints         : {type: Number, required: true}
+  }
+  karmaPointsAvailable  : {type: Number, required: true} #how many karmaPoints did the consumer have before the redemption
+  karmaPointsRemaining  : {type: Number, required: true} #how many karmaPoints does the consumer have after the redemption
+  dates: {
+    created             : {type: Date, default: Date.now, required: true}
+    redeemed            : {type: Date, default: Date.now, required: true}
+  }
+  transactions          : transactions
+}
 
 ##########
 # Stat ###
@@ -949,14 +963,25 @@ Loyalty = new Schema {
   #totalTapIns
   #totalAmountPurchased
   #lastVisited
-  #charityCentsRaised
-  #charityCentsRemaining
-  #charityCentsRedeemed
+  #charityCentsRaised [REMOVE]
+  #charityCentsRemaining [REMOVE]
+  #charityCentsRedeemed [REMOVE]
+
+#karmaPoints
+  #earned
+  #remaining
+  #used
+
+#goodies
+  #totalRedeemed: count
+  #granular:
+    #goodyId: count
+
 #polls:
   #totalAnswered
   #lastAnsweredDate
 Statistic = new Schema {
-  org                     : organization
+  org                     : organization #note, we don't care about the organization's name here
   consumerId              : {type: ObjectId, required: true}
   data                    : {} #store counts, totals, dates, etc
 
@@ -965,15 +990,32 @@ Statistic = new Schema {
 
 Statistic.index {'org.type': 1, 'org.id':1, consumerId: 1}, {unique: true}
 
-Statistic.index {'org.type': 1, 'org.id':1, consumerId: 1, "tapIns.totalTapIns": 1}
-Statistic.index {'org.type': 1, 'org.id':1, consumerId: 1, "tapIns.totalAmountPurchased": 1}
-Statistic.index {'org.type': 1, 'org.id':1, consumerId: 1, "tapIns.lastVisited": 1}
-Statistic.index {'org.type': 1, 'org.id':1, consumerId: 1, "tapIns.charityCentsRedeemed": 1}
-Statistic.index {'org.type': 1, 'org.id':1, consumerId: 1, "tapIns.charityCentsRemaining": 1}
-Statistic.index {'org.type': 1, 'org.id':1, consumerId: 1, "tapIns.charityCentsRaised": 1}
+Statistic.index {consumerId: 1, "org.id": 1}
+Statistic.index {consumerId: 1, "org.type": 1, "org.id": 1}
 
-Statistic.index {'org.type': 1, 'org.id':1, consumerId: 1, "polls.totalAnswered": 1}
-Statistic.index {'org.type': 1, 'org.id':1, consumerId: 1, "polls.lastAnsweredDate": 1}
+#THESE ACTUALLY NEEDED DATA INFRONT OF THE LAST COLUM - SO FIX THIS WHEN DOING GOODIES
+#we want to stop storing in data eventually - just keep it at the top level
+
+# Statistic.index {'org.type': 1, 'org.id':1, consumerId: 1, "tapIns.totalTapIns": 1} #REMOVE
+# Statistic.index {'org.type': 1, 'org.id':1, consumerId: 1, "tapIns.totalAmountPurchased": 1} #REMOVE
+# Statistic.index {'org.type': 1, 'org.id':1, consumerId: 1, "tapIns.lastVisited": 1} #REMOVE
+# Statistic.index {'org.type': 1, 'org.id':1, consumerId: 1, "tapIns.charityCentsRedeemed": 1} #REMOVE
+# Statistic.index {'org.type': 1, 'org.id':1, consumerId: 1, "tapIns.charityCentsRemaining": 1} #REMOVE
+# Statistic.index {'org.type': 1, 'org.id':1, consumerId: 1, "tapIns.charityCentsRaised": 1} #REMOVE
+
+# Statistic.index {'org.type': 1, 'org.id':1, consumerId: 1, "polls.totalAnswered": 1} #REMOVE
+# Statistic.index {'org.type': 1, 'org.id':1, consumerId: 1, "polls.lastAnsweredDate": 1} #REMOVE
+
+Statistic.index {'org.type': 1, 'org.id':1, consumerId: 1, "data.tapIns.totalTapIns": 1}
+Statistic.index {'org.type': 1, 'org.id':1, consumerId: 1, "data.tapIns.totalAmountPurchased": 1}
+Statistic.index {'org.type': 1, 'org.id':1, consumerId: 1, "data.tapIns.lastVisited": 1}
+
+Statistic.index {'org.type': 1, 'org.id':1, consumerId: 1, "data.polls.totalAnswered": 1}
+Statistic.index {'org.type': 1, 'org.id':1, consumerId: 1, "data.polls.lastAnsweredDate": 1}
+
+Statistic.index {'org.type': 1, 'org.id':1, consumerId: 1, "data.karmaPoints.earned": 1}
+Statistic.index {'org.type': 1, 'org.id':1, consumerId: 1, "data.karmaPoints.remaining": 1}
+Statistic.index {'org.type': 1, 'org.id':1, consumerId: 1, "data.karmaPoints.used": 1}
 
 
 #CURRENTLY BEING TRACKED: (ALWAYS UPDATE THIS LIST PLEASE AND THE INDEXES)
@@ -994,10 +1036,15 @@ UnclaimedBarcodeStatistic = new Schema {
 UnclaimedBarcodeStatistic.index {'org.type': 1, 'org.id':1, barcodeId: 1}, {unique: true}
 UnclaimedBarcodeStatistic.index {claimId: 1, barcodeId: 1} #used when claiming a barcode
 
-UnclaimedBarcodeStatistic.index {'org.type': 1, 'org.id':1, barcodeId: 1, "tapIns.totalTapIns": 1}
-UnclaimedBarcodeStatistic.index {'org.type': 1, 'org.id':1, barcodeId: 1, "tapIns.totalAmountPurchased": 1}
-UnclaimedBarcodeStatistic.index {'org.type': 1, 'org.id':1, barcodeId: 1, "tapIns.lastVisited": 1}
-UnclaimedBarcodeStatistic.index {'org.type': 1, 'org.id':1, barcodeId: 1, "tapIns.charityCentsRaised": 1}
+# UnclaimedBarcodeStatistic.index {'org.type': 1, 'org.id':1, barcodeId: 1, "tapIns.totalTapIns": 1} #REMOVE
+# UnclaimedBarcodeStatistic.index {'org.type': 1, 'org.id':1, barcodeId: 1, "tapIns.totalAmountPurchased": 1} #REMOVE
+# UnclaimedBarcodeStatistic.index {'org.type': 1, 'org.id':1, barcodeId: 1, "tapIns.lastVisited": 1} #REMOVE
+# UnclaimedBarcodeStatistic.index {'org.type': 1, 'org.id':1, barcodeId: 1, "tapIns.charityCentsRaised": 1} #REMOVE
+
+UnclaimedBarcodeStatistic.index {'org.type': 1, 'org.id':1, barcodeId: 1, "data.tapIns.totalTapIns": 1}
+UnclaimedBarcodeStatistic.index {'org.type': 1, 'org.id':1, barcodeId: 1, "data.tapIns.totalAmountPurchased": 1}
+UnclaimedBarcodeStatistic.index {'org.type': 1, 'org.id':1, barcodeId: 1, "data.tapIns.lastVisited": 1}
+UnclaimedBarcodeStatistic.index {'org.type': 1, 'org.id':1, barcodeId: 1, "data.tapIns.charityCentsRaised": 1}
 
 ##########################
 # Card Requests ##########
@@ -1036,7 +1083,7 @@ exports.Consumer                  = mongoose.model 'Consumer', Consumer
 exports.Client                    = mongoose.model 'Client', Client
 exports.Business                  = mongoose.model 'Business', Business
 exports.Poll                      = mongoose.model 'Poll', Poll
-exports.Loyalty                   = mongoose.model 'Loyalty', Loyalty
+exports.Goody                     = mongoose.model 'Goody', Goody
 exports.Discussion                = mongoose.model 'Discussion', Discussion
 exports.Response                  = mongoose.model 'Response', Response
 exports.Media                     = mongoose.model 'Media', Media
@@ -1063,7 +1110,7 @@ exports.schemas = {
   DonationLog               : DonationLog
   Business                  : Business
   Poll                      : Poll
-  Loyalty                   : Loyalty
+  Goody                     : Goody
   Discussion                : Discussion
   Response                  : Response
   Media                     : Media
