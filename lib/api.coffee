@@ -2218,7 +2218,7 @@ class Businesses extends API
           $update = {$set: @_flattenDoc(data)}
           @model.collection.findAndModify $query, [], $update, $options, callback
       else
-        $update = {@_flattenDoc(data)}
+        $update = {$set: @_flattenDoc(data)}
         @model.collection.findAndModify $query, [], $update, $options, callback
       return
     return
