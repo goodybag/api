@@ -70,6 +70,10 @@ process = (document, transaction)-> #this is just a router
     when choices.transactions.actions.UCBS_CLAIMED
       ucbsClaimed(document, transaction)
 
+    #GOODIES
+    when choices.transactions.actions.REDEMPTION_LOG_GOODY_REDEEMED
+      redemptionLogGoodyRedeemed(document, transaction)
+
 _setTransactionProcessing = (clazz, document, transaction, locking, callback)->
   prepend = "ID: #{document._id} - TID: #{transaction.id}"
   logger.info "#{prepend} transitioning state to processing"
@@ -2013,5 +2017,77 @@ ucbsClaimed = (document, transaction)->
         if error?
           logger.error error
           logger.error "#{prepend} unable to properly clean up - the poller will try later"
+
+#OUTBOUND
+redemptionLogGoodyRedeemed = (document, transaction)->
+  prepend = "ID: #{document._id} - TID: #{transaction.id}"
+  logger.info "Creating transaction for redemption log - consumer redeemed a goody"
+  logger.info "#{prepend} - #{transaction.direction}"
+
+  cleanup = (callback)->
+    logger.info "#{prepend} cleaning up"
+    _cleanupTransaction document, transaction, api.Statistics, [api.Statistics, api.RedemptionLogs], callback
+
+  setProcessed = true #setProcessed, unless something sets this to false
+  redemptionLogDoc = null
+  async.series {
+    setProcessing: (callback)->
+      _setTransactionProcessing api.Statistics, document, transaction, false, (error, doc)->
+        document = doc
+        callback error, doc
+        return
+      return
+
+    addRedemptionLog: (callback)->
+      api.RedemptionLogs.add transaction.data.consumer
+      , transaction.data.org
+      , transaction.data.locationId
+      , transaction.data.registerId
+      , transaction.data.goody
+      , transaction.data.dateRedeemed
+      , transaction.id
+      , (error, doc)->
+        if error?
+          if error.code is 11000 or error.code is 11001
+            callback(null, null) #transaction already occurred
+            return
+          logger.error error
+          callback error
+          return
+        redemptionLogDoc = doc #this is used in the setProcessed function below..
+        callback null, doc
+        return
+
+    setProcessed: (callback)->
+      _setTransactionProcessed api.Statistics, document, transaction, false, false, {}, callback
+      #if it went through great, if it didn't go through then the poller will take care of it,
+      #no other state changes need to occur
+      #charity is transaction.entity
+      #Write to the event stream
+      #who = consumerEntity #set in addDonationLog
+      #api.Streams.goodyRedeemed(who, transaction.entity, redemptionLogDoc) #we don't care about the callback
+      return
+  },
+  (error, results)->
+    clean = false
+    if error?
+      logger.error error
+      if error.name is "TransactionAlreadyCompleted" #we recevied a null document while trying to set the state - the state is already set to processed or error, just needs to cleaned up
+        clean = true
+      else
+        logger.error "#{prepend} the poller will try later" #we received some other type of error, so we will try again later
+        return
+    else if results and results.setProcessed?
+      clean = true
+
+    if clean is true
+      cleanup (error, dbTransaction)-> #start cleaning up
+        if error?
+          logger.error error
+          logger.error "#{prepend} unable to properly clean up - the poller will try later"
+        return
+    return
+  return
+
 
 exports.process = process

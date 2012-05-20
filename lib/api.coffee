@@ -487,7 +487,7 @@ class DonationLogs extends API
         created : new Date()
         donated : new Date(timestampDonated)
       }
-      transaction : {
+      transactions : {
         ids : [transactionId]
       }
     }
@@ -529,6 +529,10 @@ class RedemptionLogs extends API
       dates: {
         created: new Date()
         redeemed: dateRedeemed
+      }
+
+      transactions : {
+        ids : [transactionId]
       }
     }
 
@@ -5837,14 +5841,17 @@ class Goodies extends API
 
           $update = {$inc: $inc, $pushAll: $pushAll}
 
-          Statistics.model.collection.update $query, $update, {safe: true}, (error, count)->
-            success = false
+          fields = {_id: 1}
+
+          Statistics.model.collection.findAndModify $query, [], $update, {safe: true, new: true, fields: fields}, (error, statistic)->
             if error?
               logger.error error
-            if count == 1
-              success = true
-            callback(error, success)
-            return
+              callback(error, false)
+              return
+            if statistic?
+              callback(error, true)
+              tp.process(statistic, redemptionLogTransaction)
+              return
 
 
 class UnclaimedBarcodeStatistics extends API
