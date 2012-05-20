@@ -927,7 +927,7 @@ Goody = new Schema {
   org                   : organization
   name                  : {type:String, required:true}
   description           : {type:String}
-  active                : {type:Boolean, default: false, required:true }
+  active                : {type:Boolean, default: false, required:true}
   karmaPointsRequired   : {type:Number, required:true}
 }
 

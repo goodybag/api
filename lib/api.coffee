@@ -4625,44 +4625,55 @@ class BusinessTransactions extends API
               cb(new errors.ValidationError {"DNE": "Business Does Not Exist"})
 
       save: (cb)=> #save it and write to the statistics table
+
+        #by default karmaPointsEarned is 0
         transactionData = {
-          karmaPointsEarned: if !isNaN(parseFloat(globals.defaults.tapIns.karmaPointsEarned)) then parseFloat(parseFloat(globals.defaults.tapIns.karmaPointsEarned).toFixed(2)) else 0
+          karmaPointsEarned: 0
         }
-
-        if doc.postToFacebook
-          transactionData.karmaPointsEarned = globals.defaults.tapIns.karmaPointsEarnedFB;
-
-        transaction = undefined
-        if doc.userEntity?
-          transaction = @createTransaction(choices.transactions.states.PENDING, choices.transactions.actions.BT_TAPPED, transactionData, choices.transactions.directions.OUTBOUND, doc.userEntity)
-        else
-          transaction = @createTransaction(choices.transactions.states.PENDING, choices.transactions.actions.STAT_BT_TAPPED, transactionData, choices.transactions.directions.OUTBOUND, undefined)
-
-        doc.transactions        = {}
-        doc.transactions.locked = false
-        doc.transactions.ids    = [transaction.id]
-        doc.transactions.log    = [transaction]
-
-        @model.collection.insert doc, {safe: true}, (error, bt)->
+        #award karmaPoints only if the business actually has active goodies, if they don't then they are not giving points to consumers
+        Goodies.count {active: true, businessId: data.organizationEntity.id}, (error, count)=>
           if error?
-            cb(error)
+            logger.error error
+            cb(error, null)
             return
-          bt = bt[0]
-          tp.process(bt, transaction) #process transaction - either add funds to consumer object then update stats or just update unclaimed stats if there is no user to add funds too
-          Streams.btTapped bt #we don't care about the callback for this stream function
+          if count > 0
+            transactionData.karmaPointsEarned = if !isNaN(parseFloat(globals.defaults.tapIns.karmaPointsEarned)) then parseFloat(parseFloat(globals.defaults.tapIns.karmaPointsEarned).toFixed(2)) else 0
+
+            if doc.postToFacebook
+              transactionData.karmaPointsEarned = globals.defaults.tapIns.karmaPointsEarnedFB;
+
+          transaction = undefined
           if doc.userEntity?
-            cb(null, true) #success
-            logger.debug accessToken
-            logger.debug doc.postToFacebook
-            if accessToken? and doc.postToFacebook #post to facebook
-              logger.verbose "Posting tapIn to facebook"
-              fb.post 'me/feed', accessToken, {message: "I just tapped in at #{doc.organizationEntity.name} and raised funds for charity :)", link: "http://www.goodybag.com/", name: "Goodybag", picture: "http://www.goodybag.com/static/images/gb-logo.png"}, (error, response)->
-                if error?
-                  logger.error error
-                else
-                  logger.debug response
+            transaction = @createTransaction(choices.transactions.states.PENDING, choices.transactions.actions.BT_TAPPED, transactionData, choices.transactions.directions.OUTBOUND, doc.userEntity)
+          else
+            transaction = @createTransaction(choices.transactions.states.PENDING, choices.transactions.actions.STAT_BT_TAPPED, transactionData, choices.transactions.directions.OUTBOUND, undefined)
+
+          doc.transactions        = {}
+          doc.transactions.locked = false
+          doc.transactions.ids    = [transaction.id]
+          doc.transactions.log    = [transaction]
+
+          @model.collection.insert doc, {safe: true}, (error, bt)->
+            if error?
+              logger.error(error)
+              cb(error)
+              return
+            bt = bt[0]
+            tp.process(bt, transaction) #process transaction - either add funds to consumer object then update stats or just update unclaimed stats if there is no user to add funds too
+            Streams.btTapped bt #we don't care about the callback for this stream function
+            if doc.userEntity?
+              cb(null, true) #success
+              logger.debug accessToken
+              logger.debug doc.postToFacebook
+              if accessToken? and doc.postToFacebook #post to facebook
+                logger.verbose "Posting tapIn to facebook"
+                fb.post 'me/feed', accessToken, {message: "I just tapped in at #{doc.organizationEntity.name} and raised funds for charity :)", link: "http://www.goodybag.com/", name: "Goodybag", picture: "http://www.goodybag.com/static/images/gb-logo.png"}, (error, response)->
+                  if error?
+                    logger.error error
+                  else
+                    logger.debug response
+              return
             return
-          return
     }, (error, results)->
       if error?
         if error.name? and error.name is "IgnoreTapIn"
@@ -5749,13 +5760,13 @@ class Goodies extends API
       "active"  : options.active
     }
 
-    @model.collection.find $query, {sort: {karmaPointsRequired: 1}}, (err, cursor)->
-      if err?
-        logger.error(err)
-        callback(err)
+    @model.collection.find $query, {sort: {karmaPointsRequired: 1}}, (error, cursor)->
+      if error?
+        logger.error(error)
+        callback(error)
         return
-      cursor.toArray (err, goodies)->
-        callback(err, goodies)
+      cursor.toArray (error, goodies)->
+        callback(error, goodies)
     return
 
   ### _remove_ ###
@@ -5780,7 +5791,55 @@ class Goodies extends API
         callback(err)
         return
 
-    ### _redeem_ ###
+
+  ### _count_ ###
+  #
+  # Count the number of goodies given some criteria
+  #
+  # Various argument possibilities
+  #
+  # - callback
+  # - options, callback
+  #
+  # **options**
+  #
+  # - **businessId** String/ObjectId_ id of a business
+  # - **active** _Boolean, default: true_ active goodies vs deactivated goodies
+  #
+  # **callback** _Function_ (error, count)
+  @count: (options, callback)->
+    $query = {}
+
+    if Object.isFunction(options)
+      callback = options
+      delete options
+    else
+      if options.businessId?
+        try
+          if Object.isString options.businessId
+            options.businessId = new ObjectId(options.businessId)
+        catch error
+          logger.error error
+          callback(error)
+          return
+
+        $query["org.type"] = choices.organizations.BUSINESS
+        $query["org.id"]   = options.businessId
+
+      if options.active?
+        $query["active"] = options.active
+
+    @model.collection.count $query, (error, count)->
+      if error?
+        logger.error error
+        callback(error)
+        return
+      else
+        callback(error, count)
+        return
+
+
+  ### _redeem_ ###
   #
   # Redeem a goody at a specific business/location/register
   #

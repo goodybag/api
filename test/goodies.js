@@ -53,6 +53,22 @@ function getByBusiness(){
   api.Goodies.getByBusiness("4fb8b7b6e84a92000000000f", cbConsole);
 };
 
+function count(){
+  api.Goodies.count({}, cbConsole);
+};
+
+function countActive(){
+  api.Goodies.count({active: true}, cbConsole);
+};
+
+function countWithBusinessId(){
+  api.Goodies.count({businessId: "4f5c24edf9e111000000001e"}, cbConsole);
+};
+
+function countActiveWithBusinessId(){
+  api.Goodies.count({active: true, businessId: "4f5c24edf9e111000000001e"}, cbConsole);
+};
+
 function remove(){
   api.Goodies.remove("4fb8b7b6e84a92000000000f", cbConsole);
 };
@@ -62,4 +78,8 @@ function remove(){
 // get();
 // getWithBusinessId();
 // getByBusiness();
+count();
+countActive();
+countWithBusinessId();
+countActiveWithBusinessId();
 // remove();
