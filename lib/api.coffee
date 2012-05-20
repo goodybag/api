@@ -2215,10 +2215,10 @@ class Businesses extends API
             callback error
             return
           data.pin = encrypted
-          $update = @_flattenDoc data
+          $update = {$set: @_flattenDoc(data)}
           @model.collection.findAndModify $query, [], $update, $options, callback
       else
-        $update = @_flattenDoc data
+        $update = {@_flattenDoc(data)}
         @model.collection.findAndModify $query, [], $update, $options, callback
       return
     return
