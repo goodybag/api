@@ -5751,7 +5751,17 @@ class Goodies extends API
         callback(err)
         return
 
-
+    ### _redeem_ ###
+  #
+  # Redeem a goody at a specific business/location/register
+  #
+  # **goodyId** _String/ObjectId_ id of the goody we want to remove <br />
+  # **consumerId** _String/ObjectId_ id of the consumer<br />
+  # **businessId** _String/ObjectId_ id of the business<br />
+  # **locationId** _String/ObjectId_ id of the location<br />
+  # **registerId** _String/ObjectId_ id of the register<br />
+  # **timestamp** _String/ObjectId_ timestamp of when the goody was redeemed<br />
+  # **callback** _Function_ (error, success)
   @redeem: (goodyId, consumerId, businessId, locationId, registerId, timestamp, callback)->
     try
       if Object.isString goodyId
@@ -5824,9 +5834,10 @@ class Goodies extends API
           , transactionEntity)
 
           $query = {}
-          $query["consumerId"] = consumerId
-          $query["org.type"]   = choices.organizations.BUSINESS
-          $query["org.id"]     = businessId
+          $query["consumerId"]                 = consumerId
+          $query["org.type"]                   = choices.organizations.BUSINESS
+          $query["org.id"]                     = businessId
+          $query["data.karmaPoints.remaining"] = {$gte: goody.karmaPointsRequired}
 
           $inc     = {}
           $pushAll = {}
