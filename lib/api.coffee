@@ -1,4 +1,4 @@
-exports = module.exports
+aexports = module.exports
 
 bcrypt = require "bcrypt"
 generatePassword = require "password-generator"
@@ -31,6 +31,7 @@ DBTransaction = db.DBTransaction
 Sequence = db.Sequence
 Client = db.Client
 DonationLog = db.DonationLog
+RedemptionLog = db.RedemptionLog
 Consumer = db.Consumer
 Goody = db.Goody
 Business = db.Business
@@ -427,7 +428,7 @@ class API
 
     @model.findOne $query, callback
 
-## DBTransactions ##
+
 class DBTransactions extends API
   @model: DBTransaction
 
@@ -475,7 +476,7 @@ class DonationLogs extends API
     if Object.isString entity.id
       entity.id = new ObjectId entity.id
     if Object.isString charity.id
-      charity.id = new Object.Id charity.id
+      charity.id = new ObjectId charity.id
 
     data = {
       _id     : transactionId #to prevent duplicates
@@ -490,6 +491,47 @@ class DonationLogs extends API
         ids : [transactionId]
       }
     }
+    instance = new @model(data)
+    instance.save callback
+    return
+
+
+class RedemptionLogs extends API
+  @model = RedemptionLog
+
+  @add = (consumer, org, locationId, registerId, goody, dateRedeemed, transactionId, callback)->
+    try
+      if Object.isString consumer.id
+        consumer.id = new ObjectId consumer.id
+      if Object.isString org.id
+        org.id = new ObjectId org.id
+      if Object.isString locationId
+        locationId = new ObjectId locationId
+      if Object.isString registerId
+        registerId = new ObjectId registerId
+    catch error
+      logger.error error
+      callback(error)
+      return
+
+    data = {
+      _id: transactionId
+      consumer: consumer
+      org: org
+      locationId: locationId
+      registerId: registerId
+      goody: {
+        id: goody.id
+        name: goody.name
+        karmaPointsRequired: goody.karmaPointsRequired
+      }
+
+      dates: {
+        created: new Date()
+        redeemed: dateRedeemed
+      }
+    }
+
     instance = new @model(data)
     instance.save callback
     return
@@ -1806,7 +1848,6 @@ class Consumers extends Users
   @setTransactionError: @__setTransactionError
 
 
-## Clients ##
 class Clients extends API
   @model = Client
 
@@ -2183,7 +2224,6 @@ class Clients extends API
   @setTransactionError: @__setTransactionError
 
 
-## Businesses ##
 class Businesses extends API
   @model = Business
 
@@ -2598,7 +2638,6 @@ class Organizations extends API
 # class Campaigns extends API
 
 
-## Polls ##
 class Polls extends API # Campaigns
   @model = Poll
 
@@ -3274,7 +3313,6 @@ class Polls extends API # Campaigns
   @setTransactionError: @__setTransactionError
 
 
-## Discussions ##
 class Discussions extends API #Campaigns
   @model = Discussion
 
@@ -4092,7 +4130,6 @@ class Discussions extends API #Campaigns
   @setTransactionError: @__setTransactionError
 
 
-## Medias ##
 class Medias extends API
   @model = Media
 
@@ -4309,7 +4346,6 @@ class Medias extends API
     #@get {'entity.type': entityType, 'entity.id': entityId, 'media.guid': guid}, callback
 
 
-## ClientInvitations ##
 class ClientInvitations extends API
   @model = ClientInvitation
 
@@ -4344,7 +4380,6 @@ class ClientInvitations extends API
     query.remove(callback)
 
 
-## Tags ##
 class Tags extends API
   @model = Tag
 
@@ -4374,7 +4409,6 @@ class Tags extends API
     query.exec callback
 
 
-## EventRequests ##
 class EventRequests extends API
   @model = EventRequest
 
@@ -4397,7 +4431,6 @@ class EventRequests extends API
     @model.collection.findAndModify $query, [], $update, $options, callback
 
 
-## Events ##
 class Events extends API
   @model = Event
 
@@ -4485,7 +4518,6 @@ class Events extends API
   @setTransactionError: @__setTransactionError
 
 
-## BusinessTransactions ##
 class BusinessTransactions extends API
   @model = db.BusinessTransaction
 
@@ -4757,7 +4789,6 @@ class BusinessTransactions extends API
   @setTransactionError: @__setTransactionError
 
 
-## BusinessRequests ##
 class BusinessRequests extends API
   @model = BusinessRequest
 
@@ -4779,7 +4810,6 @@ class BusinessRequests extends API
     instance.save callback
 
 
-## Streams ##
 class Streams extends API
   @model: Stream
 
@@ -5515,7 +5545,7 @@ class PasswordResetRequests extends API
       return
     return
 
-## Goodies ##
+
 class Goodies extends API
   @model = Goody
 
@@ -5534,14 +5564,14 @@ class Goodies extends API
   @add: (data, callback)->
     try
       if Object.isString data.org.id
-        options.org.id = ObjectId(data.org.id)
+        data.org.id = ObjectId(data.org.id)
     catch error
       callback(error)
       return
 
     #some validation, eventually move all validation out to it's own pre-processing proxy
     if data.karmaPointsRequired % 10 != 0 or data.karmaPointsRequired < 10
-      callback(new errors.ValidationError "karmaPointsRequireds is invalid", {karmaPointsRequired:"must be divisible by 10"})
+      callback(new errors.ValidationError "karmaPointsRequired is invalid", {karmaPointsRequired:"must be divisible by 10"})
       return
 
     if utils.isBlank(data.name)
@@ -5554,7 +5584,7 @@ class Goodies extends API
       name                : data.name
       description         : if data.description? then data.description else undefined
       active              : if data.active? then data.active else true
-      karmaPointsRequired : data.karmaPointsRequired
+      karmaPointsRequired : parseInt(data.karmaPointsRequired)
     }
 
     @model.collection.insert doc, {safe: true}, (err, num)->
@@ -5588,7 +5618,7 @@ class Goodies extends API
       if Object.isString goodyId
         goodyId = new ObjectId(goodyId)
       if Object.isString data.org.id
-        options.org.id = new ObjectId(data.org.id)
+        data.org.id = new ObjectId(data.org.id)
     catch error
       callback(error)
       return
@@ -5607,7 +5637,7 @@ class Goodies extends API
       name                : data.name
       description         : if data.description? then data.description else undefined
       active              : if data.active? then data.active else true
-      karmaPointsRequired : data.karmaPointsRequired
+      karmaPointsRequired : parseInt(data.karmaPointsRequired)
     }
 
     $where = {
@@ -5647,7 +5677,6 @@ class Goodies extends API
         return
       callback err, goody
 
-
   ### _getByBusiness_ ###
   #
   # Get the goodies for a specific business (active goodies)
@@ -5656,7 +5685,7 @@ class Goodies extends API
   #
   # **options**
   #
-  # - **active** _Number, default: true_ active goodies vs deactivated goodies
+  # - **active** _Boolean, default: true_ active goodies vs deactivated goodies
   # - **sort** _Number, default: 1_  sort ascending(1) or descending(-1)
   #
   # **callback** _Function_ (error, goodies)
@@ -5678,8 +5707,8 @@ class Goodies extends API
       options = defaultOpts
     else
       options = {
-        active  : options.active  || defaultOpts.active
-        sort    : options.sort    || defaultOpts.sort
+        active  : if options.active? then options.active else defaultOpts.active
+        sort    : options.sort || defaultOpts.sort
       }
 
     $query = {
@@ -5718,24 +5747,106 @@ class Goodies extends API
         callback(err)
         return
 
-  @redeem: (goodyId, businessId, locationId, registerId, date)->
+
+  @redeem: (goodyId, consumerId, businessId, locationId, registerId, timestamp, callback)->
     try
       if Object.isString goodyId
         goodyId = new ObjectId(goodyId)
+      if Object.isString consumerId
+        consumerId = new ObjectId(consumerId)
       if Object.isString businessId
         businessId = new ObjectId(businessId)
       if Object.isString locationId
         locationId = new ObjectId(locationId)
       if Object.isString registerId
         registerId = new ObjectId(registerId)
-
-      date = Date.create(date)
+      timestamp = Date.create(timestamp)
     catch error
       callback(error)
       return
 
+    @get goodyId, (error, goody)->
+      if error?
+        logger.error error
+        callback(error)
+        return
 
-## UnclaimedBarcodeStatistics ##
+        #Check that the goody exists and is active (get will only return active by default - but incase it changes I check this in here)
+        #if they are not then error out
+        if !goody? or !goody.active
+          error = {message: "sorry that goody doesn't exists or is no longer active"}
+          logger.error(error)
+          callback error, false
+          return
+
+        #get the consumer
+        Consumers.one consumerId, {firstName: 1, lastName: 1, screenName: 1}, (error, consumer)->
+          if error?
+            logger.error
+            callback(error)
+            return
+          if !consumer?
+            error = {message: "consumer does not exist"}
+            logger.error(error)
+            callback(error)
+            return
+
+          transactionEntity = {
+            type       : choices.entities.CONSUMER
+            id         : consumerId
+            name       : "#{consumer.firstName} #{consumer.lastName}"
+            screenName : consumer.screenName
+          }
+
+          transactionData = {
+            goody    : goody
+            consumer : consumer
+
+            org : {
+              type : choices.organizations.BUSINESS
+              id   : businessId
+            }
+
+            locationId   : locationId
+            registerId   : registerId
+            dateRedeemed : timestamp
+          }
+
+          redemptionLogTransaction = api.Consumers.createTransaction(
+            choices.transactions.states.PENDING
+          , choices.transactions.actions.REDEMPTION_LOG_GOODY_REDEEMED
+          , transactionData
+          , choices.transactions.directions.OUTBOUND
+          , transactionEntity)
+
+          $query = {}
+          $query["consumerId"] = consumerId
+          $query["org.type"]   = choices.organizations.BUSINESS
+          $query["org.id"]     = businessId
+
+          $inc     = {}
+          $pushAll = {}
+
+          $inc["data.karmaPoints.remaining"] = -1 * goody.karmaPointsRequired
+          $inc["data.karmaPoints.used"]      = goody.karmaPointsRequired
+
+          $pushAll = {
+            "transactions.ids": [redemptionLogTransaction.id]
+            "transactions.log": [redemptionLogTransaction]
+          }
+
+          $update = {$inc: $inc, $pushAll: $pushAll}
+
+          Statistics.model.collection.update $query, $update, {safe: true}, (error, count)->
+            success = false
+            if error?
+              logger.error error
+            if count == 1
+              success = true
+            callback(error, success)
+            return
+
+
 class UnclaimedBarcodeStatistics extends API
   @model: UnclaimedBarcodeStatistic
 
@@ -5812,7 +5923,6 @@ class UnclaimedBarcodeStatistics extends API
     return
 
 
-## Statistics ##
 class Statistics extends API
   @model: Statistic
 
@@ -5910,14 +6020,14 @@ class Statistics extends API
         logger.error error
       callback(error, count)
 
-  ### _earnKarmaPoints_ ###
+  ### _useKarmaPoints_ ###
   #
-  # KarmaPoints were used to redeem something so decrement the number of KarmaPoints available for a specific user with a specific business
+  # KarmaPoints were used to redeem a goody so decrement the number of KarmaPoints available for a specific user with a specific business
   #
   # **consumerId** _String/ObjectId_ id of the consumer<br />
   # **businessId** _String/ObjectId_ id of the business<br />
   # **amount** _String/ObjectId_ amount of KarmaPoints<br />
-  # **callback** _Function_ (error, count)<br />
+  # **callback** _Function_ (error, success)<br />
   @useKarmaPoints: (consumerId, businessId, amount, callback)->
     try
       if Object.isString consumerId
@@ -5929,7 +6039,7 @@ class Statistics extends API
       return
 
     #verify amount is valid
-    amount = parseInt(amount)
+    amount = parseInt(goody.karmaPointsRequired)
     if amount < 0
       callback({message: "amount needs to be a positive integer"})
       return
@@ -5940,9 +6050,12 @@ class Statistics extends API
     $query["org.id"]     = businessId
 
     @model.collection.update $query, {$inc: {"data.karmaPoints.remaining": -1 * amount, "data.karmaPoints.used": amount}}, {safe: true}, (error, count)->
-      if err?
+      success = false
+      if error?
         logger.error error
-      callback(error, count)
+      if count == 1
+        success = true
+      callback(error, success)
 
   @add: (data, callback)->
     obj = {
@@ -6164,6 +6277,7 @@ class Referrals extends API
         else if choices.entities.BUSINESS
           Businesses.addFunds(doc.entity.id, doc.incentives.referrer)
 
+
 class Barcodes extends API
   @model = Barcode
 
@@ -6194,6 +6308,7 @@ class Barcodes extends API
           callback(null, null)
           return
 
+
 class CardRequests extends API
   @model = CardRequest
 
@@ -6202,6 +6317,7 @@ class CardRequests extends API
       id = new ObjectId id
     $query = {'entity.id': id, 'dates.responded': {$exists: false}}
     @model.findOne $query, callback
+
 
 class EmailSubmissions extends API
   @model = EmailSubmission

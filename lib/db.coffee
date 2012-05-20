@@ -371,7 +371,7 @@ Business = new Schema {
   media: media
 
   clients       : [ObjectId] #clientIds
-  clientGroups  : {} #{clientId: group}
+  clientGroups  : {} # {clientId: group}
   groups: {
     #default groups for a business, others can be created
     owners      : [ObjectId] #clientIds
@@ -389,7 +389,7 @@ Business = new Schema {
   }
   gbEquipped    : {type: Boolean, default: false}
 
-  pin           : {type: String, validate: /[0-9]/ }
+  pin           : {type: String, validate: /[0-9]/}
 
   transactions  : transactions
 
@@ -928,7 +928,7 @@ Goody = new Schema {
   name                  : {type:String, required:true}
   description           : {type:String}
   active                : {type:Boolean, default: false, required:true }
-  karmaPointsRequired   : {type: Number, required:true}
+  karmaPointsRequired   : {type:Number, required:true}
 }
 
 Goody.index {"org.type": 1, "org.id": 1, "karmaPoints" : -1}
@@ -939,16 +939,21 @@ Goody.index {"org.type": 1, "org.id": 1, "karmaPoints" : -1}
 RedemptionLog = new Schema {
   consumer              : entity
   org                   : organization
+
+  locationId            : {type: ObjectId, required: true}
+  registerId            : {type: ObjectId, required: true}
+
   goody: {
-    id                  : {type: ObjectId, require: true}
-    karmaPoints         : {type: Number, required: true}
+    id                  : {type: ObjectId, required: true}
+    name                : {type: String, required: true}
+    karmaPointsRequired : {type: Number, required: true}
   }
-  karmaPointsAvailable  : {type: Number, required: true} #how many karmaPoints did the consumer have before the redemption
-  karmaPointsRemaining  : {type: Number, required: true} #how many karmaPoints does the consumer have after the redemption
+
   dates: {
     created             : {type: Date, default: Date.now, required: true}
     redeemed            : {type: Date, default: Date.now, required: true}
   }
+
   transactions          : transactions
 }
 

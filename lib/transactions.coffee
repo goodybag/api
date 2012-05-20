@@ -736,11 +736,11 @@ consumerDonated = (document, transaction)->
         callback() #we are not suppose to set to processed so exit cleanly
         return
       donationLogTransaction = api.Consumers.createTransaction(
-        choices.transactions.states.PENDING,
-        choices.transactions.actions.DONATION_LOG_CONSUMER_DONATED
-        transaction.data
-        choices.transactions.directions.OUTBOUND
-        transaction.entity #charity entity..
+        choices.transactions.states.PENDING
+        , choices.transactions.actions.DONATION_LOG_CONSUMER_DONATED
+        , transaction.data
+        , choices.transactions.directions.OUTBOUND
+        , transaction.entity #charity entity..
       )
 
       charityId = transaction.entity.id.toString()
