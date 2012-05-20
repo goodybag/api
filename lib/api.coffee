@@ -5664,22 +5664,51 @@ class Goodies extends API
   ### _get_ ###
   #
   # Only active goodies can be retrieved
+  # if you'd like to confirm that the goody belongs to a specific business pass in the businessId
   #
-  # **goodyId** _String/ObjectId_ id of the goody we want <br />
+  # Various argument possibilities
+  #
+  # - goodyId, callback
+  # - goodyId, businessId, callback
+  #
+  # **goodyId** _String/ObjectId_ id of the goody we want<br />
+  # **businessId** _String/ObjectId (optional)_ id of the business which the goody should belong to<br />
   # **callback** _Function_ (error, goody)
-  @get: (goodyId, callback)->
+  @get: (goodyId, businessId, callback)->
     try
       if Object.isString goodyId
         goodyId = new ObjectId(goodyId)
     catch error
       callback(error)
       return
-    @model.collection.findOne {_id: goodyId, active: true}, (err, goody)->
-      if err?
-        logger.error(err)
-        callback err
+
+    if Object.isFunction(businessId)
+      callback = businessId
+      delete businessId
+    else
+      try
+        if Object.isString businessId
+          businessId = new ObjectId(businessId)
+      catch error
+        callback(error)
         return
-      callback err, goody
+
+    $query = {}
+
+    $query["_id"]        = goodyId
+    $query["active"]     = true
+
+    if businessId?
+      $query["org.type"] = choices.organizations.BUSINESS
+      $query["org.id"] = businessId
+
+    @model.collection.findOne $query, (error, goody)->
+      if error?
+        logger.error(error)
+        callback error
+        return
+      callback error, goody
+      return
 
   ### _getByBusiness_ ###
   #
@@ -5779,7 +5808,7 @@ class Goodies extends API
       callback(error)
       return
 
-    @get goodyId, (error, goody)->
+    @get goodyId, businessId, (error, goody)->
       if error?
         logger.error error
         callback(error)
