@@ -519,14 +519,14 @@ class RedemptionLogs extends API
       callback(error)
       return
 
-    data = {
+    doc = {
       _id: transactionId
       consumer: consumer
       org: org
       locationId: locationId
       registerId: registerId
       goody: {
-        id: goody.id
+        id: goody._id
         name: goody.name
         karmaPointsRequired: goody.karmaPointsRequired
       }
@@ -541,9 +541,13 @@ class RedemptionLogs extends API
       }
     }
 
-    instance = new @model(data)
-    instance.save callback
-    return
+    @model.collection.insert doc, {safe: true}, (error, logEntry)->
+      if error?
+        logger.error(error)
+        cb(error)
+        return
+      callback(error, logEntry)
+      return
 
 
 ## Users ##
@@ -5917,84 +5921,89 @@ class Goodies extends API
         callback(error)
         return
 
-        #Check that the goody exists and is active (get will only return active by default - but incase it changes I check this in here)
-        #if they are not then error out
-        if !goody? or !goody.active
-          error = {message: "sorry that goody doesn't exists or is no longer active"}
+      #Check that the goody exists and is active (get will only return active by default - but incase it changes I check this in here)
+      #if they are not then error out
+      if !goody? or !goody.active
+        error = {message: "sorry that goody doesn't exists or is no longer active"}
+        logger.error(error)
+        callback error, false
+        return
+
+      #get the consumer
+      Consumers.one consumerId, {firstName: 1, lastName: 1, screenName: 1}, (error, consumer)->
+        if error?
+          logger.error
+          callback(error)
+          return
+        if !consumer?
+          error = {message: "consumer does not exist"}
           logger.error(error)
-          callback error, false
+          callback(error)
           return
 
-        #get the consumer
-        Consumers.one consumerId, {firstName: 1, lastName: 1, screenName: 1}, (error, consumer)->
+        entity = {
+          type       : choices.entities.CONSUMER
+          id         : consumerId
+          name       : "#{consumer.firstName} #{consumer.lastName}"
+          screenName : consumer.screenName
+        }
+
+        transactionEntity = entity
+
+        transactionData = {
+          goody    : goody
+          consumer : entity
+
+          org : {
+            type : choices.organizations.BUSINESS
+            id   : businessId
+          }
+
+          locationId   : locationId
+          registerId   : registerId
+          dateRedeemed : timestamp
+        }
+
+        redemptionLogTransaction = Consumers.createTransaction(
+          choices.transactions.states.PENDING
+        , choices.transactions.actions.REDEMPTION_LOG_GOODY_REDEEMED
+        , transactionData
+        , choices.transactions.directions.OUTBOUND
+        , transactionEntity)
+
+        $query = {}
+        $query["consumerId"]                 = consumerId
+        $query["org.type"]                   = choices.organizations.BUSINESS
+        $query["org.id"]                     = businessId
+        $query["data.karmaPoints.remaining"] = {$gte: goody.karmaPointsRequired}
+
+        $inc     = {}
+        $pushAll = {}
+
+        $inc["data.karmaPoints.remaining"] = -1 * goody.karmaPointsRequired
+        $inc["data.karmaPoints.used"]      = goody.karmaPointsRequired
+
+        $pushAll = {
+          "transactions.ids": [redemptionLogTransaction.id]
+          "transactions.log": [redemptionLogTransaction]
+        }
+
+        $update = {$inc: $inc, $pushAll: $pushAll}
+
+        fields = {_id: 1}
+
+        Statistics.model.collection.findAndModify $query, [], $update, {safe: true, new: true, fields: fields}, (error, statistic)->
           if error?
-            logger.error
-            callback(error)
+            logger.error error
+            callback(error, false)
             return
-          if !consumer?
-            error = {message: "consumer does not exist"}
-            logger.error(error)
-            callback(error)
+          if !statistic?
+            callback(error, false)
             return
+          callback(error, true)
+          tp.process(statistic, redemptionLogTransaction)
+          return
 
-          transactionEntity = {
-            type       : choices.entities.CONSUMER
-            id         : consumerId
-            name       : "#{consumer.firstName} #{consumer.lastName}"
-            screenName : consumer.screenName
-          }
-
-          transactionData = {
-            goody    : goody
-            consumer : consumer
-
-            org : {
-              type : choices.organizations.BUSINESS
-              id   : businessId
-            }
-
-            locationId   : locationId
-            registerId   : registerId
-            dateRedeemed : timestamp
-          }
-
-          redemptionLogTransaction = api.Consumers.createTransaction(
-            choices.transactions.states.PENDING
-          , choices.transactions.actions.REDEMPTION_LOG_GOODY_REDEEMED
-          , transactionData
-          , choices.transactions.directions.OUTBOUND
-          , transactionEntity)
-
-          $query = {}
-          $query["consumerId"]                 = consumerId
-          $query["org.type"]                   = choices.organizations.BUSINESS
-          $query["org.id"]                     = businessId
-          $query["data.karmaPoints.remaining"] = {$gte: goody.karmaPointsRequired}
-
-          $inc     = {}
-          $pushAll = {}
-
-          $inc["data.karmaPoints.remaining"] = -1 * goody.karmaPointsRequired
-          $inc["data.karmaPoints.used"]      = goody.karmaPointsRequired
-
-          $pushAll = {
-            "transactions.ids": [redemptionLogTransaction.id]
-            "transactions.log": [redemptionLogTransaction]
-          }
-
-          $update = {$inc: $inc, $pushAll: $pushAll}
-
-          fields = {_id: 1}
-
-          Statistics.model.collection.findAndModify $query, [], $update, {safe: true, new: true, fields: fields}, (error, statistic)->
-            if error?
-              logger.error error
-              callback(error, false)
-              return
-            if statistic?
-              callback(error, true)
-              tp.process(statistic, redemptionLogTransaction)
-              return
 
 
 ## Unclaimed Barcode Statistics ##
@@ -6601,3 +6610,4 @@ exports.Referrals                  = Referrals
 exports.Barcodes                   = Barcodes
 exports.CardRequests               = CardRequests
 exports.EmailSubmissions           = EmailSubmissions
+exports.RedemptionLogs             = RedemptionLogs

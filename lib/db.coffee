@@ -1116,6 +1116,7 @@ exports.Referral                  = mongoose.model 'Referral', Referral
 exports.Barcode                   = mongoose.model 'Barcode', Barcode
 exports.CardRequest               = mongoose.model 'CardRequest', CardRequest
 exports.EmailSubmission           = mongoose.model 'EmailSubmission', EmailSubmission
+exports.RedemptionLog             = mongoose.model 'RedemptionLog', RedemptionLog
 
 exports.schemas = {
   Sequence                  : Sequence
@@ -1143,4 +1144,5 @@ exports.schemas = {
   Barcode                   : Barcode
   CardRequest               : CardRequest
   EmailSubmission           : EmailSubmission
+  RedemptionLog             : RedemptionLog
 }
