@@ -6028,6 +6028,93 @@ class UnclaimedBarcodeStatistics extends API
     @model.collection.update {org: org, barcodeId: barcodeId}, $update, {safe: true, upsert: true }, callback
     return
 
+  ### _getKarmaPoints_ ###
+  #
+  # Get either of the following:
+  #
+  # - A list of the karmaPoints for a specific consumer and all the businesses they've interacted with
+  # - The karmaPoints for a specific customer-business relation
+  #
+  # Various argument possibilities
+  #
+  # - barcodeId, callback
+  # - barcodeId, businessId, callback
+  #
+  # **barcodeId** _String/ObjectId_ the barcode<br />
+  # **businessId** _String/ObjectId_ id of the business
+  #
+  # Various callback possibilities (in order of argument possibilities above)
+  #
+  # - **callback** _Function_ (error, statistics)
+  # - **callback** _Function_ (error, statistic)
+  @getKarmaPoints: (barcodeId, businessId, callback)->
+    getAll = true #the KarmaPoints for each business
+
+    if Object.isFunction(businessId)
+      callback = businessId
+      delete businessId
+    else
+      try
+        if Object.isString businessId
+          businessId = new ObjectId(businessId)
+        getAll = false #the KarmaPoints for a specific business
+      catch error
+        callback(error)
+        return
+
+    $query   = {}
+    $options = {}
+
+    $query["barcodeId"] = barcodeId
+
+    if !getAll
+      $query["org.type"] = choices.organizations.BUSINESS
+      $query["org.id"]   = businessId
+      $options["limit"]  = 1
+
+    @model.collection.find $query, {barcodeId: 1, org: 1, "data.karmaPoints": 1}, $options, (error, cursor)->
+      if error?
+        logger.error(error)
+        callback(error)
+        return
+      cursor.toArray (error, statistics)->
+        if !getAll and statistics.length == 1 #if were only wanted karmaPoints for one specific relationship (not all) then don't give back an array
+          callback(error, statistics[0])
+          return
+        callback(error, statistics)
+
+  ### _awardKarmaPoints_ ###
+  #
+  # Award a consumer KarmaPoints for their interactions with a specific business
+  #
+  # **barcodeId** _String/ObjectId_ the barcode<br />
+  # **businessId** _String/ObjectId_ id of the business<br />
+  # **amount** _String/ObjectId_ amount of KarmaPoints<br />
+  # **callback** _Function_ (error, count)<br />
+  @awardKarmaPoints: (barcodeId, businessId, amount, callback)->
+    try
+      if Object.isString businessId
+        businessId = new ObjectId(businessId)
+    catch error
+      callback(error)
+      return
+
+    #verify amount is valid
+    amount = parseInt(amount)
+    if amount < 0
+      callback({message: "amount needs to be a positive integer"})
+      return
+
+    $query = {}
+    $query["barcodeId"]  = barcodeId
+    $query["org.type"]   = choices.organizations.BUSINESS
+    $query["org.id"]     = businessId
+
+    @model.collection.update $query, {$inc: {"data.karmaPoints.earned": amount, "data.karmaPoints.remaining": amount} }, {safe: true, upsert: true}, (error, count)->
+      if error?
+        logger.error error
+      callback(error, count)
+      return
 
 class Statistics extends API
   @model: Statistic
@@ -6092,7 +6179,7 @@ class Statistics extends API
           return
         callback(error, statistics)
 
-  ### _earnKarmaPoints_ ###
+  ### _awardKarmaPoints_ ###
   #
   # Award a consumer KarmaPoints for their interactions with a specific business
   #
@@ -6100,7 +6187,7 @@ class Statistics extends API
   # **businessId** _String/ObjectId_ id of the business<br />
   # **amount** _String/ObjectId_ amount of KarmaPoints<br />
   # **callback** _Function_ (error, count)<br />
-  @earnKarmaPoints: (consumerId, businessId, amount, callback)->
+  @awardKarmaPoints: (consumerId, businessId, amount, callback)->
     try
       if Object.isString consumerId
         consumerId = new ObjectId(consumerId)
@@ -6145,7 +6232,7 @@ class Statistics extends API
       return
 
     #verify amount is valid
-    amount = parseInt(goody.karmaPointsRequired)
+    amount = parseInt(amount)
     if amount < 0
       callback({message: "amount needs to be a positive integer"})
       return

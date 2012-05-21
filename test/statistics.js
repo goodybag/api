@@ -21,16 +21,15 @@ function getKarmaPointsForBusiness(){
   api.Statistics.getKarmaPoints("4f3301b2d0910de36d000067", "4f5c24edf9e111000000001e", cbConsole);
 };
 
-function earnKarmaPoints(){
-  api.Statistics.earnKarmaPoints("4f3301b2d0910de36d000067", "4f5c24edf9e111000000001e", 5, cbConsole);
+function awardKarmaPoints(){
+  api.Statistics.awardKarmaPoints("4f3301b2d0910de36d000067", "4f5c24edf9e111000000001e", 5, cbConsole);
 };
 
 function useKarmaPoints(){
   api.Statistics.useKarmaPoints("4f3301b2d0910de36d000067", "4f5c24edf9e111000000001e", 5, cbConsole);
 };
 
-
-earnKarmaPoints();
+awardKarmaPoints();
 getKarmaPointsForBusiness();
 
 useKarmaPoints();
