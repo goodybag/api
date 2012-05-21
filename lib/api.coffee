@@ -1,4 +1,4 @@
-aexports = module.exports
+exports = module.exports
 
 bcrypt = require "bcrypt"
 generatePassword = require "password-generator"
