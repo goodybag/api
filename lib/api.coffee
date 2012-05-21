@@ -5791,7 +5791,6 @@ class Goodies extends API
         callback(err)
         return
 
-
   ### _count_ ###
   #
   # Count the number of goodies given some criteria
@@ -5837,7 +5836,6 @@ class Goodies extends API
       else
         callback(error, count)
         return
-
 
   ### _redeem_ ###
   #
