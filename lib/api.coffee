@@ -59,6 +59,8 @@ EmailSubmission = db.EmailSubmission
 #Make sure that all necessary fields exist for each function before sending the query to the db
 
  ## API ##
+
+## API ##
 class API
   @model = null
   constructor: ()->
@@ -428,11 +430,12 @@ class API
 
     @model.findOne $query, callback
 
-
+## Database Transactions ##
 class DBTransactions extends API
   @model: DBTransaction
 
 
+## Sequences ##
 class Sequences extends API
   @model: Sequence
 
@@ -469,6 +472,7 @@ class Sequences extends API
         callback(null, doc[key])
 
 
+## Donation Logs ##
 class DonationLogs extends API
   @model = DonationLog
 
@@ -496,6 +500,7 @@ class DonationLogs extends API
     return
 
 
+## Redemption Logs ##
 class RedemptionLogs extends API
   @model = RedemptionLog
 
@@ -541,6 +546,7 @@ class RedemptionLogs extends API
     return
 
 
+## Users ##
 class Users extends API
   #start potential new API functions
   #model.findById id, fields, options callback
@@ -999,6 +1005,7 @@ class Users extends API
     return
 
 
+## Consumers ##
 class Consumers extends Users
   @model = Consumer
 
@@ -1092,11 +1099,35 @@ class Consumers extends Users
     query.exec callback
     return
 
-  @getByBarcodeId: (barcodeId, callback)->
+  ### _getByBarcodeId_ ###
+  #
+  # get a consumer by the barcodeId
+  #
+  # Various argument possibilities
+  #
+  # - barcodeId, callback
+  # - barcodeId, fields, callback
+  #
+  # **barcodeId** _String/ObjectId_ the barcode<br />
+  # **fields** _Dict_ list of fields to return< br />
+  # **callback** _Function_ (error, consumer)
+  @getByBarcodeId: (barcodeId, fields, callback)->
     query = @queryOne()
     query.where("barcodeId", barcodeId)
-    query.exec callback
-    return
+
+    if Object.isFunction(fields)
+      callback = fields
+    else
+      query.fields(fields)
+
+    query.exec (error, consumer)->
+      if error?
+        logger.error error
+        callback(error)
+        return
+      else
+        callback(error, consumer)
+        return
 
   @updateBarcodeId: (entity, barcodeId, callback)->
     if Object.isString(entity.id)
@@ -1852,6 +1883,7 @@ class Consumers extends Users
   @setTransactionError: @__setTransactionError
 
 
+## Clients ##
 class Clients extends API
   @model = Client
 
@@ -2228,6 +2260,7 @@ class Clients extends API
   @setTransactionError: @__setTransactionError
 
 
+## Businesses ##
 class Businesses extends API
   @model = Business
 
@@ -2619,6 +2652,7 @@ class Businesses extends API
     @model.collection.findAndModify $query, [], $update, {safe: true}, callback
 
 
+## Organizations ##
 class Organizations extends API
   @model = Organization
 
@@ -2642,6 +2676,7 @@ class Organizations extends API
 # class Campaigns extends API
 
 
+## Polls ##
 class Polls extends API # Campaigns
   @model = Poll
 
@@ -3317,6 +3352,7 @@ class Polls extends API # Campaigns
   @setTransactionError: @__setTransactionError
 
 
+## Discussions ##
 class Discussions extends API #Campaigns
   @model = Discussion
 
@@ -4134,6 +4170,7 @@ class Discussions extends API #Campaigns
   @setTransactionError: @__setTransactionError
 
 
+## Medias ##
 class Medias extends API
   @model = Media
 
@@ -4350,6 +4387,7 @@ class Medias extends API
     #@get {'entity.type': entityType, 'entity.id': entityId, 'media.guid': guid}, callback
 
 
+## Client Invitations ##
 class ClientInvitations extends API
   @model = ClientInvitation
 
@@ -4384,6 +4422,7 @@ class ClientInvitations extends API
     query.remove(callback)
 
 
+## Tags ##
 class Tags extends API
   @model = Tag
 
@@ -4413,6 +4452,7 @@ class Tags extends API
     query.exec callback
 
 
+## Event Requests ##
 class EventRequests extends API
   @model = EventRequest
 
@@ -4435,6 +4475,7 @@ class EventRequests extends API
     @model.collection.findAndModify $query, [], $update, $options, callback
 
 
+## Events ##
 class Events extends API
   @model = Event
 
@@ -4522,6 +4563,7 @@ class Events extends API
   @setTransactionError: @__setTransactionError
 
 
+## Business Transactions ##
 class BusinessTransactions extends API
   @model = db.BusinessTransaction
 
@@ -4804,6 +4846,7 @@ class BusinessTransactions extends API
   @setTransactionError: @__setTransactionError
 
 
+## Business Requests ##
 class BusinessRequests extends API
   @model = BusinessRequest
 
@@ -4825,6 +4868,7 @@ class BusinessRequests extends API
     instance.save callback
 
 
+## Streams ##
 class Streams extends API
   @model: Stream
 
@@ -5468,6 +5512,7 @@ class Streams extends API
         callback error, {activities: activities, consumers: consumers}
 
 
+## Password Reset Requests ##
 class PasswordResetRequests extends API
   @model: PasswordResetRequest
 
@@ -5561,6 +5606,7 @@ class PasswordResetRequests extends API
     return
 
 
+## Goodies ##
 class Goodies extends API
   @model = Goody
 
@@ -5951,6 +5997,7 @@ class Goodies extends API
               return
 
 
+## Unclaimed Barcode Statistics ##
 class UnclaimedBarcodeStatistics extends API
   @model: UnclaimedBarcodeStatistic
 
@@ -6115,6 +6162,7 @@ class UnclaimedBarcodeStatistics extends API
       return
 
 
+## Statistics ##
 class Statistics extends API
   @model: Statistic
 
@@ -6393,6 +6441,7 @@ class Statistics extends API
   @setTransactionError: @__setTransactionError
 
 
+## Referrals ##
 class Referrals extends API
   @model = Referral
 
@@ -6470,6 +6519,7 @@ class Referrals extends API
           Businesses.addFunds(doc.entity.id, doc.incentives.referrer)
 
 
+## Barcodes ##
 class Barcodes extends API
   @model = Barcode
 
@@ -6501,6 +6551,7 @@ class Barcodes extends API
           return
 
 
+## CardRequests ##
 class CardRequests extends API
   @model = CardRequest
 
@@ -6511,6 +6562,7 @@ class CardRequests extends API
     @model.findOne $query, callback
 
 
+## EmailSubmissions ##
 class EmailSubmissions extends API
   @model = EmailSubmission
 
