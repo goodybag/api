@@ -6114,6 +6114,7 @@ class UnclaimedBarcodeStatistics extends API
       callback(error, count)
       return
 
+
 class Statistics extends API
   @model: Statistic
 
