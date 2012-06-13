@@ -734,6 +734,7 @@ Stream = new Schema {
 }
 
 #indexes
+Stream.index {"feeds.global": 1, "dates.lastModified": -1}
 Stream.index {"feeds.global": 1, "who.type": 1, "who.id": 1, events: 1}
 Stream.index {"who.type": 1, "who.id": 1, events: 1}
 Stream.index {"who.type": 1, "who.id": 1, "by.type": 1, "by.id": 1, events: 1}
@@ -931,7 +932,7 @@ Goody = new Schema {
   karmaPointsRequired   : {type:Number, required:true}
 }
 
-Goody.index {"org.type": 1, "org.id": 1, "karmaPoints" : -1}
+Goody.index {"org.type": 1, "org.id": 1, "karmaPointsRequired" : 1}
 
 ###########################
 # REDEMPTION LOG ##########
