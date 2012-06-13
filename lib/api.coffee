@@ -6005,7 +6005,6 @@ class Goodies extends API
           return
 
 
-
 ## Unclaimed Barcode Statistics ##
 class UnclaimedBarcodeStatistics extends API
   @model: UnclaimedBarcodeStatistic
