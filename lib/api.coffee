@@ -4686,7 +4686,7 @@ class BusinessTransactions extends API
             transactionData.karmaPointsEarned = if !isNaN(parseFloat(globals.defaults.tapIns.karmaPointsEarned)) then parseFloat(parseFloat(globals.defaults.tapIns.karmaPointsEarned).toFixed(2)) else 0
 
             if doc.postToFacebook
-              transactionData.karmaPointsEarned = globals.defaults.tapIns.karmaPointsEarnedFB;
+              transactionData.karmaPointsEarned = globals.defaults.tapIns.karmaPointsEarnedFB
 
           transaction = undefined
           if doc.userEntity?
