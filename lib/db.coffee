@@ -387,8 +387,10 @@ Business = new Schema {
     remaining         : {type: Number, required: true, default: 0.0}
     donationsRecieved : {type: Number} #for charities only.
   }
-  gbEquipped    : {type: Boolean, default: false}
 
+  gbEquipped    : {type: Boolean, default: false}
+  deleted       : {type: Boolean, default: false}
+  
   pin           : {type: String, validate: /[0-9]/}
 
   transactions  : transactions
