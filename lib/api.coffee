@@ -2529,6 +2529,7 @@ class Businesses extends API
   #locationIds can be an array or a string
   @delLocations: (id, locationIds, callback)->
     objIds = []
+    self = this
     if Object.isArray(locationIds)
       for locationId in locationIds
         objIds.push new ObjectId(locationId)
@@ -2538,7 +2539,22 @@ class Businesses extends API
     if Object.isString(id)
       id = new ObjectId(id)
 
-    @model.collection.update {_id: id}, {$pull: {locations: {_id: {$in: objIds} }}}, {safe: true}, callback
+    @model.collection.findOne { _id: id }, { registers: 1, locRegister: 1 }, (err, results) ->
+      if err?
+        callback err, null
+      else
+        $unset = {}
+        for location in objIds
+          if results.locRegister[location]?
+            $unset[ "locRegister." + location ] = 1;
+          for register in results.locRegister[location]
+            if results.registers[register]?
+              $unset[ "registers." + register ] = 1;
+        self.model.collection.findAndModify { _id: id }, [], { $unset: $unset }, {safe: true}, (err, response) ->
+          if err?
+            callback err, null
+
+    @model.collection.update {_id: id}, {$pull: { locations: {_id: { $in: objIds } },  } }, {safe: true}, callback
 
   @getGroup: (id, groupName, callback)->
     data = {}
