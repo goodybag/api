@@ -2274,6 +2274,7 @@ class Businesses extends API
     query.in('clients', [options.clientId]) if options.clientId?
     query.where 'locations.tapins', true if options.tapins?
     query.where 'isCharity', options.charity if options.charity?
+    query.where 'deleted', options.deleted if options.deleted?
     query.where 'gbEquipped', true if options.equipped?
     query.where 'type', options.type if options.type?
     return query
