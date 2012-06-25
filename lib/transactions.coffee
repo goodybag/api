@@ -41,10 +41,6 @@ process = (document, transaction)-> #this is just a router
       discussionDonationDistributed(document, transaction)
 
     #FINANCIAL - CONSUMERS
-    when choices.transactions.actions.CONSUMER_DONATED
-      consumerDonated(document, transaction)
-    when choices.transactions.actions.DONATION_LOG_CONSUMER_DONATED
-      donationLogConsumerDonated(document, transaction)
 
     #FINANCIAL - BUSINESS TRANSACTIONS
     when choices.transactions.actions.BT_TAPPED
@@ -265,36 +261,6 @@ __depositFunds = (classTo, initialTransactionClass, document, transaction, entit
           callback(null, null)
     else #transaction went through
       logger.info "#{prepend} Successfully deducted funds"
-      callback(null, doc)
-    return
-
-#use the entity and amount in the transaction object
-_depositDonationFunds = (classTo, initialTransactionClass, document, transaction, locking, removeLock, callback)->
-  __depositDonationFunds(classTo, initialTransactionClass, document, transaction, transaction.entity, transaction.data.amount, locking, removeLock, callback)
-  return
-
-__depositDonationFunds = (classTo, initialTransactionClass, document, transaction, entity, amount, locking, removeLock, callback)->
-  prepend = "ID: #{document._id} - TID: #{transaction.id}"
-  classTo.depositDonationFunds entity.id, transaction.id, amount, (error, doc)->
-    if error?
-      logger.error error
-      logger.error "#{prepend} donating funds into #{entity.type}: #{entity.id} failed - database error"
-      callback(error) #determine what type of error it is and then whether to setTransactionError or ignore and let the poller pick it up later (the later is probably the case)
-    else if !doc? #if the consumer object doesn't exist then either the transaction occured previously, there aren't enough funds, or the entity doesn't exist
-      logger.info "#{prepend} transaction may have occured, VERIFYING"
-      classTo.checkIfTransactionExists entity.id, transaction.id, (error, doc2)->
-        if error?
-          logger.error error #error querying, try again later
-          logger.error "#{prepend} database error"
-          callback(error)
-        else if doc2? #transaction already occured
-          logger.info "#{prepend} transaction already occured"
-          callback(null, doc2)
-        else #entity doesn't exist
-          logger.warn "#{prepend} Couldn't find the entity to donate funds too"
-          callback(null, null)
-    else #transaction went through
-      logger.info "#{prepend} Successfully deducted funds for donation"
       callback(null, doc)
     return
 
@@ -692,115 +658,6 @@ pollAnswered = (document, transaction)->
           logger.error error
           logger.error "#{prepend} unable to properly clean up - the poller will try later"
 
-consumerDonated = (document, transaction)->
-  prepend = "ID: #{document._id} - TID: #{transaction.id}"
-  logger.info "Creating transaction for consumer donated to charity"
-  logger.info "#{prepend} - #{transaction.direction}"
-
-  cleanup = (callback)->
-    logger.info "#{prepend} cleaning up"
-    _cleanupTransaction document, transaction, api.Consumers, [api.Consumers, api.Businesses], callback
-
-  setProcessed = true #setProcessed, unless something sets this to false
-  async.series {
-    setProcessing: (callback)->
-      _setTransactionProcessing api.Consumers, document, transaction, false, (error, doc)->
-        document = doc #we do this because the entities object is missing when the poll is answered
-        callback error, doc
-        return
-      return
-
-    depositDonationFunds: (callback)->
-      if transaction.entity.type is choices.entities.BUSINESS
-        logger.debug "#{prepend} attempting to donate funds to business(charity): #{transaction.entity.id}"
-        _depositDonationFunds api.Businesses, api.Consumers, document, transaction, false, false, (error, doc)->
-          if error?
-            logger.error error #mongo errored out
-            callback(error)
-          else if doc?  #transaction was successful, so continue to set processed
-            callback(null, doc)
-          else #null, null passed in which meas insufficient funds, so set error, and exit
-            error = {message: "entity to deposit funds to was not found"}
-            _setTransactionError api.Consumers, document, transaction, false, false, error, {}, (error, doc)->
-              #we don't care if it set or if it didn't set because:
-              # 1. if there was a mongo error then the poller will pick it up and work on it later
-              # 2. if it did set then fantastic, we will exit because we don't want to set to processed
-              # 3. if it did not set (no error, and no document updated) then we want to exit because
-              #    it is already in an error or processed state. In that case we want to do nothing
-              setProcessed = false
-              callback(null, null)
-              return
-          return
-      else
-        callback({name:"NullError", message: "Unsupported Entity Type: #{transaction.entity.type}"})
-      return
-
-    setProcessed: (callback)->
-      if setProcessed is false
-        callback() #we are not suppose to set to processed so exit cleanly
-        return
-      donationLogTransaction = api.Consumers.createTransaction(
-        choices.transactions.states.PENDING
-        , choices.transactions.actions.DONATION_LOG_CONSUMER_DONATED
-        , transaction.data
-        , choices.transactions.directions.OUTBOUND
-        , transaction.entity #charity entity..
-      )
-
-      charityId = transaction.entity.id.toString()
-      $pushAll = {
-        #transactions
-        "transactions.ids"    : [donationLogTransaction.id]
-        "transactions.temp"   : [donationLogTransaction]
-      }
-      #donations
-      $addToSet = {
-        "donations.charities" : transaction.entity.id #ObjectId!!
-      }
-      $inc = {
-        "funds.donated" :  transaction.data.amount
-      }
-      $inc["donations.log.#{charityId}.count"]  = 1
-      $inc["donations.log.#{charityId}.amount"] = transaction.data.amount
-      $update = {
-        $inc    : $inc
-        $pushAll : $pushAll
-        $addToSet: $addToSet
-      }
-      logger.silly "$update"
-      logger.silly $update
-      _setTransactionProcessedAndCreateNew api.Consumers, document, transaction, [donationLogTransaction], false, false, $update, (error, consumer)->
-        callback(error, consumer)
-        if error? or !consumer?
-          return
-        socketChannel = document._id.toString()
-        utils.sendMessage(socketChannel, "refreshUserHeader")
-        return
-
-      #if it went through great, if it didn't go through then the poller will take care of it
-      #, no other state changes need to occur
-  },
-  (error, results)->
-    clean = false
-    if error?
-      logger.error error
-      if error.name is "TransactionAlreadyCompleted" #we recevied a null document while trying to set the state - the state is already set to processed or error, just needs to cleaned up
-        clean = true
-      else
-        logger.error "#{prepend} the poller will try later" #we received some other type of error, so we will try again later
-        return
-    else if results and results.setProcessed?
-      clean = true
-
-    if clean is true
-      cleanup (error, dbTransaction)-> #start cleaning up
-        if error?
-          logger.error error
-          logger.error "#{prepend} unable to properly clean up - the poller will try later"
-        return
-    return
-  return
-
 btTapped = (document, transaction)->
   prepend = "ID: #{document._id} - TID: #{transaction.id}"
   logger.info "Creating transaction for business transaction"
@@ -946,79 +803,6 @@ btBarcodeClaimed = (document, transaction)->
         if error?
           logger.error error
           logger.error "#{prepend} unable to properly clean up - the poller will try later"
-
-donationLogConsumerDonated = (document, transaction)->
-  prepend = "ID: #{document._id} - TID: #{transaction.id}"
-  logger.info "Creating transaction for donation log - consumer donated to charity"
-  logger.info "#{prepend} - #{transaction.direction}"
-
-  cleanup = (callback)->
-    logger.info "#{prepend} cleaning up"
-    _cleanupTransaction document, transaction, api.Consumers, [api.Consumers, api.DonationLogs], callback
-
-  setProcessed = true #setProcessed, unless something sets this to false
-  donationLogDoc = null
-  consumerEntity = null
-  async.series {
-    setProcessing: (callback)->
-      _setTransactionProcessing api.Consumers, document, transaction, false, (error, doc)->
-        document = doc
-        callback error, doc
-        return
-      return
-
-    addDonationLog: (callback)->
-      consumerEntity = {
-        id         : document._id
-        type       : choices.entities.CONSUMER
-        name       : document.firstName+" "+document.lastName
-        screenName : document.screenName
-      }
-      charityEntity = transaction.entity
-      amount = transaction.data.amount
-      timestampDonated = transaction.data.timestamp
-      api.DonationLogs.entityDonated consumerEntity, charityEntity, amount, timestampDonated, transaction.id, (error, doc)->
-        if error?
-          if error.code is 11000 or error.code is 11001
-            callback(null, null) #transaction already occurred
-            return
-          logger.error error
-          callback error
-          return
-        donationLogDoc = doc #this is used in the setProcessed function below..
-        callback null, doc
-        return
-
-    setProcessed: (callback)->
-      _setTransactionProcessed api.Consumers, document, transaction, false, false, {}, callback
-      #if it went through great, if it didn't go through then the poller will take care of it,
-      #no other state changes need to occur
-      #charity is transaction.entity
-      #Write to the event stream
-      who = consumerEntity #set in addDonationLog
-      api.Streams.fundsDonated(who, transaction.entity, donationLogDoc) #we don't care about the callback
-      return
-  },
-  (error, results)->
-    clean = false
-    if error?
-      logger.error error
-      if error.name is "TransactionAlreadyCompleted" #we recevied a null document while trying to set the state - the state is already set to processed or error, just needs to cleaned up
-        clean = true
-      else
-        logger.error "#{prepend} the poller will try later" #we received some other type of error, so we will try again later
-        return
-    else if results and results.setProcessed?
-      clean = true
-
-    if clean is true
-      cleanup (error, dbTransaction)-> #start cleaning up
-        if error?
-          logger.error error
-          logger.error "#{prepend} unable to properly clean up - the poller will try later"
-        return
-    return
-  return
 
 #INBOUND
 discussionCreated = (document, transaction)->

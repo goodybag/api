@@ -213,21 +213,6 @@ PasswordResetRequest = new Schema {
 
 
 ####################
-# DONATIONS ########
-####################
-DonationLog = new Schema {
-  entity     : entity
-  charity    : entity
-  amount     : {type: Number, required: true}
-  dates : {
-    created  : {type: Date, default: Date.now}
-    donated  : {type: Date, default: Date.now}
-  }
-  transactions : transactions
-}
-
-
-####################
 # CONSUMER #########
 ####################
 Consumer = new Schema {
@@ -390,7 +375,7 @@ Business = new Schema {
 
   gbEquipped    : {type: Boolean, default: false}
   deleted       : {type: Boolean, default: false}
-  
+
   pin           : {type: String, validate: /[0-9]/}
 
   transactions  : transactions

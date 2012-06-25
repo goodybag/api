@@ -30,7 +30,6 @@ Binary = globals.mongoose.mongo.BSONPure.Binary
 DBTransaction = db.DBTransaction
 Sequence = db.Sequence
 Client = db.Client
-DonationLog = db.DonationLog
 RedemptionLog = db.RedemptionLog
 Consumer = db.Consumer
 Goody = db.Goody
@@ -470,34 +469,6 @@ class Sequences extends API
         callback({"sequence": "could not find sequence document"})
       else
         callback(null, doc[key])
-
-
-## Donation Logs ##
-class DonationLogs extends API
-  @model = DonationLog
-
-  @entityDonated = (entity, charity, amount, timestampDonated, transactionId, callback)->
-    if Object.isString entity.id
-      entity.id = new ObjectId entity.id
-    if Object.isString charity.id
-      charity.id = new ObjectId charity.id
-
-    data = {
-      _id     : transactionId #to prevent duplicates
-      entity  : entity
-      charity : charity
-      amount  : amount
-      dates : {
-        created : new Date()
-        donated : new Date(timestampDonated)
-      }
-      transactions : {
-        ids : [transactionId]
-      }
-    }
-    instance = new @model(data)
-    instance.save callback
-    return
 
 
 ## Redemption Logs ##
@@ -1483,93 +1454,6 @@ class Consumers extends Users
               break;
 
       callback null, consumer
-      return
-    return
-
-  @donate: (id, donationObj, callback)->
-    self = this
-    if Object.isString id
-      id = new ObjectId id
-    entityType = choices.entities.CONSUMER
-
-    @one id, {funds:1}, (error, user)->
-      if error?
-        callback error
-        return
-      if !user?
-        callback new errors.ValidationError "User id not found.", {"id":"user id not found."}
-        return
-      #found user
-      totalAmount = 0
-      charityIds = []
-      for charityId, amount of donationObj
-        if Object.isString charityId
-          charityId = new ObjectId charityId
-        amount = parseFloat(amount)
-        if !isNaN(amount) && amount>0
-          charityIds.push charityId
-          totalAmount += amount
-          if user.funds.remaining < (totalAmount)
-            callback new errors.ValidationError "Insufficient funds.", {"user":"Insufficient funds."}
-            return
-        else
-          delete donationObj[charityId]
-      numDonations = charityIds.length
-      if numDonations == 0
-        callback new errors.ValidationError "No valid donations entered.", {"donation amounts":"Invalid donation amounts."}
-        return
-      #verify charities exist..and that the bizs are charities
-      Businesses.model.find {_id:{$in:charityIds},isCharity:true}, {_id:1, publicName:1}, {safe:true}, (error, charitiesVerified)->
-        if error?
-          callback error #dberror
-          return
-        if charitiesVerified.length < numDonations
-          callback new errors.ValidationError "Incorrect charity id found.", {'charityId', 'Invalid charityId.'}
-          return
-
-        transactions = []
-        transactionIds = []
-        for charity in charitiesVerified
-          #prepare transactions
-          charityEntity = {
-            type : choices.entities.BUSINESS,
-            id   : charity._id #ObjectId
-            name : charity.publicName
-          }
-          amount = donationObj[charity._id.toString()]
-          transactionData = {
-            amount: parseFloat(amount)
-            timestamp: new Date()
-          }
-          transaction = self.createTransaction(choices.transactions.states.PENDING, choices.transactions.actions.CONSUMER_DONATED, transactionData, choices.transactions.directions.OUTBOUND, charityEntity)
-          transactionIds.push transaction.id
-          transactions.push transaction
-          #end prepare transactions
-
-        #all charities found and verified
-        #update consumer, and start transactions
-        pushAll = {}
-        inc     = {}
-        pushAll["transactions.ids"] = transactionIds
-        pushAll["transactions.log"] = transactions
-        inc["funds.remaining"]      = -1*totalAmount
-        update = {
-          $pushAll : pushAll,
-          $inc  : inc
-        }
-        self.model.collection.findAndModify {_id:id}, [], update, {new:true, safe:true, fields:{_id:1,funds:1}}, (error, consumer)->
-          if error?
-            callback error
-            return
-          #consumerToReturn has updated funds.donated passed back for the session..
-          #consumer db gets updated after transaction completes.
-          consumerToReturn = Object.clone(consumer, true)
-          consumerToReturn.funds.donated += totalAmount
-          callback null, consumerToReturn, charitiesVerified
-          for transaction in transactions
-            tp.process(consumer, transaction)
-          return
-        return
       return
     return
 
@@ -2597,15 +2481,6 @@ class Businesses extends API
       transactionId = new ObjectId(transactionId)
 
     @model.collection.findAndModify {_id: id, 'transactions.ids': {$ne: transactionId}}, [], {$addToSet: {"transactions.ids": transactionId}, $inc: {'funds.remaining': amount, 'funds.allocated': amount }}, {new: true, safe: true}, callback
-
-  @depositDonationFunds: (id, transactionId, amount, callback)->
-    if Object.isString(id)
-      id = new ObjectId(id)
-
-    if Object.isString(transactionId)
-      transactionId = new ObjectId(transactionId)
-
-    @model.collection.findAndModify {_id: id, 'transactions.ids': {$ne: transactionId}}, [], {$addToSet: {"transactions.ids": transactionId}, $inc: {'funds.donationsRecieved': amount}}, {new: true, safe: true}, callback
 
   @listWithTapins: (callback)->
     query = @_query()
@@ -4596,7 +4471,7 @@ class BusinessTransactions extends API
     if Object.isString(data.registerId)
       data.registerId = new ObjectId(data.registerId)
 
-    if !isNaN(parseFloat(data.timestamp)) #if it is a number
+    if !isNaN(data.timestamp) #if it is a number
       timestamp = Date.create(parseFloat(data.timestamp))
     else #if it is not a number then try and create a date
       timestamp = Date.create(data.timestamp)
@@ -6604,7 +6479,6 @@ class EmailSubmissions extends API
 exports.DBTransactions             = DBTransactions
 exports.Consumers                  = Consumers
 exports.Clients                    = Clients
-exports.DonationLogs               = DonationLogs
 exports.Businesses                 = Businesses
 exports.Polls                      = Polls
 exports.Discussions                = Discussions
