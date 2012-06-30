@@ -218,8 +218,9 @@ PasswordResetRequest = new Schema {
 Consumer = new Schema {
   email           : {type: String, set: utils.toLower, validate: Email, unique: true}
   password        : {type: String, min:5, required: true}
-  firstName       : {type: String, required: true}
-  lastName        : {type: String, required: true}
+  firstName       : {type: String, required: false}
+  lastName        : {type: String, required: false}
+  privateId       : {type: ObjectId}
   screenName      : {type: String, unique: true, min:5}
   setScreenName   : {type: Boolean, default: false}
   created         : {type: Date, default: Date.now}
@@ -230,8 +231,9 @@ Consumer = new Schema {
   media           : media
   secureMedia     : media
   tapinsToFacebook: {type: Boolean, default: false}
-  changeEmail   : {}
+  changeEmail     : {}
 
+  charity         : organization
   facebook: {
     access_token  : {type: String}
     id            : {type: String}
@@ -295,10 +297,23 @@ Consumer = new Schema {
   barcodeId       : {type: String}
 
   gbAdmin         : {type: Boolean, default: false}
+
+  updateVerification : {
+    key        : {type: String}
+    expiration : {type: Date}
+    data       : {}
+  }
+
+  signupVerification: {
+    key: {type: String}
+    expiration: {type: Date}
+  }
+
   transactions    : transactions
 }
 
 Consumer.index {barcodeId: 1}, {unique: true, sparse: true} #sparse because we allow for null/non-existant values
+Consumer.index {"updateVerification.key": 1}, {unique: true, sparse: true} #sparse because we allow for null/non-existant values
 
 
 ####################
@@ -819,6 +834,7 @@ BusinessTransaction = new Schema {
   }
 
   organizationEntity    : organization
+  charity               : organization
 
   locationId            : {type: ObjectId, required: true}
   registerId            : {type: String, required: true}

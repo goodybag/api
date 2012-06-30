@@ -1,6 +1,7 @@
 exports = module.exports
 
 bcrypt = require "bcrypt"
+uuid = require "node-uuid"
 generatePassword = require "password-generator"
 util = require "util"
 async = require "async"
@@ -1083,7 +1084,7 @@ class Consumers extends Users
   # - barcodeId, callback
   # - barcodeId, fields, callback
   #
-  # **barcodeId** _String/ObjectId_ the barcode<br />
+  # **barcodeId** _String_ the barcode<br />
   # **fields** _Dict_ list of fields to return< br />
   # **callback** _Function_ (error, consumer)
   @getByBarcodeId: (barcodeId, fields, callback)->
@@ -1230,6 +1231,65 @@ class Consumers extends Users
         return
       return
     return
+
+  ### _registerPendingAndClaim_ ###
+  #
+  # register the consumer and claim past tap-ins<br />
+  # add a signupVerification key and expiration.<br />
+  # This will enable the user to claim this account.
+  @registerAsPendingAndClaim: (data, fields, callback)->
+    data.signupVerification = {}
+    data.signupVerification.key = hashlib.md5(data.email) + "|" + uuid.v4()
+    data.signupVerification.expiration = Date.create().addYears(1)
+    @register data, fields, (error, consumer)->
+      if error?
+        callback error
+        return
+      callback null, consumer
+
+      entity = {
+        id: consumer._id
+        name: "#{consumer.firstName} #{consumer.lastName}"
+        screenName: consumer.screenName
+      }
+
+
+      BusinessTransactions.claimBarcodeId entity, consumer.barcodeId, (error)->
+        if error?
+          logger.error error
+
+  ### _tapInUpdateData_ ###
+  #
+  # Store the values to modify if the update is verified
+  #
+  # this is usually the barcodeId and charity
+  #
+  # **id** _String/ObjectId_ the consumerId<br />
+  # **data** _Object_ the fields to set<br />
+  # **fields** _Dict_ list of fields to return< br />
+  # **callback** _Function_ (error, consumer)
+  @tapInUpdateData: (id, data, fields, callback)->
+    if Object.isString(id)
+      id = new ObjectId(id)
+
+    $set = {}
+    $set.updateVerification = {
+      key: id.toString() + "|" + uuid.v4()
+      exipiration: Date.create().addWeeks(2)
+      data: {}
+    }
+
+    if data.charity?
+      $set.updateVerification.data.charity = data.charity
+    if data.barcodeId?
+      $set.updateVerification.data.barcodeId = data.barcodeId
+
+      @model.collection.findAndModify {_id: id}, {$set: $set}, {fields: fields, new: true, safe: true}, (error, consumer)->
+        if error?
+          logger.error
+          callback {name: "DatabaseError", message: "Unable to update the consumer"}
+          return
+        callback null, consumer
 
   @facebookLogin: (accessToken, fieldsToReturn, referralCode, callback)->
     #** fieldsToReturn needs to include screenName **
@@ -4466,6 +4526,8 @@ class BusinessTransactions extends API
   @add: (data, callback)->
     if Object.isString(data.organizationEntity.id)
       data.organizationEntity.id = new ObjectId(data.organizationEntity.id)
+    if Object.isString(data.charity.id)
+      data.organizationEntity.id = new ObjectId(data.charity.id)
     if Object.isString(data.locationId)
       data.locationId = new ObjectId(data.locationId)
     if Object.isString(data.registerId)
@@ -4478,36 +4540,47 @@ class BusinessTransactions extends API
 
     amount = undefined
     if data.amount?
-      amount = if !isNaN(parseFloat(data.amount)) then parseFloat(Math.abs(parseFloat(amount)).toFixed(2)) else undefined
+      amount = if !isNaN(parseInt(data.amount)) then Math.abs(parseInt(amount)) else undefined
 
     doc = {
+      userEntity = {
+        type        : choices.entities.CONSUMER
+        id          : consumer._id
+        name        : "#{consumer.firstName} #{consumer.lastName}"
+        screenName  : consumer.screenName
+      }
+
       organizationEntity: {
         type          : data.organizationEntity.type
         id            : data.organizationEntity.id
         name          : data.organizationEntity.name
       }
 
+      charity: {
+        type          : choices.entities.CHARITY
+        id            : data.charity.id
+        name          : data.charity.name
+      }
+
+      postToFacebook  : data.postToFacebook
+
       locationId      : data.locationId
       registerId      : data.registerId
       barcodeId       : if !utils.isBlank(data.barcodeId) then data.barcodeId+"" else undefined #make string
-      transactionId   : if !utils.isBlank(data.transactionId) then data.transactionId+"" else undefined #make string
+      transactionId   : undefined
       date            : timestamp
       time            : new Date(0,0,0, timestamp.getHours(), timestamp.getMinutes(), timestamp.getSeconds(), timestamp.getMilliseconds()) #this is for slicing by time
       amount          : amount
-      receipt         : if !utils.isBlank(data.receipt) then new Binary(data.receipt) else undefined
-      hasReceipt      : if !utils.isBlank(data.receipt) then true else false
+      receipt         : undefined #we don't collect it yet, otherwise this is binary data
+      hasReceipt      : false #we don't collect it yet
 
       donationType    : defaults.bt.donationType #we should pull this out from the organization later
-      donationValue   : if !isNaN(defaults.bt.donationValue) then parseFloat(Math.abs(parseFloat(defaults.bt.donationValue).toFixed(2))) else 0 #we should pull this out from the organization (#this is the amount the business has pledged)
-      donationAmount  : if !isNaN(defaults.bt.donationValue) then parseFloat(Math.abs(parseFloat(defaults.bt.donationValue).toFixed(2))) else 0  #this is the amount totalled after any additions (such as more funds for posting to facebook)
+      donationValue   : defaults.bt.donationValue #we should pull this out from the organization (#this is the amount the business has pledged)
+      donationAmount  : defaults.bt.donationAmount #this is the amount totalled after any additions (such as more funds for posting to facebook)
     }
 
-    logger.debug data.timestamp
-    logger.debug doc.date
-    logger.debug doc
-
     self = this
-    accessToken = null
+    accessToken = data.accessToken || null
     async.series {
       findRecentTapIns: (cb)->
         if doc.barcodeId?
@@ -4521,46 +4594,8 @@ class BusinessTransactions extends API
               return
             else
               cb(null)
-
         else
           cb(null)
-      findConsumer: (cb)-> #find only if there was a barcode that needed to be analyzed
-        if doc.barcodeId?
-          Consumers.model.collection.findOne {barcodeId: doc.barcodeId}, {_id:1, firstName:1, lastName:1, screenName:1, tapinsToFacebook:1, "facebook.access_token": 1}, (error, consumer)->
-            if error?
-              cb(error, null)
-              return
-            else if consumer?
-              doc.userEntity = {
-                type        : choices.entities.CONSUMER
-                id          : consumer._id
-                name        : "#{consumer.firstName} #{consumer.lastName}"
-                screenName  : consumer.screenName
-              }
-              accessToken = if consumer.facebook? then consumer.facebook.access_token else null
-              logger.debug(consumer)
-              doc.postToFacebook = if consumer.tapinsToFacebook? and consumer.tapinsToFacebook then true else false
-              doc.donationAmount = if consumer.tapinsToFacebook? and consumer.tapinsToFacebook then parseFloat((doc.donationAmount + parseFloat(defaults.bt.donationFacebook)).toFixed(2)) else doc.donationAmount
-              cb(null)
-            else
-              cb(null) #insert the transaction anyway, it is an invalid or unassigned bar code though. The transaction will save it to the appropriate collection (UnassociatedBarcodeStatistics)
-              #cb(new errors.ValidationError {"DNE": "Consumer Does Not Exist"})
-        else
-          cb(null)
-
-      findOrg: (cb)-> #do 3 things, make sure org exists, get the name, get donation amount
-        if doc.organizationEntity.type is choices.entities.BUSINESS
-          Businesses.validateTransactionEntity doc.organizationEntity.id, doc.locationId, doc.registerId, (error, business)->
-            if error?
-              cb(error, null)
-              return
-            else if business?
-              doc.organizationEntity.name = business.publicName
-              # if doc.userEntity? #donate only if this was a goodybag user
-              #   doc.donationAmount = (business.donationPercentage * doc.amount).round(2)
-              cb(null)
-            else
-              cb(new errors.ValidationError {"DNE": "Business Does Not Exist"})
 
       save: (cb)=> #save it and write to the statistics table
 
@@ -4575,7 +4610,7 @@ class BusinessTransactions extends API
             cb(error, null)
             return
           if count > 0
-            transactionData.karmaPointsEarned = if !isNaN(parseFloat(globals.defaults.tapIns.karmaPointsEarned)) then parseFloat(parseFloat(globals.defaults.tapIns.karmaPointsEarned).toFixed(2)) else 0
+            transactionData.karmaPointsEarned = globals.defaults.tapIns.karmaPointsEarned
 
             if doc.postToFacebook
               transactionData.karmaPointsEarned = globals.defaults.tapIns.karmaPointsEarnedFB
@@ -4605,7 +4640,7 @@ class BusinessTransactions extends API
               logger.debug doc.postToFacebook
               if accessToken? and doc.postToFacebook #post to facebook
                 logger.verbose "Posting tapIn to facebook"
-                fb.post 'me/feed', accessToken, {message: "I just tapped in at #{doc.organizationEntity.name} and raised funds for charity :)", link: "http://www.goodybag.com/", name: "Goodybag", picture: "http://www.goodybag.com/static/images/gb-logo.png"}, (error, response)->
+                fb.post 'me/feed', accessToken, {message: "I just tapped in at #{doc.organizationEntity.name} and raised funds for #{doc.charity.name}, :)", link: "http://www.goodybag.com/", name: "Goodybag", picture: "http://www.goodybag.com/static/images/gb-logo.png"}, (error, response)->
                   if error?
                     logger.error error
                   else
