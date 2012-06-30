@@ -2607,6 +2607,22 @@ class Businesses extends API
 
     @model.collection.findAndModify $query, [], $update, {safe: true}, callback
 
+  @getRandomCharity = (callback)->
+    @model.collection.count {isCharity: true}, (error, count)=>
+      if error?
+        callback(error)
+        return
+      if count < 0
+        callback {name: "DoesNotExistError", message: "There are no charities in the system"}
+      @model.collection.find({isCharity: true}).limit(-1).skip(count-1).nextObject (error, charity)->
+        if error?
+          callback(error)
+          return
+        if !charity?
+          callback {name: "DoesNotExistError", message: "There are no charities in the system"}
+          return
+        callback null, charity
+
 
 ## Organizations ##
 class Organizations extends API
