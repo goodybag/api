@@ -984,8 +984,6 @@ class Users extends API
 class Consumers extends Users
   @model = Consumer
 
-  @findOne = @model.collection.findOne
-
   @initialUpdate: (entity, data, callback)->
     if Object.isString(entity.id)
       entity.id = new ObjectId(entity.id)
@@ -1089,22 +1087,17 @@ class Consumers extends Users
   # **fields** _Dict_ list of fields to return< br />
   # **callback** _Function_ (error, consumer)
   @getByBarcodeId: (barcodeId, fields, callback)->
-    query = @queryOne()
-    query.where("barcodeId", barcodeId)
-
     if Object.isFunction(fields)
       callback = fields
-    else
-      query.fields(fields)
+      fields = null
 
-    query.exec (error, consumer)->
+    $query = {$or: [{barcodeId: barcodeId}, {"updateVerification.data.barcodeId": barcodeId, "updateVerification.expiration": {$gt: new Date()} }]}
+    @model.collection.findOne $query, fields, (error, consumer)->
       if error?
-        logger.error error
-        callback(error)
+        callback error
         return
-      else
-        callback(error, consumer)
-        return
+      callback null, consumer
+      return
 
   @updateBarcodeId: (entity, barcodeId, callback)->
     if Object.isString(entity.id)
@@ -1239,6 +1232,10 @@ class Consumers extends Users
   # add a signupVerification key and expiration.<br />
   # This will enable the user to claim this account.
   @registerAsPendingAndClaim: (data, fields, callback)->
+    if Object.isFunction(fields)
+      callback = fields
+      fields = null
+
     data.signUpVerification = {}
     data.signUpVerification.key = hashlib.md5(data.email) + "|" + uuid.v4()
     data.signUpVerification.expiration = Date.create().addYears(1)
@@ -1270,13 +1267,17 @@ class Consumers extends Users
   # **fields** _Object_ list of fields to return< br />
   # **callback** _Function_ (error, consumer)
   @tapInUpdateData: (id, data, fields, callback)->
+    if Object.isFunction(fields)
+      callback = fields
+      fields = null
+
     if Object.isString(id)
       id = new ObjectId(id)
 
     $set = {}
     $set.updateVerification = {
       key: id.toString() + "|" + uuid.v4()
-      exipiration: Date.create().addWeeks(2)
+      expiration: Date.create().addWeeks(2)
       data: {}
     }
 
@@ -1285,6 +1286,7 @@ class Consumers extends Users
     if data.barcodeId?
       $set.updateVerification.data.barcodeId = data.barcodeId
 
+      logger.silly $set
       @model.collection.findAndModify {_id: id}, [], {$set: $set}, {fields: fields, new: true, safe: true}, (error, consumer)->
         if error?
           logger.error
@@ -2609,7 +2611,9 @@ class Businesses extends API
     @model.collection.findAndModify $query, [], $update, {safe: true}, callback
 
   @isCharity = (id, fields, callback)->
-    @model.collection.findOne {isCharity: true}, {fields: fields}, (error, charity)->
+    if Object.isString id
+      id = new ObjectId id
+    @model.collection.findOne {_id: id, isCharity: true}, {fields: fields}, (error, charity)->
       if error?
         callback(error)
         return

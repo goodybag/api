@@ -218,8 +218,8 @@ PasswordResetRequest = new Schema {
 Consumer = new Schema {
   email           : {type: String, set: utils.toLower, validate: Email, unique: true}
   password        : {type: String, min:5, required: true}
-  firstName       : {type: String, required: false}
-  lastName        : {type: String, required: false}
+  firstName       : {type: String}
+  lastName        : {type: String}
   privateId       : {type: ObjectId}
   screenName      : {type: String, unique: true, min:5}
   setScreenName   : {type: Boolean, default: false}
