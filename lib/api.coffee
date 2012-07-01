@@ -1267,7 +1267,7 @@ class Consumers extends Users
   #
   # **id** _String/ObjectId_ the consumerId<br />
   # **data** _Object_ the fields to set<br />
-  # **fields** _Dict_ list of fields to return< br />
+  # **fields** _Object_ list of fields to return< br />
   # **callback** _Function_ (error, consumer)
   @tapInUpdateData: (id, data, fields, callback)->
     if Object.isString(id)
