@@ -233,7 +233,13 @@ Consumer = new Schema {
   tapinsToFacebook: {type: Boolean, default: false}
   changeEmail     : {}
 
-  charity         : organization
+  # same as organization, but making fields not required because an account can be pre-created without charity
+  charity: {
+    type          : {type: String, enum: [choices.organizations.CHARITY]}
+    id            : {type: ObjectId}
+    name          : {type: String}
+  }
+
   facebook: {
     access_token  : {type: String}
     id            : {type: String}
@@ -1096,7 +1102,6 @@ EmailSubmission = new Schema {
 
 exports.DBTransaction             = mongoose.model 'DBTransaction', DBTransaction
 exports.Sequence                  = mongoose.model 'Sequence', Sequence
-exports.DonationLog               = mongoose.model 'DonationLog', DonationLog
 exports.Consumer                  = mongoose.model 'Consumer', Consumer
 exports.Client                    = mongoose.model 'Client', Client
 exports.Business                  = mongoose.model 'Business', Business
@@ -1126,7 +1131,6 @@ exports.schemas = {
   Sequence                  : Sequence
   Consumer                  : Consumer
   Client                    : Client
-  DonationLog               : DonationLog
   Business                  : Business
   Poll                      : Poll
   Goody                     : Goody

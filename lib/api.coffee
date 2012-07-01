@@ -64,7 +64,6 @@ EmailSubmission = db.EmailSubmission
 class API
   @model = null
   constructor: ()->
-    #nothing to say
 
   @_flattenDoc = (doc, startPath)->
     flat = {}
@@ -985,6 +984,8 @@ class Users extends API
 class Consumers extends Users
   @model = Consumer
 
+  @findOne = @model.collection.findOne
+
   @initialUpdate: (entity, data, callback)->
     if Object.isString(entity.id)
       entity.id = new ObjectId(entity.id)
@@ -1284,7 +1285,7 @@ class Consumers extends Users
     if data.barcodeId?
       $set.updateVerification.data.barcodeId = data.barcodeId
 
-      @model.collection.findAndModify {_id: id}, {$set: $set}, {fields: fields, new: true, safe: true}, (error, consumer)->
+      @model.collection.findAndModify {_id: id}, [], {$set: $set}, {fields: fields, new: true, safe: true}, (error, consumer)->
         if error?
           logger.error
           callback {name: "DatabaseError", message: "Unable to update the consumer"}
@@ -2607,21 +2608,42 @@ class Businesses extends API
 
     @model.collection.findAndModify $query, [], $update, {safe: true}, callback
 
-  @getRandomCharity = (callback)->
+  @isCharity = (id, fields, callback)->
+    @model.collection.findOne {isCharity: true}, {fields: fields}, (error, charity)->
+      if error?
+        callback(error)
+        return
+      callback null, charity
+
+  @getRandomCharity = (fields, callback)->
     @model.collection.count {isCharity: true}, (error, count)=>
       if error?
         callback(error)
         return
-      if count < 0
-        callback {name: "DoesNotExistError", message: "There are no charities in the system"}
-      @model.collection.find({isCharity: true}).limit(-1).skip(count-1).nextObject (error, charity)->
+      if count <= 0
+        callback null
+        return
+      @model.collection.findOne {isCharity: true}, {fields: fields, limit: -1, skip: count-1}, (error, charity)->
         if error?
           callback(error)
           return
-        if !charity?
-          callback {name: "DoesNotExistError", message: "There are no charities in the system"}
-          return
         callback null, charity
+
+  @validateRegister = (businessId, locationId, registerId, fields, callback)->
+    if Object.isString businessId
+      businessId = new ObjectId businessId
+    if Object.isString locationId
+      locationId = new ObjectId locationId
+    if Object.isString registerId
+      registerId = new ObjectId registerId
+
+    $query = {_id: businessId}
+    $query["locRegister."+locationId.toString()] = registerId
+    @model.collection.findOne $query, fields, (error, business)->
+      if error?
+        callback error
+        return
+      callback null, business
 
 
 ## Organizations ##
@@ -4559,12 +4581,7 @@ class BusinessTransactions extends API
       amount = if !isNaN(parseInt(data.amount)) then Math.abs(parseInt(amount)) else undefined
 
     doc = {
-      userEntity = {
-        type        : choices.entities.CONSUMER
-        id          : consumer._id
-        name        : "#{consumer.firstName} #{consumer.lastName}"
-        screenName  : consumer.screenName
-      }
+      # userEntity: null #doesn't always exist
 
       organizationEntity: {
         type          : data.organizationEntity.type
@@ -4594,6 +4611,13 @@ class BusinessTransactions extends API
       donationValue   : defaults.bt.donationValue #we should pull this out from the organization (#this is the amount the business has pledged)
       donationAmount  : defaults.bt.donationAmount #this is the amount totalled after any additions (such as more funds for posting to facebook)
     }
+
+    if data.userEntity?
+      doc.userEntity =
+        type        : choices.entities.CONSUMER
+        id          : data.userEntity.id
+        name        : data.userEntity.name
+        screenName  : data.userEntity.screenName
 
     self = this
     accessToken = data.accessToken || null
