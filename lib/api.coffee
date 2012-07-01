@@ -1239,9 +1239,9 @@ class Consumers extends Users
   # add a signupVerification key and expiration.<br />
   # This will enable the user to claim this account.
   @registerAsPendingAndClaim: (data, fields, callback)->
-    data.signupVerification = {}
-    data.signupVerification.key = hashlib.md5(data.email) + "|" + uuid.v4()
-    data.signupVerification.expiration = Date.create().addYears(1)
+    data.signUpVerification = {}
+    data.signUpVerification.key = hashlib.md5(data.email) + "|" + uuid.v4()
+    data.signUpVerification.expiration = Date.create().addYears(1)
     @register data, fields, (error, consumer)->
       if error?
         callback error
