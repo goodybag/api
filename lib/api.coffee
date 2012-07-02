@@ -1285,13 +1285,12 @@ class Consumers extends Users
     if data.barcodeId?
       $set.updateVerification.data.barcodeId = data.barcodeId
 
-      logger.silly $set
-      @model.collection.findAndModify {_id: id}, [], {$set: $set}, {fields: fields, new: true, safe: true}, (error, consumer)->
-        if error?
-          logger.error
-          callback {name: "DatabaseError", message: "Unable to update the consumer"}
-          return
-        callback null, consumer
+    @model.collection.findAndModify {_id: id}, [], {$set: $set}, {fields: fields, new: true, safe: true}, (error, consumer)->
+      if error?
+        logger.error
+        callback {name: "DatabaseError", message: "Unable to update the consumer"}
+        return
+      callback null, consumer
 
   @facebookLogin: (accessToken, fieldsToReturn, referralCode, callback)->
     #** fieldsToReturn needs to include screenName **
@@ -1529,33 +1528,53 @@ class Consumers extends Users
     @model.findAndModify {_id:  id}, [], {$push:{"events.ids": eventId}, $inc: {honorScore: amount}}, {new: true, safe: true}, callback
 
   @deductFunds: (id, transactionId, amount, callback)->
-    amount = parseFloat(amount)
     if isNaN(amount)
       callback ({message: "amount is not a number"})
       return
-    else if amount <0
+
+    amount = parseInt(amount)
+
+    if amount <0
       callback({message: "amount cannot be negative"})
       return
 
-    amount = parseFloat(Math.abs(amount.toFixed(2)))
-
     if Object.isString(id)
       id = new ObjectId(id)
+
     if Object.isString(transactionId)
       transactionId = new ObjectId(transactionId)
 
     @model.collection.findAndModify {_id: id, 'funds.remaining': {$gte: amount}, 'transactions.ids': {$ne: transactionId}}, [], {$addToSet: {"transactions.ids": transactionId}, $inc: {'funds.remaining': -1*amount }}, {new: true, safe: true}, callback
 
-  @depositFunds: (id, transactionId, amount, callback)->
-    amount = parseFloat(amount)
+  @incrementDonated: (id, transactionId, amount, callback)->
     if isNaN(amount)
       callback ({message: "amount is not a number"})
       return
-    else if amount <0
-      callback({message: "amount cannot be negative"})
+
+    amount = parseInt(amount)
+
+    if amount <=0
+      callback({message: "amount cannot be zero or negative"})
       return
 
-    amount = parseFloat(Math.abs(amount.toFixed(2)))
+    if Object.isString(id)
+      id = new ObjectId(id)
+
+    if Object.isString(transactionId)
+      transactionId = new ObjectId(transactionId)
+
+    @model.collection.findAndModify {_id: id, 'transactions.ids': {$ne: transactionId}}, [], {$addToSet: {"transactions.ids": transactionId}, $inc: {'funds.donated': amount}}, {new: true, safe: true}, callback
+
+  @depositFunds: (id, transactionId, amount, callback)->
+    if isNaN(amount)
+      callback ({message: "amount is not a number"})
+      return
+
+    amount = parseInt(amount)
+
+    if amount <0
+      callback({message: "amount cannot be negative"})
+      return
 
     if Object.isString(id)
       id = new ObjectId(id)
@@ -4660,7 +4679,7 @@ class BusinessTransactions extends API
 
           transaction = undefined
           if doc.userEntity?
-            transaction = @createTransaction(choices.transactions.states.PENDING, choices.transactions.actions.STAT_BT_TAPPED, transactionData, choices.transactions.directions.OUTBOUND, doc.userEntity)
+            transaction = @createTransaction(choices.transactions.states.PENDING, choices.transactions.actions.BT_TAPPED, transactionData, choices.transactions.directions.OUTBOUND, doc.userEntity)
           else
             transaction = @createTransaction(choices.transactions.states.PENDING, choices.transactions.actions.STAT_BT_TAPPED, transactionData, choices.transactions.directions.OUTBOUND, undefined)
 
