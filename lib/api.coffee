@@ -1251,8 +1251,7 @@ class Consumers extends Users
         screenName: consumer.screenName
       }
 
-
-      BusinessTransactions.claimBarcodeId entity, consumer.barcodeId, (error)->
+      Consumers.updateBarcodeId entity, consumer.barcodeId, (error)->
         if error?
           logger.error error
 
@@ -4661,7 +4660,7 @@ class BusinessTransactions extends API
 
           transaction = undefined
           if doc.userEntity?
-            transaction = @createTransaction(choices.transactions.states.PENDING, choices.transactions.actions.BT_TAPPED, transactionData, choices.transactions.directions.OUTBOUND, doc.userEntity)
+            transaction = @createTransaction(choices.transactions.states.PENDING, choices.transactions.actions.STAT_BT_TAPPED, transactionData, choices.transactions.directions.OUTBOUND, doc.userEntity)
           else
             transaction = @createTransaction(choices.transactions.states.PENDING, choices.transactions.actions.STAT_BT_TAPPED, transactionData, choices.transactions.directions.OUTBOUND, undefined)
 
