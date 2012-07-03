@@ -854,6 +854,7 @@ BusinessTransaction = new Schema {
   receipt               : {type: Buffer, required: false} #binary receipt data
   hasReceipt            : {type: Boolean, required: true, default:false} #because we want to check if there is a receipt without pulling receipt (might be big)
 
+  karmaPoints           : {type: String, required: true}
   donationType          : {type: String, required: true, enum: choices.donationTypes._enum} #percentage or dollar amount
   donationValue         : {type: Number, required: true} #what is the percentage or what is the dollar amount
   donationAmount        : {type: Number, required: true, default: 0} #the amount donated
@@ -980,6 +981,7 @@ RedemptionLog = new Schema {
   #totalTapIns
   #totalAmountPurchased
   #lastVisited
+  #totalDonated
   #charityCentsRaised [REMOVE]
   #charityCentsRemaining [REMOVE]
   #charityCentsRedeemed [REMOVE]
@@ -1023,16 +1025,17 @@ Statistic.index {consumerId: 1, "org.type": 1, "org.id": 1}
 # Statistic.index {'org.type': 1, 'org.id':1, consumerId: 1, "polls.totalAnswered": 1} #REMOVE
 # Statistic.index {'org.type': 1, 'org.id':1, consumerId: 1, "polls.lastAnsweredDate": 1} #REMOVE
 
-Statistic.index {'org.type': 1, 'org.id':1, consumerId: 1, "data.tapIns.totalTapIns": 1}
-Statistic.index {'org.type': 1, 'org.id':1, consumerId: 1, "data.tapIns.totalAmountPurchased": 1}
-Statistic.index {'org.type': 1, 'org.id':1, consumerId: 1, "data.tapIns.lastVisited": 1}
+Statistic.index {'org.type': 1, 'org.id': 1, consumerId: 1, "data.tapIns.totalTapIns": 1}
+Statistic.index {'org.type': 1, 'org.id': 1, consumerId: 1, "data.tapIns.totalAmountPurchased": 1}
+Statistic.index {'org.type': 1, 'org.id': 1, consumerId: 1, "data.tapIns.lastVisited": 1}
+Statistic.index {'org.type': 1, 'org.id': 1, consumerId: 1, "data.tapIns.totalDonated": 1}
 
-Statistic.index {'org.type': 1, 'org.id':1, consumerId: 1, "data.polls.totalAnswered": 1}
-Statistic.index {'org.type': 1, 'org.id':1, consumerId: 1, "data.polls.lastAnsweredDate": 1}
+Statistic.index {'org.type': 1, 'org.id': 1, consumerId: 1, "data.polls.totalAnswered": 1}
+Statistic.index {'org.type': 1, 'org.id': 1, consumerId: 1, "data.polls.lastAnsweredDate": 1}
 
-Statistic.index {'org.type': 1, 'org.id':1, consumerId: 1, "data.karmaPoints.earned": 1}
-Statistic.index {'org.type': 1, 'org.id':1, consumerId: 1, "data.karmaPoints.remaining": 1}
-Statistic.index {'org.type': 1, 'org.id':1, consumerId: 1, "data.karmaPoints.used": 1}
+Statistic.index {'org.type': 1, 'org.id': 1, consumerId: 1, "data.karmaPoints.earned": 1}
+Statistic.index {'org.type': 1, 'org.id': 1, consumerId: 1, "data.karmaPoints.remaining": 1}
+Statistic.index {'org.type': 1, 'org.id': 1, consumerId: 1, "data.karmaPoints.used": 1}
 
 
 #CURRENTLY BEING TRACKED: (ALWAYS UPDATE THIS LIST PLEASE AND THE INDEXES)
@@ -1040,7 +1043,7 @@ Statistic.index {'org.type': 1, 'org.id':1, consumerId: 1, "data.karmaPoints.use
   #totalTapIns
   #totalAmountPurchased
   #lastVisited
-  #charityCentsRaised
+  #totalDonated
 
 #karmaPoints
   #earned
@@ -1061,12 +1064,12 @@ UnclaimedBarcodeStatistic.index {claimId: 1, barcodeId: 1} #used when claiming a
 # UnclaimedBarcodeStatistic.index {'org.type': 1, 'org.id':1, barcodeId: 1, "tapIns.totalTapIns": 1} #REMOVE
 # UnclaimedBarcodeStatistic.index {'org.type': 1, 'org.id':1, barcodeId: 1, "tapIns.totalAmountPurchased": 1} #REMOVE
 # UnclaimedBarcodeStatistic.index {'org.type': 1, 'org.id':1, barcodeId: 1, "tapIns.lastVisited": 1} #REMOVE
-# UnclaimedBarcodeStatistic.index {'org.type': 1, 'org.id':1, barcodeId: 1, "tapIns.charityCentsRaised": 1} #REMOVE
+# UnclaimedBarcodeStatistic.index {'org.type': 1, 'org.id':1, barcodeId: 1, "tapIns.chariryCents": 1} #REMOVE
 
 UnclaimedBarcodeStatistic.index {'org.type': 1, 'org.id':1, barcodeId: 1, "data.tapIns.totalTapIns": 1}
 UnclaimedBarcodeStatistic.index {'org.type': 1, 'org.id':1, barcodeId: 1, "data.tapIns.totalAmountPurchased": 1}
 UnclaimedBarcodeStatistic.index {'org.type': 1, 'org.id':1, barcodeId: 1, "data.tapIns.lastVisited": 1}
-UnclaimedBarcodeStatistic.index {'org.type': 1, 'org.id':1, barcodeId: 1, "data.tapIns.charityCentsRaised": 1}
+UnclaimedBarcodeStatistic.index {'org.type': 1, 'org.id':1, barcodeId: 1, "data.tapIns.totalDonated": 1}
 
 UnclaimedBarcodeStatistic.index {'org.type': 1, 'org.id':1, consumerId: 1, "data.karmaPoints.earned": 1}
 UnclaimedBarcodeStatistic.index {'org.type': 1, 'org.id':1, consumerId: 1, "data.karmaPoints.remaining": 1}
