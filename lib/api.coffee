@@ -1100,6 +1100,19 @@ class Consumers extends Users
       callback null, consumer
       return
 
+  @getByEmail: (email, fields, callback)->
+    if Object.isFunction(fields)
+      callback = fields
+      fields = null
+
+    $query = {email: email}
+    @model.collection.findOne $query, {fields: fields}, (error, consumer)->
+      if error?
+        callback error
+        return
+      callback null, consumer
+      return
+
   @updateBarcodeId: (entity, barcodeId, callback)->
     if Object.isString(entity.id)
       entity.id = new ObjectId(entity.id)
