@@ -429,6 +429,7 @@ class API
 
     @model.findOne $query, callback
 
+
 ## Database Transactions ##
 class DBTransactions extends API
   @model: DBTransaction
@@ -1099,6 +1100,19 @@ class Consumers extends Users
       callback null, consumer
       return
 
+  @getByEmail: (email, fields, callback)->
+    if Object.isFunction(fields)
+      callback = fields
+      fields = null
+
+    $query = {email: email}
+    @model.collection.findOne $query, {fields: fields}, (error, consumer)->
+      if error?
+        callback error
+        return
+      callback null, consumer
+      return
+
   @updateBarcodeId: (entity, barcodeId, callback)->
     if Object.isString(entity.id)
       entity.id = new ObjectId(entity.id)
@@ -1285,13 +1299,12 @@ class Consumers extends Users
     if data.barcodeId?
       $set.updateVerification.data.barcodeId = data.barcodeId
 
-      logger.silly $set
-      @model.collection.findAndModify {_id: id}, [], {$set: $set}, {fields: fields, new: true, safe: true}, (error, consumer)->
-        if error?
-          logger.error
-          callback {name: "DatabaseError", message: "Unable to update the consumer"}
-          return
-        callback null, consumer
+    @model.collection.findAndModify {_id: id}, [], {$set: $set}, {fields: fields, new: true, safe: true}, (error, consumer)->
+      if error?
+        logger.error
+        callback {name: "DatabaseError", message: "Unable to update the consumer"}
+        return
+      callback null, consumer
 
   @facebookLogin: (accessToken, fieldsToReturn, referralCode, callback)->
     #** fieldsToReturn needs to include screenName **
@@ -1529,33 +1542,56 @@ class Consumers extends Users
     @model.findAndModify {_id:  id}, [], {$push:{"events.ids": eventId}, $inc: {honorScore: amount}}, {new: true, safe: true}, callback
 
   @deductFunds: (id, transactionId, amount, callback)->
-    amount = parseFloat(amount)
     if isNaN(amount)
       callback ({message: "amount is not a number"})
       return
-    else if amount <0
+
+    amount = parseInt(amount)
+
+    if amount <0
       callback({message: "amount cannot be negative"})
       return
 
-    amount = parseFloat(Math.abs(amount.toFixed(2)))
-
     if Object.isString(id)
       id = new ObjectId(id)
+
     if Object.isString(transactionId)
       transactionId = new ObjectId(transactionId)
 
     @model.collection.findAndModify {_id: id, 'funds.remaining': {$gte: amount}, 'transactions.ids': {$ne: transactionId}}, [], {$addToSet: {"transactions.ids": transactionId}, $inc: {'funds.remaining': -1*amount }}, {new: true, safe: true}, callback
 
-  @depositFunds: (id, transactionId, amount, callback)->
-    amount = parseFloat(amount)
+  @incrementDonated: (id, transactionId, amount, callback)->
+    logger.debug "incrementing donated"
     if isNaN(amount)
       callback ({message: "amount is not a number"})
       return
-    else if amount <0
-      callback({message: "amount cannot be negative"})
+
+    amount = parseInt(amount)
+
+    if amount <=0
+      callback({message: "amount cannot be zero or negative"})
       return
 
-    amount = parseFloat(Math.abs(amount.toFixed(2)))
+    if Object.isString(id)
+      id = new ObjectId(id)
+
+    if Object.isString(transactionId)
+      transactionId = new ObjectId(transactionId)
+
+    logger.debug "attempting to increment donated for #{id} by: #{amount}"
+
+    @model.collection.findAndModify {_id: id, 'transactions.ids': {$ne: transactionId}}, [], {$addToSet: {"transactions.ids": transactionId}, $inc: {'funds.donated': amount}}, {new: true, safe: true}, callback
+
+  @depositFunds: (id, transactionId, amount, callback)->
+    if isNaN(amount)
+      callback ({message: "amount is not a number"})
+      return
+
+    amount = parseInt(amount)
+
+    if amount <0
+      callback({message: "amount cannot be negative"})
+      return
 
     if Object.isString(id)
       id = new ObjectId(id)
@@ -4610,6 +4646,7 @@ class BusinessTransactions extends API
       receipt         : undefined #we don't collect it yet, otherwise this is binary data
       hasReceipt      : false #we don't collect it yet
 
+      karmaPoints     : 0
       donationType    : defaults.bt.donationType #we should pull this out from the organization later
       donationValue   : defaults.bt.donationValue #we should pull this out from the organization (#this is the amount the business has pledged)
       donationAmount  : defaults.bt.donationAmount #this is the amount totalled after any additions (such as more funds for posting to facebook)
@@ -4642,10 +4679,6 @@ class BusinessTransactions extends API
 
       save: (cb)=> #save it and write to the statistics table
 
-        #by default karmaPointsEarned is 0
-        transactionData = {
-          karmaPointsEarned: 0
-        }
         #award karmaPoints only if the business actually has active goodies, if they don't then they are not giving points to consumers
         Goodies.count {active: true, businessId: data.organizationEntity.id}, (error, count)=>
           if error?
@@ -4653,14 +4686,15 @@ class BusinessTransactions extends API
             cb(error, null)
             return
           if count > 0
-            transactionData.karmaPointsEarned = globals.defaults.tapIns.karmaPointsEarned
+            doc.karmaPoints = globals.defaults.tapIns.karmaPointsEarned
 
             if doc.postToFacebook
-              transactionData.karmaPointsEarned = globals.defaults.tapIns.karmaPointsEarnedFB
+              doc.karmaPoints = globals.defaults.tapIns.karmaPointsEarnedFB
 
+          transactionData = {}
           transaction = undefined
           if doc.userEntity?
-            transaction = @createTransaction(choices.transactions.states.PENDING, choices.transactions.actions.STAT_BT_TAPPED, transactionData, choices.transactions.directions.OUTBOUND, doc.userEntity)
+            transaction = @createTransaction(choices.transactions.states.PENDING, choices.transactions.actions.BT_TAPPED, transactionData, choices.transactions.directions.OUTBOUND, doc.userEntity)
           else
             transaction = @createTransaction(choices.transactions.states.PENDING, choices.transactions.actions.STAT_BT_TAPPED, transactionData, choices.transactions.directions.OUTBOUND, undefined)
 
@@ -6014,7 +6048,7 @@ class UnclaimedBarcodeStatistics extends API
   @removeClaimed: (claimId, callback)->
     @model.collection.remove {claimId: claimId}, {safe: true}, callback
 
-  @btTapped: (orgEntity, barcodeId, transactionId, spent, karmaPointsEarned, timestamp, callback)->
+  @btTapped: (orgEntity, barcodeId, transactionId, spent, karmaPointsEarned, donationAmount, timestamp, callback)->
     if Object.isString(orgEntity.id)
       orgEntity.id = new ObjectId(orgEntity.id)
 
@@ -6023,11 +6057,11 @@ class UnclaimedBarcodeStatistics extends API
 
     $inc = {}
     $inc["data.tapIns.totalTapIns"] = 1
-    if spent?
-      $inc["data.tapIns.totalAmountPurchased"] = if isNaN(parseFloat(spent)) then 0 else parseFloat(parseFloat(spent).toFixed(2)) #parse just incase it's a string
-    if karmaPointsEarned?
-      $inc["data.karmaPoints.earned"] = if isNaN(parseInt(karmaPointsEarned)) then 0 else parseInt(karmaPointsEarned) #parse just incase it's a string
-      $inc["data.karmaPoints.remaining"] = if isNaN(parseInt(karmaPointsEarned)) then 0 else parseInt(karmaPointsEarned) #parse just incase it's a string
+    if spent? && !isNaN(spent)
+      $inc["data.tapIns.totalAmountPurchased"] = parseInt(spent) #as an integer
+    if karmaPointsEarned? && !isNaN(karmaPointsEarned)
+      $inc["data.karmaPoints.earned"] = parseInt(karmaPointsEarned)
+      $inc["data.karmaPoints.remaining"] = parseInt(karmaPointsEarned)
 
     $set = {}
     $set["data.tapIns.lastVisited"] = new Date(timestamp) #if it is a string it will become a date hopefully
@@ -6048,7 +6082,7 @@ class UnclaimedBarcodeStatistics extends API
       id    : orgEntity.id
     }
 
-    @model.collection.update {org: org, barcodeId: barcodeId}, $update, {safe: true, upsert: true }, callback
+    @model.collection.update {org: org, barcodeId: barcodeId, 'transactions.ids': {$ne: transactionId}}, $update, {safe: true, upsert: true }, callback
     return
 
   ### _getKarmaPoints_ ###
@@ -6295,14 +6329,6 @@ class Statistics extends API
     query.exec(callback)
     return
 
-  @consumerLoyaltyProgress: (consumerId, orgIds, fieldsToReturn, callback)->
-    query = @query()
-    query.where("consumerId",consumerId)
-    query.in("org.id",orgIds)
-    query.fields(fieldsToReturn)
-    query.find callback
-    return
-
   #Give me a list of people who have tapped in to a business before and therefore are customers
   @withTapIns: (org, options, callback)->
     if Object.isString(org.id)
@@ -6351,8 +6377,9 @@ class Statistics extends API
 
   @eventRsvped: (org, consumerId, transactionId, timestamp, callback)->
 
-  #we accept the totalTapIns as a parameter because we use it when you claim a barcode, in that case you may have more than just one tapIn that is getting transfered in.
-  @btTapped: (orgEntity, consumerId, transactionId, spent, karmaPointsEarned, timestamp, totalTapIns, callback)->
+  #we accept the tapIns as a parameter because we use it when you claim a barcode, in that case you may have more than just one tapIn that is getting transfered in.
+
+  @btTapped: (orgEntity, consumerId, transactionId, spent, karmaPointsEarned, totalDonated, timestamp, totalTapIns, callback)->
     if Object.isFunction(totalTapIns)
       callback = totalTapIns
       totalTapIns = 1
@@ -6368,11 +6395,16 @@ class Statistics extends API
 
     $inc = {}
     $inc["data.tapIns.totalTapIns"] = totalTapIns
-    if spent?
-      $inc["data.tapIns.totalAmountPurchased"] = if isNaN(parseFloat(spent)) then 0 else parseFloat(parseFloat(spent).toFixed(2)) #parse just incase it's a string
-    if karmaPointsEarned?
-      $inc["data.karmaPoints.earned"] = if isNaN(parseInt(karmaPointsEarned)) then 0 else parseInt(karmaPointsEarned) #parse just incase it's a string
-      $inc["data.karmaPoints.remaining"] = if isNaN(parseInt(karmaPointsEarned)) then 0 else parseInt(karmaPointsEarned) #parse just incase it's a string
+
+    if spent? && !isNaN(spent)
+      $inc["data.tapIns.totalAmountPurchased"] = parseInt(spent) #as an integer
+
+    if karmaPointsEarned? && !isNaN(karmaPointsEarned)
+      $inc["data.karmaPoints.earned"] = parseInt(karmaPointsEarned)
+      $inc["data.karmaPoints.remaining"] = parseInt(karmaPointsEarned)
+
+    if totalDonated? && !isNaN(totalDonated)
+      $inc["data.tapIns.totalDonated"] = if !isNaN(totalDonated) then parseInt(totalDonated) else 0
 
     $set = {}
     $set["data.tapIns.lastVisited"] = new Date(timestamp) #if it is a string it will become a date hopefully
@@ -6393,7 +6425,7 @@ class Statistics extends API
       id    : orgEntity.id
     }
 
-    @model.collection.update {org: org, consumerId: consumerId}, $update, {safe: true, upsert: true }, callback
+    @model.collection.update {org: org, consumerId: consumerId, 'transactions.ids': {$ne: transactionId}}, $update, {safe: true, upsert: true }, callback
     return
 
   @_inc: (org, consumerId, field, value, callback)->

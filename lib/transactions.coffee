@@ -264,6 +264,32 @@ __depositFunds = (classTo, initialTransactionClass, document, transaction, entit
       callback(null, doc)
     return
 
+_incrementDonated = (classFor, initialTransactionClass, document, transaction, entity, amount, locking, removeLock, callback)->
+  logger.silly "HERERERERRWRSDFSAGDSFGDSFGSFDHSFGJDGHJSDFFASRYAETYGADFGDFHADGFAVSCSHYSVBTUR"
+  prepend = "ID: #{document._id} - TID: #{transaction.id}"
+  classFor.incrementDonated entity.id, transaction.id, amount, (error, doc)->
+    if error?
+      logger.error error
+      logger.error "#{prepend} incrementing donated into #{entity.type}: #{entity.id} failed - database error"
+      callback(error) #determine what type of error it is and then whether to setTransactionError or ignore and let the poller pick it up later (the later is probably the case)
+    else if !doc? #if the consumer object doesn't exist then either the transaction occured previously, there aren't enough funds, or the entity doesn't exist
+      logger.info "#{prepend} transaction may have occured, VERIFYING"
+      classFor.checkIfTransactionExists entity.id, transaction.id, (error, doc2)->
+        if error?
+          logger.error error #error querying, try again later
+          logger.error "#{prepend} database error"
+          callback(error)
+        else if doc2? #transaction already occured
+          logger.info "#{prepend} transaction already occured"
+          callback(null, doc2)
+        else #entity doesn't exist
+          logger.warn "#{prepend} Couldn't find the entity to incrment donation for"
+          callback(null, null)
+    else #transaction went through
+      logger.info "#{prepend} Successfully incremented donations"
+      callback(null, doc)
+    return
+
 #TODO: WE MAY NOT NEED TO KEEP TRACK OF INBOUND/OUTBOUND ANYMORE, DETERMINE IF THIS IS CORRECT
 
 #INBOUND
@@ -639,6 +665,96 @@ pollAnswered = (document, transaction)->
 
       #Write to the event stream
       api.Streams.pollAnswered(transaction.entity, transaction.data.timestamp, document) #we don't care about the callback
+  },
+  (error, results)->
+    clean = false
+    if error?
+      logger.error error
+      if error.name is "TransactionAlreadyCompleted" #we recevied a null document while trying to set the state - the state is already set to processed or error, just needs to cleaned up
+        clean = true
+      else
+        logger.error "#{prepend} the poller will try later" #we received some other type of error, so we will try again later
+        return
+    else if results and results.setProcessed?
+      clean = true
+
+    if clean is true
+      cleanup (error, dbTransaction)-> #start cleaning up
+        if error?
+          logger.error error
+          logger.error "#{prepend} unable to properly clean up - the poller will try later"
+
+btTapped = (document, transaction)->
+  prepend = "ID: #{document._id} - TID: #{transaction.id}"
+  logger.info "Creating transaction for business transaction"
+  logger.info "#{prepend} - #{transaction.direction}"
+
+  cleanup = (callback)->
+    logger.info "#{prepend} cleaning up"
+    _cleanupTransaction document, transaction, api.BusinessTransactions, [api.BusinessTransactions, api.Consumers], callback
+
+  setProcessed = true #setProcessed, unless something sets this to false
+  async.series {
+    setProcessing: (callback)->
+      _setTransactionProcessing api.BusinessTransactions, document, transaction, false, (error, doc)->
+        document = doc #we do this because the entities object is missing when the poll is answered
+        callback error, doc
+      return
+
+    depositFunds: (callback)-> #transfer the funds that were donated for the transaction into the consumer's account
+      logger.debug transaction.data
+      if document.userEntity.type is choices.entities.CONSUMER
+        logger.debug "#{prepend} attempting to incrment donated for consumer: #{transaction.entity.id}"
+        _incrementDonated api.Consumers, api.BusinessTransactions, document, transaction, document.userEntity, document.donationAmount, false, false, (error, doc)->
+          if error?
+            logger.error error #mongo errored out
+            callback(error)
+          else if doc?  #transaction was successful, so continue to set processed
+            callback(null, doc)
+          else #null, null passed in which meas insufficient funds, so set error, and exit
+            error = {message: "entity to increment donated for was not found"}
+            _setTransactionError api.BusinessTransactions, document, transaction, false, false, error, {}, (error, doc)->
+              #we don't care if it set or if it didn't set because:
+              # 1. if there was a mongo error then the poller will pick it up and work on it later
+              # 2. if it did set then fantastic, we will exit because we don't want to set to processed
+              # 3. if it did not set (no error, and no document updated) then we want to exit because
+              #    it is already in an error or processed state. In that case we want to do nothing
+              setProcessed = false
+              callback(null, null)
+      else
+        callback({name:"NullError", message: "Unsupported Entity Type: #{document.userEntity.type}"})
+        return
+      return
+
+    setProcessed: (callback)->
+      if setProcessed is false
+        callback() #we are not suppose to set to processed so exit cleanly
+        return
+
+      #Create Business Transaction Statistic Transaction
+      statTransaction = api.BusinessTransactions.createTransaction(
+        choices.transactions.states.PENDING
+        , choices.transactions.actions.STAT_BT_TAPPED
+        , {timestamp: transaction.data.timestamp}
+        , choices.transactions.directions.OUTBOUND
+        , transaction.entity
+      )
+
+      statTransaction.data = transaction.data
+
+      $pushAll = {
+        "transactions.ids": [statTransaction.id]
+        "transactions.temp": [statTransaction]
+      }
+
+      $update = {
+        $pushAll: $pushAll
+      }
+
+      _setTransactionProcessedAndCreateNew api.BusinessTransactions, document, transaction, [statTransaction], false, false, $update, callback
+      #if it went through great, if it didn't go through then the poller will take care of it
+      #, no other state changes need to occur
+
   },
   (error, results)->
     clean = false
@@ -1498,7 +1614,7 @@ statBtTapped = (document, transaction)->
         apiStatClass = api.UnclaimedBarcodeStatistics
         identifier = document.barcodeId
 
-      apiStatClass.btTapped org, identifier, transactionId, document.amount, transaction.data.karmaPointsEarned, document.date, (error, count)->
+      apiStatClass.btTapped org, identifier, transactionId, document.amount, document.karmaPoints, document.donationAmount, document.date, (error, count)->
         if error?
           logger.error error #mongo errored out
           callback(error)
@@ -1539,8 +1655,6 @@ statBarcodeClaimed = (document, transaction)->
   logger.info "STAT - User claimed barcode"
   logger.info "#{prepend} - #{transaction.direction}"
 
-  totalKarmaPointsEarned = 0
-
   cleanup = (callback)->
     logger.info "#{prepend} cleaning up"
     _cleanupTransaction document, transaction, api.Consumers, [api.Consumers, api.Statistics], callback
@@ -1554,16 +1668,16 @@ statBarcodeClaimed = (document, transaction)->
 
     if unclaimedBarcodeStatistic.data? and unclaimedBarcodeStatistic.data.tapIns?
       spent             = unclaimedBarcodeStatistic.data.tapIns.totalAmountPurchased || 0
+      totalDonated      = unclaimedBarcodeStatistic.data.tapIns.totalDonated || 0
       karmaPointsEarned = unclaimedBarcodeStatistic.data.karmaPoints.earned || 0
       timestamp         = unclaimedBarcodeStatistic.data.tapIns.lastVisited
       totalTapIns       = unclaimedBarcodeStatistic.data.tapIns.totalTapIns || 0
 
-      totalKarmaPointsEarned    += karmaPointsEarned
     else # if there is no data then there is nothing to copy in the first place
       callback()
       return
 
-    api.Statistics.btTapped org, consumerId, transaction.id, spent, karmaPointsEarned, timestamp, totalTapIns, (error, count)->
+    api.Statistics.btTapped org, consumerId, transaction.id, spent, karmaPointsEarned, totalDonationAmount. totalTapIns, timestamp, (error, count)->
       if error?
         callback(error)
         return
