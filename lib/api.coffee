@@ -158,6 +158,8 @@ class API
   @_one: (id, fieldsToReturn, dbOptions, callback)->
     if Object.isString id
       id = new ObjectId id
+    if id instanceof ObjectId
+      id = { _id: id }
     if Object.isFunction fieldsToReturn
       #Fields to return must always be specified for consumers...
       callback = fieldsToReturn
@@ -168,7 +170,7 @@ class API
     if Object.isFunction dbOptions
       callback = dbOptions
       dbOptions = {safe:true}
-    @model.findById id, fieldsToReturn, dbOptions, callback
+    @model.findOne id, fieldsToReturn, dbOptions, callback
     return
 
   @get: (options, fieldsToReturn, callback)->
@@ -587,6 +589,8 @@ class Users extends API
   @one: (id, fieldsToReturn, dbOptions, callback)->
     if Object.isString id
       id = new ObjectId id
+    if id instanceof ObjectId
+      id = { _id: id }
     if Object.isFunction fieldsToReturn && !fieldsToReturn?
       #Fields to return must always be specified for consumers...
       callback new errors.ValidationError {"fieldsToReturn","Database error, fields must always be specified."}
@@ -597,7 +601,7 @@ class Users extends API
     if Object.isFunction dbOptions
       callback = dbOptions
       dbOptions = {}
-    @model.findById id, fieldsToReturn, dbOptions, callback
+    @model.findOne id, fieldsToReturn, dbOptions, callback
     return
 
   @update: (id, doc, dbOptions, callback)->
