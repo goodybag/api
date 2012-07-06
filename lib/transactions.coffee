@@ -1677,7 +1677,7 @@ statBarcodeClaimed = (document, transaction)->
       callback()
       return
 
-    api.Statistics.btTapped org, consumerId, transaction.id, spent, karmaPointsEarned, totalDonationAmount. totalTapIns, timestamp, (error, count)->
+    api.Statistics.btTapped org, consumerId, transaction.id, spent, karmaPointsEarned, totalDonationAmount, totalTapIns, timestamp, (error, count)->
       if error?
         callback(error)
         return
