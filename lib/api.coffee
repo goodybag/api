@@ -4721,7 +4721,7 @@ class BusinessTransactions extends API
               logger.debug doc.postToFacebook
               if accessToken? and doc.postToFacebook #post to facebook
                 logger.verbose "Posting tapIn to facebook"
-                fb.post 'me/feed', accessToken, {message: "I just tapped in at #{doc.organizationEntity.name} and raised funds for #{doc.charity.name}, :)", link: "http://www.goodybag.com/", name: "Goodybag", picture: "http://www.goodybag.com/static/images/gb-logo.png"}, (error, response)->
+                fb.post 'me/feed', accessToken, {message: "I just tapped in at #{doc.organizationEntity.name} and raised #{doc.donationAmount}¢ for #{doc.charity.name}, :)", link: "http://www.goodybag.com/", name: "Goodybag", picture: "http://www.goodybag.com/static/images/gb-logo.png"}, (error, response)->
                   if error?
                     logger.error error
                   else
@@ -5332,7 +5332,7 @@ class Streams extends API
 
     stream = {
       who               : who
-      entitiesInvolved  : [who, btDoc.organizationEntity]
+      entitiesInvolved  : [who, btDoc.organizationEntity, btDoc.charity]
       what              : tapIn
       when              : btDoc.date
 
@@ -5344,6 +5344,7 @@ class Streams extends API
       events            : [choices.eventTypes.BT_TAPPED]
       data              : {
         donationAmount  : btDoc.donationAmount
+        charity         : btDoc.charity
       }
 
       feeds: {
@@ -5352,10 +5353,9 @@ class Streams extends API
     }
 
     stream.feedSpecificData = {}
-    stream.feedSpecificData.involved = { #available only to entities involved
+    stream.feedSpecificData.involved = #available only to entities involved
       amount: btDoc.amount
-      donationAmount: btDoc.donationAmount
-    }
+      donationAmount: btDoc.donationAmount #we shouldn't need this here
 
     logger.debug(stream)
 
