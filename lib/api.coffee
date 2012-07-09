@@ -4672,10 +4672,10 @@ class BusinessTransactions extends API
             if error?
               cb(error, null)
               return
-            # else if bt?
-            #   logger.warn "Ignoring tapIn - occcured within 3 hour time frame at this business"
-            #   cb({name: "IgnoreTapIn", message: "User has tapped in multiple times with in a 3 hour time frame"}) #do not change the name without changing it in the callback below
-            #   return
+            else if bt?
+              logger.warn "Ignoring tapIn - occcured within 3 hour time frame at this business"
+              cb({name: "IgnoreTapIn", message: "User has tapped in multiple times with in a 3 hour time frame"}) #do not change the name without changing it in the callback below
+              return
             else
               cb(null)
         else
