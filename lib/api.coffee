@@ -1205,7 +1205,7 @@ class Consumers extends Users
 
   @register: (data, fieldsToReturn, callback)->
     self = this
-    data.screenName = new ObjectId()
+    data.aliasId = new ObjectId()
     @encryptPassword data.password, (error, hash)->
       if error?
         callback new errors.ValidationError "Invalid Password", {"password":"Invalid Password"} #error encrypting password, so fail

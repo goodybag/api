@@ -221,7 +221,8 @@ Consumer = new Schema {
   firstName       : {type: String}
   lastName        : {type: String}
   privateId       : {type: ObjectId}
-  screenName      : {type: String, unique: true, min:5}
+  screenName      : {type: String, min:5}
+  aliasId         : {type: ObjectId}
   setScreenName   : {type: Boolean, default: false}
   created         : {type: Date, default: Date.now}
   logins          : []
@@ -318,6 +319,7 @@ Consumer = new Schema {
   transactions    : transactions
 }
 
+Consumer.index {screenName: 1}, {unique: true, sparse: true} #sparse because we allow for null/non-existant values
 Consumer.index {barcodeId: 1}, {unique: true, sparse: true} #sparse because we allow for null/non-existant values
 Consumer.index {"signUpVerification.key": 1} #sparse because we allow for null/non-existant values
 Consumer.index {"updateVerification.key": 1} #sparse because we allow for null/non-existant values
