@@ -321,8 +321,8 @@ Consumer = new Schema {
 
 Consumer.index {screenName: 1}, {unique: true, sparse: true} #sparse because we allow for null/non-existant values
 Consumer.index {barcodeId: 1}, {unique: true, sparse: true} #sparse because we allow for null/non-existant values
-Consumer.index {"signUpVerification.key": 1} #sparse because we allow for null/non-existant values
-Consumer.index {"updateVerification.key": 1} #sparse because we allow for null/non-existant values
+Consumer.index {"signUpVerification.key": 1}
+Consumer.index {"updateVerification.key": 1}
 Consumer.index {"updateVerification.data.barcodeId": 1, "updateVerification.expiration": 1} # manage barcodeId uniqueness in code not db for this one
 
 
