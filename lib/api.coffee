@@ -2367,6 +2367,8 @@ class Businesses extends API
       instance[k] = v
     if data['locations']? and data['locations'] != []
         instance.markModified('locations')
+    if !data.pin?
+      instance.pin = "asdf"
 
     #add user to the list of users for this business and add them to the group of owners
     instance['clients'] = [clientId] #only one user now
@@ -2374,7 +2376,12 @@ class Businesses extends API
     instance['clientGroups'][clientId] = choices.businesses.groups.OWNERS
     instance['groups'][choices.businesses.groups.OWNERS] = [clientId]
 
-    instance.save callback
+    Businesses.encryptPin instance.pin, (error, hash)->
+      if error?
+        callback error
+        return
+      instance.pin = hash
+      instance.save callback
     return
 
   @addClient: (id, clientId, groupName, callback)->
