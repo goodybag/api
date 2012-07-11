@@ -1312,7 +1312,7 @@ class Consumers extends Users
         screenName: consumer.screenName
       }
 
-      Consumers.claimBarcodeId entity, consumer.barcodeId, true, (error)->
+      Consumers.claimBarcodeId entity, consumer.barcodeId, (error)->
         if error?
           logger.error error
 
