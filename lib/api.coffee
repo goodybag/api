@@ -4707,8 +4707,35 @@ class BusinessTransactions extends API
         screenName  : data.userEntity.screenName
 
     self = this
+
+    #the expected amount of karmaPoints once the entire tap-in process completes successfully
+    karmaPoints = 0
+
     accessToken = data.accessToken || null
     async.series {
+
+      # We are getting this just for display purposes on the tablet, we aren't actually updating the karmaPoints or anything here
+      getKarmaPoints: (cb)->
+        logger.info "getting karma points"
+        if doc.userEntity?
+          Statistics.getKarmaPoints doc.userEntity.id, doc.organizationEntity.id, (error, statistics)->
+            if error?
+              cb(error)
+              return
+            if statistics? && statistics.data && statistics.data.karmaPoints && statistics.data.karmaPoints.remaining
+              karmaPoints = statistics.data.karmaPoints.remaining
+            cb()
+            return
+        else
+          UnclaimedBarcodeStatistics.getKarmaPoints doc.barcodeId, doc.organizationEntity.id, (error, statistics)->
+            if error?
+              cb(error)
+              return
+            if statistics? && statistics.data && statistics.data.karmaPoints && statistics.data.karmaPoints.remaining
+              karmaPoints = statistics.data.karmaPoints.remaining
+            cb()
+            return
+
       findRecentTapIns: (cb)->
         if doc.barcodeId?
           BusinessTransactions.findLastTapInByBarcodeIdAtBusinessSince doc.barcodeId, doc.organizationEntity.id, doc.date.clone().addHours(-3), (error, bt)->
@@ -4720,12 +4747,16 @@ class BusinessTransactions extends API
               cb({name: "IgnoreTapIn", message: "User has tapped in multiple times with in a 3 hour time frame"}) #do not change the name without changing it in the callback below
               return
             else
+              # since this tapIn will count update the expected karmaPoints
+              if doc.postToFacebook
+                karmaPoints += defaults.tapIns.karmaPointsEarnedFB
+              else
+                karmaPoints += defaults.tapIns.karmaPointsEarned
               cb(null)
         else
           cb(null)
 
       save: (cb)=> #save it and write to the statistics table
-
         #award karmaPoints only if the business actually has active goodies, if they don't then they are not giving points to consumers
         Goodies.count {active: true, businessId: data.organizationEntity.id}, (error, count)=>
           if error?
@@ -4733,6 +4764,7 @@ class BusinessTransactions extends API
             cb(error, null)
             return
           if count > 0
+            logger.info "goodies exist, so we will be awarding karma points"
             doc.karmaPoints = globals.defaults.tapIns.karmaPointsEarned
 
             if doc.postToFacebook
@@ -4740,7 +4772,9 @@ class BusinessTransactions extends API
 
           transactionData = {}
           transaction = undefined
+
           if doc.userEntity?
+            logger.silly "BT_TAPPED TRANSACTION CREATED"
             transaction = @createTransaction(choices.transactions.states.PENDING, choices.transactions.actions.BT_TAPPED, transactionData, choices.transactions.directions.OUTBOUND, doc.userEntity)
           else
             transaction = @createTransaction(choices.transactions.states.PENDING, choices.transactions.actions.STAT_BT_TAPPED, transactionData, choices.transactions.directions.OUTBOUND, undefined)
@@ -4755,11 +4789,12 @@ class BusinessTransactions extends API
               logger.error(error)
               cb(error)
               return
-            bt = bt[0]
+            bt = Object.clone(bt[0]) #we are cloning this because it is the same as the doc object (insert must just be appending the _id and returning the same object)
+
             tp.process(bt, transaction) #process transaction - either add funds to consumer object then update stats or just update unclaimed stats if there is no user to add funds too
             Streams.btTapped bt #we don't care about the callback for this stream function
+            cb(null, true) #success
             if doc.userEntity?
-              cb(null, true) #success
               logger.debug accessToken
               logger.debug doc.postToFacebook
               if accessToken? and doc.postToFacebook #post to facebook
@@ -4774,12 +4809,12 @@ class BusinessTransactions extends API
     }, (error, results)->
       if error?
         if error.name? and error.name is "IgnoreTapIn"
-          callback(null) #don't report an error back to the device, we are going to ignore the tapIn
+          callback(null, {karmaPoints: karmaPoints}) #don't report an error back to the device, we are going to ignore the tapIn
           return
         callback(error)
         return
       else if results.save?
-        callback(null)
+        callback(null, {karmaPoints: karmaPoints})
         return
 
   @findLastTapInByBarcodeIdAtBusinessSince: (barcodeId, businessId, since, callback)->
