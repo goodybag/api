@@ -1125,6 +1125,8 @@ class Consumers extends Users
       callback(null, false)
       return
 
+    $query = {_id: entity.id, barcodeId: {$ne: barcodeId}}
+
     transactionData = {}
 
     btTransaction = @createTransaction(choices.transactions.states.PENDING, choices.transactions.actions.BT_BARCODE_CLAIMED, transactionData, choices.transactions.directions.OUTBOUND, entity)
@@ -1142,7 +1144,7 @@ class Consumers extends Users
     $update = {$pushAll: $pushAll, $set: $set}
 
     fieldsToReturn = {_id: 1, barcodeId: 1}
-    @model.collection.findAndModify {_id: entity.id, barcodeId: {$ne: barcodeId}}, [], $update, {safe: true, fields: fieldsToReturn, new: true}, (error, consumer)->
+    @model.collection.findAndModify $query, [], $update, {safe: true, fields: fieldsToReturn, new: true}, (error, consumer)->
       if error?
         if error.code is 11000 or error.code is 11001
           callback new errors.ValidationError "TapIn code is already in use", {"barcodeId": "tapIn code is already in use"}
@@ -1151,6 +1153,47 @@ class Consumers extends Users
         return
       else if !consumer? #if there is no consumer object that means that you are already using this barcodeId, so error, because we don't want to run the transactions twice!!
         callback new errors.ValidationError "This is already your TapIn code", {"barcodeId": "this is already your tapIn code"}
+        return
+      #success
+      tp.process(consumer, btTransaction)
+      tp.process(consumer, statTransaction)
+      success = if consumer? then true else false
+      callback null, success
+    return
+
+  # different that update, because update checks if you've already claimed it, this doesn't
+  @claimBarcodeId: (entity, barcodeId, callback)->
+    if Object.isString(entity.id)
+      entity.id = new ObjectId(entity.id)
+
+    if !barcodeId?
+      callback(null, false)
+      return
+
+    $query = {_id: entity.id}
+    transactionData = {}
+
+    btTransaction = @createTransaction(choices.transactions.states.PENDING, choices.transactions.actions.BT_BARCODE_CLAIMED, transactionData, choices.transactions.directions.OUTBOUND, entity)
+    statTransaction = @createTransaction(choices.transactions.states.PENDING, choices.transactions.actions.STAT_BARCODE_CLAIMED, transactionData, choices.transactions.directions.OUTBOUND, entity)
+
+    $set = {
+      barcodeId: barcodeId
+    }
+
+    $pushAll = {
+      "transactions.ids": [btTransaction.id, statTransaction.id]
+      "transactions.log": [btTransaction, statTransaction]
+    }
+
+    $update = {$pushAll: $pushAll, $set: $set}
+
+    fieldsToReturn = {_id: 1, barcodeId: 1}
+    @model.collection.findAndModify $query, [], $update, {safe: true, fields: fieldsToReturn, new: true}, (error, consumer)->
+      if error?
+        callback error
+        return
+      else if !consumer? #if there is no consumer object that means that you are already using this barcodeId, so error, because we don't want to run the transactions twice!!
+        callback new errors.ValidationError "Consumer with that identifer doesn't exist"
         return
       #success
       tp.process(consumer, btTransaction)
@@ -1269,7 +1312,7 @@ class Consumers extends Users
         screenName: consumer.screenName
       }
 
-      Consumers.updateBarcodeId entity, consumer.barcodeId, (error)->
+      Consumers.claimBarcodeId entity, consumer.barcodeId, (error)->
         if error?
           logger.error error
 
@@ -4671,8 +4714,35 @@ class BusinessTransactions extends API
         screenName  : data.userEntity.screenName
 
     self = this
+
+    #the expected amount of karmaPoints once the entire tap-in process completes successfully
+    karmaPoints = 0
+
     accessToken = data.accessToken || null
     async.series {
+
+      # We are getting this just for display purposes on the tablet, we aren't actually updating the karmaPoints or anything here
+      getKarmaPoints: (cb)->
+        logger.info "getting karma points"
+        if doc.userEntity?
+          Statistics.getKarmaPoints doc.userEntity.id, doc.organizationEntity.id, (error, statistics)->
+            if error?
+              cb(error)
+              return
+            if statistics? && statistics.data && statistics.data.karmaPoints && statistics.data.karmaPoints.remaining
+              karmaPoints = statistics.data.karmaPoints.remaining
+            cb()
+            return
+        else
+          UnclaimedBarcodeStatistics.getKarmaPoints doc.barcodeId, doc.organizationEntity.id, (error, statistics)->
+            if error?
+              cb(error)
+              return
+            if statistics? && statistics.data && statistics.data.karmaPoints && statistics.data.karmaPoints.remaining
+              karmaPoints = statistics.data.karmaPoints.remaining
+            cb()
+            return
+
       findRecentTapIns: (cb)->
         if doc.barcodeId?
           BusinessTransactions.findLastTapInByBarcodeIdAtBusinessSince doc.barcodeId, doc.organizationEntity.id, doc.date.clone().addHours(-3), (error, bt)->
@@ -4684,12 +4754,16 @@ class BusinessTransactions extends API
               cb({name: "IgnoreTapIn", message: "User has tapped in multiple times with in a 3 hour time frame"}) #do not change the name without changing it in the callback below
               return
             else
+              # since this tapIn will count update the expected karmaPoints
+              if doc.postToFacebook
+                karmaPoints += defaults.tapIns.karmaPointsEarnedFB
+              else
+                karmaPoints += defaults.tapIns.karmaPointsEarned
               cb(null)
         else
           cb(null)
 
       save: (cb)=> #save it and write to the statistics table
-
         #award karmaPoints only if the business actually has active goodies, if they don't then they are not giving points to consumers
         Goodies.count {active: true, businessId: data.organizationEntity.id}, (error, count)=>
           if error?
@@ -4697,6 +4771,7 @@ class BusinessTransactions extends API
             cb(error, null)
             return
           if count > 0
+            logger.info "goodies exist, so we will be awarding karma points"
             doc.karmaPoints = globals.defaults.tapIns.karmaPointsEarned
 
             if doc.postToFacebook
@@ -4704,7 +4779,9 @@ class BusinessTransactions extends API
 
           transactionData = {}
           transaction = undefined
+
           if doc.userEntity?
+            logger.silly "BT_TAPPED TRANSACTION CREATED"
             transaction = @createTransaction(choices.transactions.states.PENDING, choices.transactions.actions.BT_TAPPED, transactionData, choices.transactions.directions.OUTBOUND, doc.userEntity)
           else
             transaction = @createTransaction(choices.transactions.states.PENDING, choices.transactions.actions.STAT_BT_TAPPED, transactionData, choices.transactions.directions.OUTBOUND, undefined)
@@ -4719,11 +4796,12 @@ class BusinessTransactions extends API
               logger.error(error)
               cb(error)
               return
-            bt = bt[0]
+            bt = Object.clone(bt[0]) #we are cloning this because it is the same as the doc object (insert must just be appending the _id and returning the same object)
+
             tp.process(bt, transaction) #process transaction - either add funds to consumer object then update stats or just update unclaimed stats if there is no user to add funds too
             Streams.btTapped bt #we don't care about the callback for this stream function
+            cb(null, true) #success
             if doc.userEntity?
-              cb(null, true) #success
               logger.debug accessToken
               logger.debug doc.postToFacebook
               if accessToken? and doc.postToFacebook #post to facebook
@@ -4738,12 +4816,12 @@ class BusinessTransactions extends API
     }, (error, results)->
       if error?
         if error.name? and error.name is "IgnoreTapIn"
-          callback(null) #don't report an error back to the device, we are going to ignore the tapIn
+          callback(null, {karmaPoints: karmaPoints}) #don't report an error back to the device, we are going to ignore the tapIn
           return
         callback(error)
         return
       else if results.save?
-        callback(null)
+        callback(null, {karmaPoints: karmaPoints})
         return
 
   @findLastTapInByBarcodeIdAtBusinessSince: (barcodeId, businessId, since, callback)->
@@ -6068,6 +6146,8 @@ class UnclaimedBarcodeStatistics extends API
 
     $inc = {}
     $inc["data.tapIns.totalTapIns"] = 1
+    $inc["data.tapIns.totalDonated"] = if !isNaN(donationAmount) then parseInt(donationAmount) else 0
+
     if spent? && !isNaN(spent)
       $inc["data.tapIns.totalAmountPurchased"] = parseInt(spent) #as an integer
     if karmaPointsEarned? && !isNaN(karmaPointsEarned)
@@ -6390,7 +6470,7 @@ class Statistics extends API
 
   #we accept the tapIns as a parameter because we use it when you claim a barcode, in that case you may have more than just one tapIn that is getting transfered in.
 
-  @btTapped: (orgEntity, consumerId, transactionId, spent, karmaPointsEarned, totalDonated, timestamp, totalTapIns, callback)->
+  @btTapped: (orgEntity, consumerId, transactionId, spent, karmaPointsEarned, donationAmount, timestamp, totalTapIns, callback)->
     if Object.isFunction(totalTapIns)
       callback = totalTapIns
       totalTapIns = 1
@@ -6414,8 +6494,8 @@ class Statistics extends API
       $inc["data.karmaPoints.earned"] = parseInt(karmaPointsEarned)
       $inc["data.karmaPoints.remaining"] = parseInt(karmaPointsEarned)
 
-    if totalDonated? && !isNaN(totalDonated)
-      $inc["data.tapIns.totalDonated"] = if !isNaN(totalDonated) then parseInt(totalDonated) else 0
+    if donationAmount? && !isNaN(donationAmount)
+      $inc["data.tapIns.totalDonated"] = if !isNaN(donationAmount) then parseInt(donationAmount) else 0
 
     $set = {}
     $set["data.tapIns.lastVisited"] = new Date(timestamp) #if it is a string it will become a date hopefully
