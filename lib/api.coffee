@@ -4708,34 +4708,8 @@ class BusinessTransactions extends API
 
     self = this
 
-    #the expected amount of karmaPoints once the entire tap-in process completes successfully
-    karmaPoints = 0
-
     accessToken = data.accessToken || null
     async.series {
-
-      # We are getting this just for display purposes on the tablet, we aren't actually updating the karmaPoints or anything here
-      getKarmaPoints: (cb)->
-        logger.info "getting karma points"
-        if doc.userEntity?
-          Statistics.getKarmaPoints doc.userEntity.id, doc.organizationEntity.id, (error, statistics)->
-            if error?
-              cb(error)
-              return
-            if statistics? && statistics.data && statistics.data.karmaPoints && statistics.data.karmaPoints.remaining
-              karmaPoints = statistics.data.karmaPoints.remaining
-            cb()
-            return
-        else
-          UnclaimedBarcodeStatistics.getKarmaPoints doc.barcodeId, doc.organizationEntity.id, (error, statistics)->
-            if error?
-              cb(error)
-              return
-            if statistics? && statistics.data && statistics.data.karmaPoints && statistics.data.karmaPoints.remaining
-              karmaPoints = statistics.data.karmaPoints.remaining
-            cb()
-            return
-
       findRecentTapIns: (cb)->
         if doc.barcodeId?
           BusinessTransactions.findLastTapInByBarcodeIdAtBusinessSince doc.barcodeId, doc.organizationEntity.id, doc.date.clone().addHours(-3), (error, bt)->
@@ -4747,11 +4721,6 @@ class BusinessTransactions extends API
               cb({name: "IgnoreTapIn", message: "User has tapped in multiple times with in a 3 hour time frame"}) #do not change the name without changing it in the callback below
               return
             else
-              # since this tapIn will count update the expected karmaPoints
-              if doc.postToFacebook
-                karmaPoints += defaults.tapIns.karmaPointsEarnedFB
-              else
-                karmaPoints += defaults.tapIns.karmaPointsEarned
               cb(null)
         else
           cb(null)
@@ -4809,12 +4778,12 @@ class BusinessTransactions extends API
     }, (error, results)->
       if error?
         if error.name? and error.name is "IgnoreTapIn"
-          callback(null, {karmaPoints: karmaPoints}) #don't report an error back to the device, we are going to ignore the tapIn
+          callback(null, {ignored: true}) #don't report an error back to the device, we are going to ignore the tapIn
           return
         callback(error)
         return
       else if results.save?
-        callback(null, {karmaPoints: karmaPoints})
+        callback(null, {ignored: false})
         return
 
   @findLastTapInByBarcodeIdAtBusinessSince: (barcodeId, businessId, since, callback)->
