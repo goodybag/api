@@ -1655,6 +1655,8 @@ statBarcodeClaimed = (document, transaction)->
   logger.info "STAT - User claimed barcode"
   logger.info "#{prepend} - #{transaction.direction}"
 
+  totalDonated = 0
+
   cleanup = (callback)->
     logger.info "#{prepend} cleaning up"
     _cleanupTransaction document, transaction, api.Consumers, [api.Consumers, api.Statistics], callback
@@ -1668,16 +1670,19 @@ statBarcodeClaimed = (document, transaction)->
 
     if unclaimedBarcodeStatistic.data? and unclaimedBarcodeStatistic.data.tapIns?
       spent             = unclaimedBarcodeStatistic.data.tapIns.totalAmountPurchased || 0
-      totalDonated      = unclaimedBarcodeStatistic.data.tapIns.totalDonated || 0
+      donationAmount    = unclaimedBarcodeStatistic.data.tapIns.totalDonated || 0
       karmaPointsEarned = unclaimedBarcodeStatistic.data.karmaPoints.earned || 0
       timestamp         = unclaimedBarcodeStatistic.data.tapIns.lastVisited
       totalTapIns       = unclaimedBarcodeStatistic.data.tapIns.totalTapIns || 0
+
+      totalDonated += donationAmount
 
     else # if there is no data then there is nothing to copy in the first place
       callback()
       return
 
-    api.Statistics.btTapped org, consumerId, transaction.id, spent, karmaPointsEarned, totalDonationAmount, totalTapIns, timestamp, (error, count)->
+    # don't worry, it won't add statistics that have already been added to this collection - it is transaction safe :)
+    api.Statistics.btTapped org, consumerId, transaction.id, spent, karmaPointsEarned, donationAmount, timestamp, totalTapIns, (error, count)->
       if error?
         callback(error)
         return
@@ -1696,8 +1701,8 @@ statBarcodeClaimed = (document, transaction)->
     updateStats: (callback)->
       # logger.debug document
       transactionId = transaction.id
-      claimId = transactionId
-      barcodeId = document.barcodeId
+      claimId       = transactionId
+      barcodeId     = document.barcodeId
 
       logger.info "#{prepend} claiming barcode"
       api.UnclaimedBarcodeStatistics.claimBarcodeId barcodeId, transactionId, (error, count)->
@@ -1713,7 +1718,7 @@ statBarcodeClaimed = (document, transaction)->
             callback(error)
             return
 
-          logger.info "#{prepend} loop through unclaimed"
+          logger.info "#{prepend} loop through recently claimed"
           async.forEach unclaimedBarcodeStatistics, copyStats, (error)->
             if error?
               callback(error)
@@ -1723,8 +1728,6 @@ statBarcodeClaimed = (document, transaction)->
 
     setProcessed: (callback)->
       #what we are doing here is determining how much the consumer has earned to donate to charity
-      donationAmountEarned = if !isNaN(parseInt(totalTapIns)) then totalTapIns * defaults.bt.donationAmount else 0
-
       ucbsClaimedTransaction = api.Consumers.createTransaction(
         choices.transactions.states.PENDING
         , choices.transactions.actions.UCBS_CLAIMED
@@ -1733,7 +1736,7 @@ statBarcodeClaimed = (document, transaction)->
         , transaction.entity
       )
 
-      $inc = {"funds.remaining": donationAmountEarned, "funds.allocated": donationAmountEarned}
+      $inc = {"funds.donated": totalDonated}
 
       $pushAll = {
         "transactions.ids"  : [ucbsClaimedTransaction.id]

@@ -1125,6 +1125,8 @@ class Consumers extends Users
       callback(null, false)
       return
 
+    $query = {_id: entity.id, barcodeId: {$ne: barcodeId}}
+
     transactionData = {}
 
     btTransaction = @createTransaction(choices.transactions.states.PENDING, choices.transactions.actions.BT_BARCODE_CLAIMED, transactionData, choices.transactions.directions.OUTBOUND, entity)
@@ -1142,7 +1144,7 @@ class Consumers extends Users
     $update = {$pushAll: $pushAll, $set: $set}
 
     fieldsToReturn = {_id: 1, barcodeId: 1}
-    @model.collection.findAndModify {_id: entity.id, barcodeId: {$ne: barcodeId}}, [], $update, {safe: true, fields: fieldsToReturn, new: true}, (error, consumer)->
+    @model.collection.findAndModify $query, [], $update, {safe: true, fields: fieldsToReturn, new: true}, (error, consumer)->
       if error?
         if error.code is 11000 or error.code is 11001
           callback new errors.ValidationError "TapIn code is already in use", {"barcodeId": "tapIn code is already in use"}
@@ -1151,6 +1153,47 @@ class Consumers extends Users
         return
       else if !consumer? #if there is no consumer object that means that you are already using this barcodeId, so error, because we don't want to run the transactions twice!!
         callback new errors.ValidationError "This is already your TapIn code", {"barcodeId": "this is already your tapIn code"}
+        return
+      #success
+      tp.process(consumer, btTransaction)
+      tp.process(consumer, statTransaction)
+      success = if consumer? then true else false
+      callback null, success
+    return
+
+  # different that update, because update checks if you've already claimed it, this doesn't
+  @claimBarcodeId: (entity, barcodeId, callback)->
+    if Object.isString(entity.id)
+      entity.id = new ObjectId(entity.id)
+
+    if !barcodeId?
+      callback(null, false)
+      return
+
+    $query = {_id: entity.id}
+    transactionData = {}
+
+    btTransaction = @createTransaction(choices.transactions.states.PENDING, choices.transactions.actions.BT_BARCODE_CLAIMED, transactionData, choices.transactions.directions.OUTBOUND, entity)
+    statTransaction = @createTransaction(choices.transactions.states.PENDING, choices.transactions.actions.STAT_BARCODE_CLAIMED, transactionData, choices.transactions.directions.OUTBOUND, entity)
+
+    $set = {
+      barcodeId: barcodeId
+    }
+
+    $pushAll = {
+      "transactions.ids": [btTransaction.id, statTransaction.id]
+      "transactions.log": [btTransaction, statTransaction]
+    }
+
+    $update = {$pushAll: $pushAll, $set: $set}
+
+    fieldsToReturn = {_id: 1, barcodeId: 1}
+    @model.collection.findAndModify $query, [], $update, {safe: true, fields: fieldsToReturn, new: true}, (error, consumer)->
+      if error?
+        callback error
+        return
+      else if !consumer? #if there is no consumer object that means that you are already using this barcodeId, so error, because we don't want to run the transactions twice!!
+        callback new errors.ValidationError "Consumer with that identifer doesn't exist"
         return
       #success
       tp.process(consumer, btTransaction)
@@ -1269,7 +1312,7 @@ class Consumers extends Users
         screenName: consumer.screenName
       }
 
-      Consumers.updateBarcodeId entity, consumer.barcodeId, (error)->
+      Consumers.claimBarcodeId entity, consumer.barcodeId, true, (error)->
         if error?
           logger.error error
 
@@ -6061,6 +6104,8 @@ class UnclaimedBarcodeStatistics extends API
 
     $inc = {}
     $inc["data.tapIns.totalTapIns"] = 1
+    $inc["data.tapIns.totalDonated"] = if !isNaN(donationAmount) then parseInt(donationAmount) else 0
+
     if spent? && !isNaN(spent)
       $inc["data.tapIns.totalAmountPurchased"] = parseInt(spent) #as an integer
     if karmaPointsEarned? && !isNaN(karmaPointsEarned)
@@ -6383,7 +6428,7 @@ class Statistics extends API
 
   #we accept the tapIns as a parameter because we use it when you claim a barcode, in that case you may have more than just one tapIn that is getting transfered in.
 
-  @btTapped: (orgEntity, consumerId, transactionId, spent, karmaPointsEarned, totalDonated, timestamp, totalTapIns, callback)->
+  @btTapped: (orgEntity, consumerId, transactionId, spent, karmaPointsEarned, donationAmount, timestamp, totalTapIns, callback)->
     if Object.isFunction(totalTapIns)
       callback = totalTapIns
       totalTapIns = 1
@@ -6407,8 +6452,8 @@ class Statistics extends API
       $inc["data.karmaPoints.earned"] = parseInt(karmaPointsEarned)
       $inc["data.karmaPoints.remaining"] = parseInt(karmaPointsEarned)
 
-    if totalDonated? && !isNaN(totalDonated)
-      $inc["data.tapIns.totalDonated"] = if !isNaN(totalDonated) then parseInt(totalDonated) else 0
+    if donationAmount? && !isNaN(donationAmount)
+      $inc["data.tapIns.totalDonated"] = if !isNaN(donationAmount) then parseInt(donationAmount) else 0
 
     $set = {}
     $set["data.tapIns.lastVisited"] = new Date(timestamp) #if it is a string it will become a date hopefully
