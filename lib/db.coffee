@@ -213,29 +213,16 @@ PasswordResetRequest = new Schema {
 
 
 ####################
-# DONATIONS ########
-####################
-DonationLog = new Schema {
-  entity     : entity
-  charity    : entity
-  amount     : {type: Number, required: true}
-  dates : {
-    created  : {type: Date, default: Date.now}
-    donated  : {type: Date, default: Date.now}
-  }
-  transactions : transactions
-}
-
-
-####################
 # CONSUMER #########
 ####################
 Consumer = new Schema {
   email           : {type: String, set: utils.toLower, validate: Email, unique: true}
   password        : {type: String, min:5, required: true}
-  firstName       : {type: String, required: true}
-  lastName        : {type: String, required: true}
-  screenName      : {type: String, unique: true, min:5}
+  firstName       : {type: String}
+  lastName        : {type: String}
+  privateId       : {type: ObjectId}
+  screenName      : {type: String, min:5}
+  aliasId         : {type: ObjectId}
   setScreenName   : {type: Boolean, default: false}
   created         : {type: Date, default: Date.now}
   logins          : []
@@ -245,7 +232,14 @@ Consumer = new Schema {
   media           : media
   secureMedia     : media
   tapinsToFacebook: {type: Boolean, default: false}
-  changeEmail   : {}
+  changeEmail     : {}
+
+  # same as organization, but making fields not required because an account can be pre-created without charity
+  charity: {
+    type          : {type: String, enum: [choices.organizations.CHARITY]}
+    id            : {type: ObjectId}
+    name          : {type: String}
+  }
 
   facebook: {
     access_token  : {type: String}
@@ -310,10 +304,26 @@ Consumer = new Schema {
   barcodeId       : {type: String}
 
   gbAdmin         : {type: Boolean, default: false}
+
+  updateVerification : {
+    key        : {type: String}
+    expiration : {type: Date}
+    data       : {}
+  }
+
+  signUpVerification: {
+    key: {type: String}
+    expiration: {type: Date}
+  }
+
   transactions    : transactions
 }
 
+Consumer.index {screenName: 1}, {unique: true, sparse: true} #sparse because we allow for null/non-existant values
 Consumer.index {barcodeId: 1}, {unique: true, sparse: true} #sparse because we allow for null/non-existant values
+Consumer.index {"signUpVerification.key": 1}
+Consumer.index {"updateVerification.key": 1}
+Consumer.index {"updateVerification.data.barcodeId": 1, "updateVerification.expiration": 1} # manage barcodeId uniqueness in code not db for this one
 
 
 ####################
@@ -379,7 +389,7 @@ Business = new Schema {
   }
 
   dates: {
-    created     : {type: Date, required: true, default: Date.now}
+    created: {type: Date, required: true, default: Date.now}
   }
 
   funds: {
@@ -390,7 +400,7 @@ Business = new Schema {
 
   gbEquipped    : {type: Boolean, default: false}
   deleted       : {type: Boolean, default: false}
-  
+
   pin           : {type: String, validate: /[0-9]/}
 
   transactions  : transactions
@@ -834,6 +844,7 @@ BusinessTransaction = new Schema {
   }
 
   organizationEntity    : organization
+  charity               : organization
 
   locationId            : {type: ObjectId, required: true}
   registerId            : {type: String, required: true}
@@ -845,6 +856,7 @@ BusinessTransaction = new Schema {
   receipt               : {type: Buffer, required: false} #binary receipt data
   hasReceipt            : {type: Boolean, required: true, default:false} #because we want to check if there is a receipt without pulling receipt (might be big)
 
+  karmaPoints           : {type: String, required: true}
   donationType          : {type: String, required: true, enum: choices.donationTypes._enum} #percentage or dollar amount
   donationValue         : {type: Number, required: true} #what is the percentage or what is the dollar amount
   donationAmount        : {type: Number, required: true, default: 0} #the amount donated
@@ -971,6 +983,7 @@ RedemptionLog = new Schema {
   #totalTapIns
   #totalAmountPurchased
   #lastVisited
+  #totalDonated
   #charityCentsRaised [REMOVE]
   #charityCentsRemaining [REMOVE]
   #charityCentsRedeemed [REMOVE]
@@ -1014,16 +1027,17 @@ Statistic.index {consumerId: 1, "org.type": 1, "org.id": 1}
 # Statistic.index {'org.type': 1, 'org.id':1, consumerId: 1, "polls.totalAnswered": 1} #REMOVE
 # Statistic.index {'org.type': 1, 'org.id':1, consumerId: 1, "polls.lastAnsweredDate": 1} #REMOVE
 
-Statistic.index {'org.type': 1, 'org.id':1, consumerId: 1, "data.tapIns.totalTapIns": 1}
-Statistic.index {'org.type': 1, 'org.id':1, consumerId: 1, "data.tapIns.totalAmountPurchased": 1}
-Statistic.index {'org.type': 1, 'org.id':1, consumerId: 1, "data.tapIns.lastVisited": 1}
+Statistic.index {'org.type': 1, 'org.id': 1, consumerId: 1, "data.tapIns.totalTapIns": 1}
+Statistic.index {'org.type': 1, 'org.id': 1, consumerId: 1, "data.tapIns.totalAmountPurchased": 1}
+Statistic.index {'org.type': 1, 'org.id': 1, consumerId: 1, "data.tapIns.lastVisited": 1}
+Statistic.index {'org.type': 1, 'org.id': 1, consumerId: 1, "data.tapIns.totalDonated": 1}
 
-Statistic.index {'org.type': 1, 'org.id':1, consumerId: 1, "data.polls.totalAnswered": 1}
-Statistic.index {'org.type': 1, 'org.id':1, consumerId: 1, "data.polls.lastAnsweredDate": 1}
+Statistic.index {'org.type': 1, 'org.id': 1, consumerId: 1, "data.polls.totalAnswered": 1}
+Statistic.index {'org.type': 1, 'org.id': 1, consumerId: 1, "data.polls.lastAnsweredDate": 1}
 
-Statistic.index {'org.type': 1, 'org.id':1, consumerId: 1, "data.karmaPoints.earned": 1}
-Statistic.index {'org.type': 1, 'org.id':1, consumerId: 1, "data.karmaPoints.remaining": 1}
-Statistic.index {'org.type': 1, 'org.id':1, consumerId: 1, "data.karmaPoints.used": 1}
+Statistic.index {'org.type': 1, 'org.id': 1, consumerId: 1, "data.karmaPoints.earned": 1}
+Statistic.index {'org.type': 1, 'org.id': 1, consumerId: 1, "data.karmaPoints.remaining": 1}
+Statistic.index {'org.type': 1, 'org.id': 1, consumerId: 1, "data.karmaPoints.used": 1}
 
 
 #CURRENTLY BEING TRACKED: (ALWAYS UPDATE THIS LIST PLEASE AND THE INDEXES)
@@ -1031,7 +1045,7 @@ Statistic.index {'org.type': 1, 'org.id':1, consumerId: 1, "data.karmaPoints.use
   #totalTapIns
   #totalAmountPurchased
   #lastVisited
-  #charityCentsRaised
+  #totalDonated
 
 #karmaPoints
   #earned
@@ -1052,12 +1066,12 @@ UnclaimedBarcodeStatistic.index {claimId: 1, barcodeId: 1} #used when claiming a
 # UnclaimedBarcodeStatistic.index {'org.type': 1, 'org.id':1, barcodeId: 1, "tapIns.totalTapIns": 1} #REMOVE
 # UnclaimedBarcodeStatistic.index {'org.type': 1, 'org.id':1, barcodeId: 1, "tapIns.totalAmountPurchased": 1} #REMOVE
 # UnclaimedBarcodeStatistic.index {'org.type': 1, 'org.id':1, barcodeId: 1, "tapIns.lastVisited": 1} #REMOVE
-# UnclaimedBarcodeStatistic.index {'org.type': 1, 'org.id':1, barcodeId: 1, "tapIns.charityCentsRaised": 1} #REMOVE
+# UnclaimedBarcodeStatistic.index {'org.type': 1, 'org.id':1, barcodeId: 1, "tapIns.chariryCents": 1} #REMOVE
 
 UnclaimedBarcodeStatistic.index {'org.type': 1, 'org.id':1, barcodeId: 1, "data.tapIns.totalTapIns": 1}
 UnclaimedBarcodeStatistic.index {'org.type': 1, 'org.id':1, barcodeId: 1, "data.tapIns.totalAmountPurchased": 1}
 UnclaimedBarcodeStatistic.index {'org.type': 1, 'org.id':1, barcodeId: 1, "data.tapIns.lastVisited": 1}
-UnclaimedBarcodeStatistic.index {'org.type': 1, 'org.id':1, barcodeId: 1, "data.tapIns.charityCentsRaised": 1}
+UnclaimedBarcodeStatistic.index {'org.type': 1, 'org.id':1, barcodeId: 1, "data.tapIns.totalDonated": 1}
 
 UnclaimedBarcodeStatistic.index {'org.type': 1, 'org.id':1, consumerId: 1, "data.karmaPoints.earned": 1}
 UnclaimedBarcodeStatistic.index {'org.type': 1, 'org.id':1, consumerId: 1, "data.karmaPoints.remaining": 1}
@@ -1095,7 +1109,6 @@ EmailSubmission = new Schema {
 
 exports.DBTransaction             = mongoose.model 'DBTransaction', DBTransaction
 exports.Sequence                  = mongoose.model 'Sequence', Sequence
-exports.DonationLog               = mongoose.model 'DonationLog', DonationLog
 exports.Consumer                  = mongoose.model 'Consumer', Consumer
 exports.Client                    = mongoose.model 'Client', Client
 exports.Business                  = mongoose.model 'Business', Business
@@ -1125,7 +1138,6 @@ exports.schemas = {
   Sequence                  : Sequence
   Consumer                  : Consumer
   Client                    : Client
-  DonationLog               : DonationLog
   Business                  : Business
   Poll                      : Poll
   Goody                     : Goody
