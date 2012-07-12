@@ -2716,11 +2716,24 @@ class Businesses extends API
       if count <= 0
         callback null
         return
-      @model.collection.findOne {isCharity: true}, {fields: fields, limit: -1, skip: count-1}, (error, charity)->
+
+      $opts = {fields: fields, limit: -1}
+
+      if count == 1
+        $opts.skip = 0
+      else
+        $opts.skip = Number.random(0,count-1)
+
+      @model.collection.find {isCharity: true}, $opts, (error, cursor)->
         if error?
           callback(error)
           return
-        callback null, charity
+        cursor.toArray (error, charities)->
+          if charities.length > 0
+            callback error, charities[0]
+          else
+            callback error
+          return
 
   @validateRegister = (businessId, locationId, registerId, fields, callback)->
     if Object.isString businessId
