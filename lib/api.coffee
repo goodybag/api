@@ -4758,6 +4758,7 @@ class BusinessTransactions extends API
 
             if doc.postToFacebook
               doc.karmaPoints = globals.defaults.tapIns.karmaPointsEarnedFB
+              doc.donationAmount += defaults.bt.donationFacebook
 
           transactionData = {}
           transaction = undefined
