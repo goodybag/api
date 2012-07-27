@@ -2306,6 +2306,7 @@ class Businesses extends API
     query.where 'deleted', options.deleted if options.deleted?
     query.where 'gbEquipped', true if options.equipped?
     query.where 'type', options.type if options.type?
+    query.sort('publicName', 1) if options.alphabetical? and options.alphabetical == true
     return query
 
   @updateSettings = (id, pin, data, callback)->
