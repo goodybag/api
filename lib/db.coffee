@@ -865,6 +865,8 @@ BusinessTransaction = new Schema {
   transactions          : transactions
 }
 
+BusinessTransaction.index {barcodeId: 1, "organizationEntity.id": 1, "date": -1}
+
 
 #######################
 # Business Requests ###
