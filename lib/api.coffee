@@ -1104,6 +1104,33 @@ class Consumers extends Users
       callback null, consumer
       return
 
+  ### _findByBarcodeIds_ ###
+  #
+  # Find conusmers who have the given barcodeIds. Ignore pending
+  #
+  # Various argument possibilities
+  #
+  # - barcodeIds, callback
+  # - barcodeIds, fields, callback
+  #
+  # **barcodeId** _Array_ the barcodes<br />
+  # **fields** _Dict_ list of fields to return< br />
+  # **callback** _Function_ (error, consumer)
+  @findByBarcodeIds:(barcodeIds, fields, callback)->
+    if Object.isFunction(fields)
+      callback = fields
+      fields = null
+
+    $query = { barcodeId: {$in: barcodeIds} }
+    @model.collection.find $query, fields, (error, cursor)->
+      if error?
+        callback(error)
+        return
+
+      cursor.toArray (error, consumers)->
+        callback null, consumers
+        return
+
   @getByEmail: (email, fields, callback)->
     if Object.isFunction(fields)
       callback = fields
@@ -4848,6 +4875,20 @@ class BusinessTransactions extends API
     @model.collection.update {barcodeId: barcodeId}, {$set: $set}, {multi:true, safe:true}, callback
     return
 
+  @replaceBarcodeId: (oldId, barcodeId, callback)->
+    if utils.isBlank(oldId)
+      callback new errors.ValidationError("oldId is required fields")
+      return
+    if utils.isBlank(barcodeId)
+      callback new errors.ValidationError("barcodeId is required fields")
+      return
+
+    $set = {
+      barcodeId: barcodeId
+    }
+    @model.collection.update {barcodeId: oldId}, {$set: $set}, {multi:true, safe:true}, callback
+    return
+
   @byUser: (userId, options, callback)->
     if Object.isFunction options
       callback = options
@@ -6104,6 +6145,20 @@ class UnclaimedBarcodeStatistics extends API
       claimId = new ObjectId(claimId)
 
     @model.collection.update {barcodeId: barcodeId}, {$set: {claimId: claimId}}, {safe:true}, callback
+    return
+
+  @replaceBarcodeId: (oldId, barcodeId, callback)->
+    if utils.isBlank(oldId)
+      callback new errors.ValidationError("oldId is required fields")
+      return
+    if utils.isBlank(barcodeId)
+      callback new errors.ValidationError("barcodeId is required fields")
+      return
+
+    $set = {
+      barcodeId: barcodeId
+    }
+    @model.collection.update {barcodeId: oldId}, {$set: $set}, {safe:true, multi: true}, callback
     return
 
   @getClaimed: (claimId, callback)->
