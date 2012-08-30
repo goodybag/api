@@ -326,7 +326,8 @@ Consumer.index {"facebook.id": 1, email: 1}
 Consumer.index {"signUpVerification.key": 1}
 Consumer.index {"updateVerification.key": 1}
 Consumer.index {"updateVerification.data.barcodeId": 1, "updateVerification.expiration": 1} # manage barcodeId uniqueness in code not db for this one
-
+Consumer.index {_id: 1, "transactions.ids": 1}
+Consumer.index {"transactions.ids": 1}
 
 ####################
 # Client ###########
@@ -684,6 +685,7 @@ Media.index {'entity.type': 1, 'entity.id': 1, tags: 1} #for searching by tags
 Media.index {'entity.type': 1, 'entity.id': 1, name: 1} #for searching by name
 Media.index {'entity.type': 1, 'entity.id': 1, 'dates.created': 1} #for searching by name
 Media.index {url:1} #for when we want to find out which entity a url belongs to
+Media.index {"guid": 1}
 
 
 ####################
@@ -1075,6 +1077,7 @@ UnclaimedBarcodeStatistic = new Schema {
 UnclaimedBarcodeStatistic.index {'org.type': 1, 'org.id':1, barcodeId: 1}, {unique: true}
 UnclaimedBarcodeStatistic.index {claimId: 1, barcodeId: 1} #used when claiming a barcode
 UnclaimedBarcodeStatistic.index {'org.type': 1, 'org.id':1, barcodeId: 1, "transactions.ids": 1}
+UnclaimedBarcodeStatistic.index {"transactions.ids": 1}
 
 # UnclaimedBarcodeStatistic.index {'org.type': 1, 'org.id':1, barcodeId: 1, "tapIns.totalTapIns": 1} #REMOVE
 # UnclaimedBarcodeStatistic.index {'org.type': 1, 'org.id':1, barcodeId: 1, "tapIns.totalAmountPurchased": 1} #REMOVE
