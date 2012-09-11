@@ -151,6 +151,7 @@ class API
       id = new ObjectId id
     if id instanceof ObjectId
       id = { _id: id }
+    logger.silly id
     @model.remove id, callback
     return
 
