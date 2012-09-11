@@ -321,10 +321,13 @@ Consumer = new Schema {
 
 Consumer.index {screenName: 1}, {unique: true, sparse: true} #sparse because we allow for null/non-existant values
 Consumer.index {barcodeId: 1}, {unique: true, sparse: true} #sparse because we allow for null/non-existant values
+Consumer.index {email: 1}
+Consumer.index {"facebook.id": 1, email: 1}
 Consumer.index {"signUpVerification.key": 1}
 Consumer.index {"updateVerification.key": 1}
 Consumer.index {"updateVerification.data.barcodeId": 1, "updateVerification.expiration": 1} # manage barcodeId uniqueness in code not db for this one
-
+Consumer.index {_id: 1, "transactions.ids": 1}
+Consumer.index {"transactions.ids": 1}
 
 ####################
 # Client ###########
@@ -414,6 +417,11 @@ Business = new Schema {
     #managers    : [String]
   }
 }
+
+Business.index {name: 1}
+Business.index {publicName: 1}
+Business.index {isCharity: 1}
+Business.index {deleted: 1}
 
 ####################
 # Organization #####
@@ -677,6 +685,7 @@ Media.index {'entity.type': 1, 'entity.id': 1, tags: 1} #for searching by tags
 Media.index {'entity.type': 1, 'entity.id': 1, name: 1} #for searching by name
 Media.index {'entity.type': 1, 'entity.id': 1, 'dates.created': 1} #for searching by name
 Media.index {url:1} #for when we want to find out which entity a url belongs to
+Media.index {"guid": 1}
 
 
 ####################
@@ -865,6 +874,9 @@ BusinessTransaction = new Schema {
   transactions          : transactions
 }
 
+BusinessTransaction.index {barcodeId: 1, "organizationEntity.id": 1, "date": -1}
+BusinessTransaction.index {"transactions.ids": 1}
+
 
 #######################
 # Business Requests ###
@@ -1014,6 +1026,8 @@ Statistic.index {'org.type': 1, 'org.id':1, consumerId: 1}, {unique: true}
 Statistic.index {consumerId: 1, "org.id": 1}
 Statistic.index {consumerId: 1, "org.type": 1, "org.id": 1}
 
+Statistic.index {'org.type': 1, 'org.id':1, consumerId: 1, "transactions.ids": 1}
+
 #THESE ACTUALLY NEEDED DATA INFRONT OF THE LAST COLUM - SO FIX THIS WHEN DOING GOODIES
 #we want to stop storing in data eventually - just keep it at the top level
 
@@ -1062,6 +1076,8 @@ UnclaimedBarcodeStatistic = new Schema {
 
 UnclaimedBarcodeStatistic.index {'org.type': 1, 'org.id':1, barcodeId: 1}, {unique: true}
 UnclaimedBarcodeStatistic.index {claimId: 1, barcodeId: 1} #used when claiming a barcode
+UnclaimedBarcodeStatistic.index {'org.type': 1, 'org.id':1, barcodeId: 1, "transactions.ids": 1}
+UnclaimedBarcodeStatistic.index {"transactions.ids": 1}
 
 # UnclaimedBarcodeStatistic.index {'org.type': 1, 'org.id':1, barcodeId: 1, "tapIns.totalTapIns": 1} #REMOVE
 # UnclaimedBarcodeStatistic.index {'org.type': 1, 'org.id':1, barcodeId: 1, "tapIns.totalAmountPurchased": 1} #REMOVE
