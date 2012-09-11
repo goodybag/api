@@ -683,9 +683,10 @@ class Users extends API
         callback error, consumer
         return
       else if consumer?
-        if consumer.facebook? && consumer.facebook.id? #if facebook user
-          callback new errors.ValidationError "Please authenticate via Facebook", {"login":"invalid authentication mechanism - use facebook"}
-          return
+        # It's really not necessary
+        # if consumer.facebook? && consumer.facebook.id? #if facebook user
+        #   callback new errors.ValidationError "Please authenticate via Facebook", {"login":"invalid authentication mechanism - use facebook"}
+        #   return
         bcrypt.compare password+defaults.passwordSalt, consumer.password, (error, success)->
           if error? or !success
             callback new errors.ValidationError "Invalid Password", {"login":"invalid password"}
@@ -1399,6 +1400,8 @@ class Consumers extends Users
       if appResponse.code!=200
         callback new errors.HttpError 'Error connecting with Facebook, try again later.', 'facebookBatch:'+urls[0], appResponse.code
         return
+      logger.silly "#####################################"
+      logger.silly JSON.parse(appResponse.body).id
       if JSON.parse(appResponse.body).id != config.facebook.appId
         callback new errors.ValidationError {'accessToken':"Incorrect access token. Not for Goodybag's app."}
       if meResponse.code!=200
