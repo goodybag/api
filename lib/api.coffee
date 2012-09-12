@@ -1219,7 +1219,7 @@ class Consumers extends Users
       if error?
         callback error
         return
-      else if !consumer? #if there is no consumer object that means that you are already using this barcodeId, so error, because we don't want to run the transactions twice!!
+      else if !consumer?
         callback new errors.ValidationError "Consumer with that identifer doesn't exist"
         return
       #success
