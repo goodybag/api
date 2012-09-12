@@ -134,19 +134,25 @@ class API
   @_update: (id, updateDoc, dbOptions, callback)->
     if Object.isString id
       id = new ObjectId id
+    if id instanceof ObjectId
+      id = { _id: id }
     if Object.isFunction dbOptions
       callback = dbOptions
       dbOptions = {safe:true}
-    #id typecheck is done in .update
-    where = {_id:id}
-    @model.update where, updateDoc, dbOptions, callback
+
+    @model.update id, updateDoc, dbOptions, callback
     return
 
   @remove = (id, callback)->
     return @_remove(id, callback)
 
   @_remove = (id, callback)->
-    @model.remove {'_id': id}, callback
+    if Object.isString id
+      id = new ObjectId id
+    if id instanceof ObjectId
+      id = { _id: id }
+    logger.silly id
+    @model.remove id, callback
     return
 
   @del = @remove
@@ -677,9 +683,10 @@ class Users extends API
         callback error, consumer
         return
       else if consumer?
-        if consumer.facebook? && consumer.facebook.id? #if facebook user
-          callback new errors.ValidationError "Please authenticate via Facebook", {"login":"invalid authentication mechanism - use facebook"}
-          return
+        # It's really not necessary
+        # if consumer.facebook? && consumer.facebook.id? #if facebook user
+        #   callback new errors.ValidationError "Please authenticate via Facebook", {"login":"invalid authentication mechanism - use facebook"}
+        #   return
         bcrypt.compare password+defaults.passwordSalt, consumer.password, (error, success)->
           if error? or !success
             callback new errors.ValidationError "Invalid Password", {"login":"invalid password"}
@@ -1379,6 +1386,46 @@ class Consumers extends Users
         callback {name: "DatabaseError", message: "Unable to update the consumer"}
         return
       callback null, consumer
+
+  @getFacebookData: (accessToken, callback)->
+    #verify accessToken and get User Profile
+    urls = ["app","me","me/picture"]
+    fb.get urls, accessToken, (error,data)->
+      if error?
+        callback error
+        return
+      appResponse = data[0] #same order as url array..
+      meResponse = data[1]
+      picResponse = data[2]
+      if appResponse.code!=200
+        callback new errors.HttpError 'Error connecting with Facebook, try again later.', 'facebookBatch:'+urls[0], appResponse.code
+        return
+      logger.silly "#####################################"
+      logger.silly JSON.parse(appResponse.body).id
+      if JSON.parse(appResponse.body).id != config.facebook.appId
+        callback new errors.ValidationError {'accessToken':"Incorrect access token. Not for Goodybag's app."}
+      if meResponse.code!=200
+        callback new errors.HttpError 'Error connecting with Facebook, try again later.', 'facebookBatch:'+urls[1], appResponse.code
+        return
+      if picResponse.code!=302&&picResponse.code!=200&&picResponse.code!=301 #this should be a 302..
+        callback new errors.HttpError 'Error connecting with Facebook, try again later.', 'facebookBatch:'+urls[1], appResponse.code
+        return
+
+      meResponse.body = JSON.parse(meResponse.body)
+      fbid = meResponse.body.id
+      if picResponse.headers[5].name == "Location" #hard-coded to get the Location header from the response headers
+        fbPicURL = picResponse.headers[5].value;
+      else
+        #since the above index is hard-coded, just in case the header index of Location changes
+        #search for the Location header
+        for i,v in picResponse.headers
+          if v.name == "Location"
+            fbPicURL = v.value
+
+      facebookData =
+        me  : meResponse.body
+        pic : if !fbPicURL? || fb.isDefaultProfilePic(fbPicURL, fbid) then null else fbPicURL #check if pic is default fb pic, if it is ignore it. picResponse.body should just be a string of the url..
+      callback null, facebookData
 
   @facebookLogin: (accessToken, fieldsToReturn, referralCode, callback)->
     #** fieldsToReturn needs to include screenName **
