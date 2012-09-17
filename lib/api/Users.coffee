@@ -1,7 +1,6 @@
 require("./helpers").install(global)
 Api = require("./Api")
 tp = require "../transactions" #transaction processor
-Sequences = require("./Sequences")
 
 exports = module.exports = class Users extends Api
   #start potential new API functions
