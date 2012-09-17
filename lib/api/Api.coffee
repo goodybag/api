@@ -74,19 +74,25 @@ exports = module.exports = class Api
   @_update: (id, updateDoc, dbOptions, callback)->
     if Object.isString id
       id = new ObjectId id
+    if id instanceof ObjectId
+      id = { _id: id }
     if Object.isFunction dbOptions
       callback = dbOptions
       dbOptions = {safe:true}
-    #id typecheck is done in .update
-    where = {_id:id}
-    @model.update where, updateDoc, dbOptions, callback
+
+    @model.update id, updateDoc, dbOptions, callback
     return
 
   @remove = (id, callback)->
     return @_remove(id, callback)
 
   @_remove = (id, callback)->
-    @model.remove {'_id': id}, callback
+    if Object.isString id
+      id = new ObjectId id
+    if id instanceof ObjectId
+      id = { _id: id }
+    logger.silly id
+    @model.remove id, callback
     return
 
   @del = @remove
