@@ -2,6 +2,7 @@ require("./helpers").install(global)
 Users = require("./Users")
 tp = require "../transactions" #transaction processor
 Sequences = require("./Sequences")
+Referrals = require("./Referrals")
 
 exports = module.exports = class Consumers extends Users
   @model = Consumer
