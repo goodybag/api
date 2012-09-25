@@ -2666,7 +2666,10 @@ class Businesses extends API
           if err?
             callback err, null
 
-    @model.collection.update {_id: id}, {$pull: { locations: {_id: { $in: objIds } },  } }, {safe: true}, callback
+    $pull = {}
+    $pull["locations"] = {_id: { $in: objIds }}
+    $pull["registerData"] =  {locationId: {$in: objIds}}
+    @model.collection.update {_id: id}, {$pull: $pull}, {safe: true}, callback
 
   @getGroup: (id, groupName, callback)->
     data = {}
@@ -2747,19 +2750,28 @@ class Businesses extends API
       locationId = new ObjectId locationId
     registerId = new ObjectId()
 
-    $query = {_id: businessId}
-    $set = {registers: {}}
-    $push = {locRegister: {}}
-    $set.registers[registerId] = {}
-    $set.registers[registerId].locationId = locationId
-    $push.locRegister[locationId] = registerId
+    # Get an id that can be utilized to setup the tablets
+    Sequences.next "register-setup-id", (error, value)=>
+      if error?
+        callback error #dberror
+        return
 
-    $set = @_flattenDoc $set
-    $push = @_flattenDoc $push
-    $update = {$set: $set, $push: $push}
+      $query = {_id: businessId}
+      $set = {registers: {}}
+      $push = {}
+      $set.registers[registerId] = {}
+      $set.registers[registerId].locationId = locationId
+      $set.registers[registerId].setupId = value
 
-    @model.collection.findAndModify $query, [], $update, {safe: true}, (error)->
-      callback error, registerId
+      $push["registerData"] = {locationId: locationId, registerId: registerId, setupId: value}
+      $push["locRegister.#{locationId}"] = registerId
+
+      $set = API._flattenDoc $set
+      #$push = @_flattenDoc $push
+      $update = {$set: $set, $push: $push}
+
+      @model.collection.findAndModify $query, [], $update, {safe: true}, (error)->
+        callback error, registerId
 
   @delRegister = (businessId, locationId, registerId, callback)->
     if Object.isString businessId
@@ -2770,6 +2782,7 @@ class Businesses extends API
     $pull = {}
     $unset["registers.#{registerId}"] = 1
     $pull["locRegister.#{locationId}"] = new ObjectId(registerId)
+    $pull["registerData"] = {registerId: new ObjectId(registerId)}
     $update = {$unset: $unset, $pull: $pull}
 
     @model.collection.findAndModify $query, [], $update, {safe: true}, callback
@@ -2826,6 +2839,13 @@ class Businesses extends API
         return
       callback null, business
 
+  @getBySetupId = (setupId, fields, callback)->
+    $query = {"registerData.setupId": setupId}
+    @model.collection.findOne $query, fields, (error, business)->
+      if error?
+        callback error
+        return
+      callback null, business
 
 ## Organizations ##
 class Organizations extends API
