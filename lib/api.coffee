@@ -2839,6 +2839,13 @@ class Businesses extends API
         return
       callback null, business
 
+  @getBySetupId = (setupId, fields, callback)->
+    $query = {"registerData.setupId": setupId}
+    @model.collection.findOne $query, fields, (error, business)->
+      if error?
+        callback error
+        return
+      callback null, business
 
 ## Organizations ##
 class Organizations extends API
