@@ -2374,10 +2374,15 @@ class Businesses extends API
   #clientid, limit, skip
   @optionParser = (options, q)->
     query = @_optionParser(options, q)
+    if options.deleted?
+      options.deleted = options.deleted
+    else
+      options.deleted = false
+
     query.in('clients', [options.clientId]) if options.clientId?
+    query.where 'deleted', options.deleted
     query.where 'locations.tapins', true if options.tapins?
     query.where 'isCharity', options.charity if options.charity?
-    query.where 'deleted', options.deleted if options.deleted?
     query.where 'gbEquipped', true if options.equipped?
     query.where 'type', options.type if options.type?
     query.sort('publicName', 1) if options.alphabetical? and options.alphabetical == true
