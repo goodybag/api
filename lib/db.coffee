@@ -382,7 +382,8 @@ Client = new Schema {
 Business = new Schema {
   name          : {type: String, required: true}
   publicName    : {type: String, required: true}
-  type          : [{type: String, required: true, enum: choices.businesses.types._enum}]
+  type          : [{ type: String, required: true }]
+  tags          : [{ type: String, required: true }]
   url           : {type: String, validate: Url}
   email         : {type: String, validate: Email}
   isCharity     : {type: Boolean, default: false}
