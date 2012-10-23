@@ -1402,8 +1402,10 @@ class Consumers extends Users
         return
       logger.silly "#####################################"
       logger.silly JSON.parse(appResponse.body).id
+      logger.silly config.facebook.appId
+      logger.silly "%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%"
       if JSON.parse(appResponse.body).id != config.facebook.appId
-        callback new errors.ValidationError {'accessToken':"Incorrect access token. Not for Goodybag's app."}
+        return callback new errors.ValidationError {'accessToken':"Incorrect access token. Not for Goodybag's app."}
       if meResponse.code!=200
         callback new errors.HttpError 'Error connecting with Facebook, try again later.', 'facebookBatch:'+urls[1], appResponse.code
         return
