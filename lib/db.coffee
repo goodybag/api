@@ -31,6 +31,7 @@ reference = {
   id              : {type: ObjectId, required: true}
 }
 
+
 ##################
 # Entity #########
 ##################
@@ -46,6 +47,7 @@ entity = {
   }
 }
 
+
 ##############
 # DONOR ######
 ##############
@@ -57,6 +59,7 @@ donor = {
   }
 }
 
+
 ########################
 # Organization #########
 ########################
@@ -65,6 +68,7 @@ organization = {
   id                : {type: ObjectId, required: true}
   name              : {type: String}
 }
+
 
 ####################
 # Location #########
@@ -84,6 +88,7 @@ location = {
     #Lets us know if this business can supports tapins
     tapins        : {type: Boolean}
 }
+
 
 #######################
 # transaction #########
@@ -121,6 +126,7 @@ transaction = {
   pollerId        : {type: ObjectId} #THIS IS FOR IF WE FAIL AND THE POLLER PICKS IT UP
 }
 
+
 ########################
 # transactions #########
 ########################
@@ -133,6 +139,7 @@ transactions = {
   state             : {type: String, enum: choices.transactions.states._enum}
 }
 
+
 #################
 # Media #########
 #################
@@ -143,6 +150,16 @@ media = {
   mediaId           : {type: ObjectId}
   rotateDegrees     : {type: Number} #tempURLs from transloadit have wacky rotations...
 }
+
+
+####################
+# registerData #####
+####################
+registerData = {
+  registerId: {type: ObjectId, required: true}
+  setupId: {type: Number, required: true}
+}
+
 
 ProfileEntry = new Schema {
   name              : {type: String}
@@ -158,6 +175,8 @@ Entity = new Schema entity
 Location = new Schema location
 Donor = new Schema donor
 Transaction = new Schema transaction
+RegisterData = new Schema registerData
+
 
 #################################
 # DATABASE TRANSACTIONS #########
@@ -186,6 +205,7 @@ Sequence = new Schema {
   urlShortner: {type: Number, default: 0}
   barcodeId: {type: Number, default: 0}
 }
+
 
 ####################
 # BARCODE ##########
@@ -329,6 +349,7 @@ Consumer.index {"updateVerification.data.barcodeId": 1, "updateVerification.expi
 Consumer.index {_id: 1, "transactions.ids": 1}
 Consumer.index {"transactions.ids": 1}
 
+
 ####################
 # Client ###########
 ####################
@@ -361,7 +382,8 @@ Client = new Schema {
 Business = new Schema {
   name          : {type: String, required: true}
   publicName    : {type: String, required: true}
-  type          : [{type: String, required: true, enum: choices.businesses.types._enum}]
+  type          : [{ type: String, required: true }]
+  tags          : [{ type: String, required: true }]
   url           : {type: String, validate: Url}
   email         : {type: String, validate: Email}
   isCharity     : {type: Boolean, default: false}
@@ -376,8 +398,9 @@ Business = new Schema {
     fax         : {type: String}
   }
 
-  registers     : {} # {registerId: {location: locationId, ...}}
+  registers     : {} # {registerId: {location: locationId, setupId: Sequence No. ...}} # Sequence No. is from Sequences collection
   locRegister   : {} # {locationId: [registerId]}
+  registerData  : [RegisterData]
 
   locations     : [Location]
 
@@ -423,10 +446,10 @@ Business.index {publicName: 1}
 Business.index {isCharity: 1}
 Business.index {deleted: 1}
 
+
 ####################
 # Organization #####
 ####################
-
 Organization = new Schema {
   type    : {type: String, required: true}
   subType : {type: String, required: true}
@@ -435,6 +458,7 @@ Organization = new Schema {
 
 Organization.index {type: 1, name: 1}, {unique: true}
 Organization.index {type: 1, subType: 1, name: 1}
+
 
 ####################
 # Poll #############
@@ -960,6 +984,7 @@ Goody = new Schema {
 
 Goody.index {"org.type": 1, "org.id": 1, "karmaPointsRequired" : 1}
 
+
 ###########################
 # REDEMPTION LOG ##########
 ###########################
@@ -983,6 +1008,7 @@ RedemptionLog = new Schema {
 
   transactions          : transactions
 }
+
 
 ##########
 # Stat ###
@@ -1093,6 +1119,7 @@ UnclaimedBarcodeStatistic.index {'org.type': 1, 'org.id':1, consumerId: 1, "data
 UnclaimedBarcodeStatistic.index {'org.type': 1, 'org.id':1, consumerId: 1, "data.karmaPoints.remaining": 1}
 UnclaimedBarcodeStatistic.index {'org.type': 1, 'org.id':1, consumerId: 1, "data.karmaPoints.used": 1}
 
+
 ##########################
 # Card Requests ##########
 ##########################
@@ -1106,6 +1133,7 @@ CardRequest = new Schema {
     responded           : {type: Date}
   }
 }
+
 
 #############################
 # Email Submission ##########
