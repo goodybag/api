@@ -4976,6 +4976,21 @@ class BusinessTransactions extends API
     logger.info options
     query.exec callback
 
+  @byBusinessCount: (businessId, options, callback)->
+    if Object.isFunction options
+      callback = options
+      options = {}
+    query = @optionParser options
+    query.fields [
+      "_id"
+    ]
+    query.where 'organizationEntity.id', businessId
+    if options.location?
+      query.where 'locationId', options.location
+    logger.info options
+    query.count()
+    query.exec callback
+
   @byBusinessGbCostumers: (businessId, options, callback)->
     if Object.isFunction options
       callback = options
