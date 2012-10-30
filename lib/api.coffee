@@ -5004,6 +5004,21 @@ class BusinessTransactions extends API
     logger.info options
     query.exec callback
 
+  @byBusinessCount: (businessId, options, callback)->
+    if Object.isFunction options
+      callback = options
+      options = {}
+    query = @optionParser options
+    query.fields [
+      "_id"
+    ]
+    query.where 'organizationEntity.id', businessId
+    if options.location?
+      query.where 'locationId', options.location
+    logger.info options
+    query.count()
+    query.exec callback
+
   @byBusinessGbCostumers: (businessId, options, callback)->
     if Object.isFunction options
       callback = options
@@ -6559,7 +6574,7 @@ class Statistics extends API
 
     query.exec(callback)
     return
-    
+
   @getConsumerTapinCount: (id, callback)->
     amount = 0
     query = @query()
@@ -6568,7 +6583,7 @@ class Statistics extends API
       "data.tapIns.totalTapIns": 1
     }
     query.find (error, results)->
-      if error? 
+      if error?
         callback error
         return
       for y,x in results
@@ -6577,7 +6592,7 @@ class Statistics extends API
           if x is results.length-1
             callback null, amount
         )(x, y);
-  
+
   @getLocationsByTapins: (id, options, callback)->
     output = []
     query = @query()
@@ -6589,7 +6604,7 @@ class Statistics extends API
     }
     query.sort "data.tapIns.totalTapIns", -1
     query.find (error, results)->
-      if error? 
+      if error?
         callback error
         return
       for y,x in results
@@ -6598,7 +6613,7 @@ class Statistics extends API
           Businesses.model.collection.findOne y.org.id, { publicName: 1 }, (error, business)->
             if error == null and business != null
               output[x].name = business.publicName
-  
+
             if x is results.length-1
               callback null, output
         )(x, y);
