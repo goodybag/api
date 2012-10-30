@@ -5822,6 +5822,20 @@ class PasswordResetRequests extends API
 class Goodies extends API
   @model = Goody
 
+  @updateWithBusiness: (gid, bid, data, callback)->
+    if Object.isString gid
+      gid = ObjectId(gid)
+
+    if Object.isString bid
+      bid = ObjectId(bid)
+
+    if data.karmaPointsRequired % 10 != 0 or data.karmaPointsRequired < 10
+      return callback(new errors.ValidationError "karmaPointsRequired is invalid", {karmaPointsRequired:"must be divisible by 10"})
+
+    $query  = { "_id": gid, "org.id": bid }
+    $update = { $set: data }
+    @model.collection.update $query, $update, callback
+
   ###
    * Gets statistics on a specific goody
    *   {
