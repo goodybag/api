@@ -6613,6 +6613,50 @@ class Statistics extends API
 
     query.exec(callback)
     return
+    
+  @getConsumerTapinCount: (id, callback)->
+    amount = 0
+    query = @query()
+    query.where "consumerId", id
+    query.fields {
+      "data.tapIns.totalTapIns": 1
+    }
+    query.find (error, results)->
+      if error? 
+        callback error
+        return
+      for y,x in results
+        ((x, y)->
+          amount += y.data.tapIns.totalTapIns;
+          if x is results.length-1
+            callback null, amount
+        )(x, y);
+  
+  @getLocationsByTapins: (id, options, callback)->
+    output = []
+    query = @query()
+    query.where "consumerId", id
+    query.limit options.amount || 10
+    query.fields {
+      "data.tapIns.totalTapIns": 1
+      "org.id": 1
+    }
+    query.sort "data.tapIns.totalTapIns", -1
+    query.find (error, results)->
+      if error? 
+        callback error
+        return
+      for y,x in results
+        ((x, y)->
+          output[x] = { business: y };
+          Businesses.model.collection.findOne y.org.id, { publicName: 1 }, (error, business)->
+            if error == null and business != null
+              output[x].name = business.publicName
+  
+            if x is results.length-1
+              callback null, output
+        )(x, y);
+    return
 
   @getConsumerTapinCount: (id, callback)->
     amount = 0
