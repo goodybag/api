@@ -1402,8 +1402,10 @@ class Consumers extends Users
         return
       logger.silly "#####################################"
       logger.silly JSON.parse(appResponse.body).id
+      logger.silly config.facebook.appId
+      logger.silly "%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%"
       if JSON.parse(appResponse.body).id != config.facebook.appId
-        callback new errors.ValidationError {'accessToken':"Incorrect access token. Not for Goodybag's app."}
+        return callback new errors.ValidationError {'accessToken':"Incorrect access token. Not for Goodybag's app."}
       if meResponse.code!=200
         callback new errors.HttpError 'Error connecting with Facebook, try again later.', 'facebookBatch:'+urls[1], appResponse.code
         return
@@ -1597,6 +1599,7 @@ class Consumers extends Users
       email         : 1
       profile       : 1
       permissions   : 1
+      transactions  : 1
     }
     fieldsToReturn["facebook.id"] = 1 #if user has this then the user is a fbUser
     facebookMeFields = {
@@ -2374,10 +2377,15 @@ class Businesses extends API
   #clientid, limit, skip
   @optionParser = (options, q)->
     query = @_optionParser(options, q)
+    if options.deleted?
+      options.deleted = options.deleted
+    else
+      options.deleted = false
+
     query.in('clients', [options.clientId]) if options.clientId?
+    query.where 'deleted', options.deleted
     query.where 'locations.tapins', true if options.tapins?
     query.where 'isCharity', options.charity if options.charity?
-    query.where 'deleted', options.deleted if options.deleted?
     query.where 'gbEquipped', true if options.equipped?
     query.where 'type', options.type if options.type?
     query.sort('publicName', 1) if options.alphabetical? and options.alphabetical == true
@@ -2666,7 +2674,10 @@ class Businesses extends API
           if err?
             callback err, null
 
-    @model.collection.update {_id: id}, {$pull: { locations: {_id: { $in: objIds } },  } }, {safe: true}, callback
+    $pull = {}
+    $pull["locations"] = {_id: { $in: objIds }}
+    $pull["registerData"] =  {locationId: {$in: objIds}}
+    @model.collection.update {_id: id}, {$pull: $pull}, {safe: true}, callback
 
   @getGroup: (id, groupName, callback)->
     data = {}
@@ -2747,19 +2758,28 @@ class Businesses extends API
       locationId = new ObjectId locationId
     registerId = new ObjectId()
 
-    $query = {_id: businessId}
-    $set = {registers: {}}
-    $push = {locRegister: {}}
-    $set.registers[registerId] = {}
-    $set.registers[registerId].locationId = locationId
-    $push.locRegister[locationId] = registerId
+    # Get an id that can be utilized to setup the tablets
+    Sequences.next "register-setup-id", (error, value)=>
+      if error?
+        callback error #dberror
+        return
 
-    $set = @_flattenDoc $set
-    $push = @_flattenDoc $push
-    $update = {$set: $set, $push: $push}
+      $query = {_id: businessId}
+      $set = {registers: {}}
+      $push = {}
+      $set.registers[registerId] = {}
+      $set.registers[registerId].locationId = locationId
+      $set.registers[registerId].setupId = value
 
-    @model.collection.findAndModify $query, [], $update, {safe: true}, (error)->
-      callback error, registerId
+      $push["registerData"] = {locationId: locationId, registerId: registerId, setupId: value}
+      $push["locRegister.#{locationId}"] = registerId
+
+      $set = API._flattenDoc $set
+      #$push = @_flattenDoc $push
+      $update = {$set: $set, $push: $push}
+
+      @model.collection.findAndModify $query, [], $update, {safe: true}, (error)->
+        callback error, registerId
 
   @delRegister = (businessId, locationId, registerId, callback)->
     if Object.isString businessId
@@ -2770,6 +2790,7 @@ class Businesses extends API
     $pull = {}
     $unset["registers.#{registerId}"] = 1
     $pull["locRegister.#{locationId}"] = new ObjectId(registerId)
+    $pull["registerData"] = {registerId: new ObjectId(registerId)}
     $update = {$unset: $unset, $pull: $pull}
 
     @model.collection.findAndModify $query, [], $update, {safe: true}, callback
@@ -2826,6 +2847,13 @@ class Businesses extends API
         return
       callback null, business
 
+  @getBySetupId = (setupId, fields, callback)->
+    $query = {"registerData.setupId": setupId}
+    @model.collection.findOne $query, fields, (error, business)->
+      if error?
+        callback error
+        return
+      callback null, business
 
 ## Organizations ##
 class Organizations extends API
@@ -5794,6 +5822,45 @@ class PasswordResetRequests extends API
 class Goodies extends API
   @model = Goody
 
+  @updateWithBusiness: (gid, bid, data, callback)->
+    if Object.isString gid
+      gid = ObjectId(gid)
+
+    if Object.isString bid
+      bid = ObjectId(bid)
+
+    if data.karmaPointsRequired % 10 != 0 or data.karmaPointsRequired < 10
+      return callback(new errors.ValidationError "karmaPointsRequired is invalid", {karmaPointsRequired:"must be divisible by 10"})
+
+    $query  = { "_id": gid, "org.id": bid }
+    $update = { $set: data }
+    @model.collection.update $query, $update, callback
+
+  ###
+   * Gets statistics on a specific goody
+   *   {
+   *     timesRedeemed: 5
+   *   }
+   * @param  {String} goodyId The ID of the goody
+  ###
+  @statistics: (gid, callback)->
+    if Object.isString gid
+      gid = ObjectId(gid)
+
+    results = {}
+
+    $query = { "goody.id": gid }
+    $fields = { "_id": 1 }
+
+    query = RedemptionLogs.model.find $query
+    query.count()
+    query.exec (error, count)->
+      if error?
+        return callback(error)
+
+      results.timesRedeemed = count
+      return callback(null, results)
+
   ### _add_ ###
   # Add goodies for a specific organization
   #
@@ -6545,6 +6612,50 @@ class Statistics extends API
     query.in "consumerId", consumerIds
 
     query.exec(callback)
+    return
+
+  @getConsumerTapinCount: (id, callback)->
+    amount = 0
+    query = @query()
+    query.where "consumerId", id
+    query.fields {
+      "data.tapIns.totalTapIns": 1
+    }
+    query.find (error, results)->
+      if error?
+        callback error
+        return
+      for y,x in results
+        ((x, y)->
+          amount += y.data.tapIns.totalTapIns;
+          if x is results.length-1
+            callback null, amount
+        )(x, y);
+
+  @getLocationsByTapins: (id, options, callback)->
+    output = []
+    query = @query()
+    query.where "consumerId", id
+    query.limit options.amount || 10
+    query.fields {
+      "data.tapIns.totalTapIns": 1
+      "org.id": 1
+    }
+    query.sort "data.tapIns.totalTapIns", -1
+    query.find (error, results)->
+      if error?
+        callback error
+        return
+      for y,x in results
+        ((x, y)->
+          output[x] = { business: y };
+          Businesses.model.collection.findOne y.org.id, { publicName: 1 }, (error, business)->
+            if error == null and business != null
+              output[x].name = business.publicName
+
+            if x is results.length-1
+              callback null, output
+        )(x, y);
     return
 
   @pollAnswered: (org, consumerId, transactionId, timestamp, callback)->
