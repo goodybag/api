@@ -5822,6 +5822,31 @@ class PasswordResetRequests extends API
 class Goodies extends API
   @model = Goody
 
+  ###
+   * Gets statistics on a specific goody
+   *   {
+   *     timesRedeemed: 5
+   *   }
+   * @param  {String} goodyId The ID of the goody
+  ###
+  @statistics: (gid, callback)->
+    if Object.isString gid
+      gid = ObjectId(gid)
+
+    results = {}
+
+    $query = { "goody.id": gid }
+    $fields = { "_id": 1 }
+
+    query = RedemptionLogs.model.find $query
+    query.count()
+    query.exec (error, count)->
+      if error?
+        return callback(error)
+
+      results.timesRedeemed = count
+      return callback(null, results)
+
   ### _add_ ###
   # Add goodies for a specific organization
   #
