@@ -5004,6 +5004,21 @@ class BusinessTransactions extends API
     logger.info options
     query.exec callback
 
+  @byBusinessCount: (businessId, options, callback)->
+    if Object.isFunction options
+      callback = options
+      options = {}
+    query = @optionParser options
+    query.fields [
+      "_id"
+    ]
+    query.where 'organizationEntity.id', businessId
+    if options.location?
+      query.where 'locationId', options.location
+    logger.info options
+    query.count()
+    query.exec callback
+
   @byBusinessGbCostumers: (businessId, options, callback)->
     if Object.isFunction options
       callback = options
@@ -5807,6 +5822,45 @@ class PasswordResetRequests extends API
 class Goodies extends API
   @model = Goody
 
+  @updateWithBusiness: (gid, bid, data, callback)->
+    if Object.isString gid
+      gid = ObjectId(gid)
+
+    if Object.isString bid
+      bid = ObjectId(bid)
+
+    if data.karmaPointsRequired % 10 != 0 or data.karmaPointsRequired < 10
+      return callback(new errors.ValidationError "karmaPointsRequired is invalid", {karmaPointsRequired:"must be divisible by 10"})
+
+    $query  = { "_id": gid, "org.id": bid }
+    $update = { $set: data }
+    @model.collection.update $query, $update, callback
+
+  ###
+   * Gets statistics on a specific goody
+   *   {
+   *     timesRedeemed: 5
+   *   }
+   * @param  {String} goodyId The ID of the goody
+  ###
+  @statistics: (gid, callback)->
+    if Object.isString gid
+      gid = ObjectId(gid)
+
+    results = {}
+
+    $query = { "goody.id": gid }
+    $fields = { "_id": 1 }
+
+    query = RedemptionLogs.model.find $query
+    query.count()
+    query.exec (error, count)->
+      if error?
+        return callback(error)
+
+      results.timesRedeemed = count
+      return callback(null, results)
+
   ### _add_ ###
   # Add goodies for a specific organization
   #
@@ -6599,6 +6653,50 @@ class Statistics extends API
             if error == null and business != null
               output[x].name = business.publicName
   
+            if x is results.length-1
+              callback null, output
+        )(x, y);
+    return
+
+  @getConsumerTapinCount: (id, callback)->
+    amount = 0
+    query = @query()
+    query.where "consumerId", id
+    query.fields {
+      "data.tapIns.totalTapIns": 1
+    }
+    query.find (error, results)->
+      if error?
+        callback error
+        return
+      for y,x in results
+        ((x, y)->
+          amount += y.data.tapIns.totalTapIns;
+          if x is results.length-1
+            callback null, amount
+        )(x, y);
+
+  @getLocationsByTapins: (id, options, callback)->
+    output = []
+    query = @query()
+    query.where "consumerId", id
+    query.limit options.amount || 10
+    query.fields {
+      "data.tapIns.totalTapIns": 1
+      "org.id": 1
+    }
+    query.sort "data.tapIns.totalTapIns", -1
+    query.find (error, results)->
+      if error?
+        callback error
+        return
+      for y,x in results
+        ((x, y)->
+          output[x] = { business: y };
+          Businesses.model.collection.findOne y.org.id, { publicName: 1 }, (error, business)->
+            if error == null and business != null
+              output[x].name = business.publicName
+
             if x is results.length-1
               callback null, output
         )(x, y);
