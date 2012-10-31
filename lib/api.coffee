@@ -6594,13 +6594,19 @@ class Statistics extends API
   @withTapIns: (org, options, callback)->
     if Object.isString(org.id)
       org.id = new ObjectId(org.id)
-    @model.collection.find {"org.type": org.type, "org.id": org.id, "data.tapIns.totalTapIns": {$gt: 0}}, (error, cursor)->
+    @model.collection.find {"org.type": org.type, "org.id": org.id}, (error, cursor)->
       if error?
         callback(error)
         return
+
       cursor.limit(options.limit || 25)
       cursor.skip(options.skip || 0)
-      cursor.sort({"data.tapIns.lastVisited": -1})
+
+      if options.sort?
+        cursor.sort(options.sort)
+      else
+        cursor.sort({"data.tapIns.lastVisited": -1})
+
       cursor.toArray (error, statistics)->
         logger.debug(statistics)
         callback(error, statistics)
