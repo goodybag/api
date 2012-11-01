@@ -484,6 +484,30 @@ class Sequences extends API
 class RedemptionLogs extends API
   @model = RedemptionLog
 
+  @byBusiness: (bid, options, callback)->
+    if Object.isString(bid)
+      bid = new ObjectId(bid)
+
+    if Object.isFunction options
+      callback = options
+      options = {}
+
+    $query = { "org.id": bid }
+
+    if options["dates.redeemed"]?
+      $query["dates.redeemed"] = options["dates.redeemed"]
+
+    @model.collection.find $query, options, (error, cursor)->
+      if error?
+        return callback(error)
+
+      if options.count
+        return cursor.count(callback)
+      else
+        return cursor.toArray(callback)
+
+
+
   @add = (consumer, org, locationId, registerId, goody, dateRedeemed, transactionId, callback)->
     try
       if Object.isString consumer.id
@@ -6590,6 +6614,30 @@ class Statistics extends API
     query.where("org.id", org.id)
     query.exec(callback)
     return
+
+  @byBusiness: (bid, options, callback)->
+    if Object.isString(bid)
+      bid = new ObjectId(bid)
+
+    if Object.isFunction options
+      callback = options
+      options = {}
+
+    $query = { "org.id": bid }
+
+    if options["data.tapIns.totalTapIns"]?
+      $query["data.tapIns.totalTapIns"] = options["data.tapIns.totalTapIns"]
+
+    if options["data.tapIns.lastVisited"]?
+      $query["data.tapIns.lastVisited"] = options["data.tapIns.lastVisited"]
+
+    options.skip  = options.skip  || 0
+    options.limit = options.limit || 25
+
+    @model.collection.find $query, options, (error, cursor)->
+      if options.count
+        return cursor.count callback
+      cursor.toArray callback
 
   #Give me a list of people who have tapped in to a business before and therefore are customers
   @withTapIns: (org, options, callback)->
