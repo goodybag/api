@@ -1020,6 +1020,7 @@ RedemptionLog = new Schema {
 #tapIns:
   #totalTapIns
   #totalAmountPurchased
+  #firstVisit
   #lastVisited
   #totalDonated
   #charityCentsRaised [REMOVE]
@@ -1084,6 +1085,7 @@ Statistic.index {'org.type': 1, 'org.id': 1, consumerId: 1, "data.karmaPoints.us
 #tapIns:
   #totalTapIns
   #totalAmountPurchased
+  #firstVisited
   #lastVisited
   #totalDonated
 
