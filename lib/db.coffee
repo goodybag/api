@@ -428,6 +428,7 @@ Business = new Schema {
   deleted       : {type: Boolean, default: false}
 
   pin           : {type: String, validate: /[0-9]/}
+  cardCode      : {type: String} #This will replace pin entirely
 
   transactions  : transactions
 

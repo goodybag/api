@@ -2496,6 +2496,7 @@ class Businesses extends API
     if !data.pin?
       instance.pin = "asdf"
 
+    instance.cardCode = utils.randomPassword(6)
     #add user to the list of users for this business and add them to the group of owners
     instance['clients'] = [clientId] #only one user now
     instance['clientGroups'] = {}
