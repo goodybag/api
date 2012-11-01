@@ -5041,6 +5041,8 @@ class BusinessTransactions extends API
     query.where 'organizationEntity.id', businessId
     if options.location?
       query.where 'locationId', options.location
+    if options.date?
+      query.where 'date', options.date
     logger.info options
     query.count()
     query.exec callback
