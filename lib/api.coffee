@@ -5042,6 +5042,8 @@ class BusinessTransactions extends API
     query.where 'organizationEntity.id', businessId
     if options.location?
       query.where 'locationId', options.location
+    if options.date?
+      query.where 'date', options.date
     logger.info options
     query.count()
     query.exec callback
@@ -6283,6 +6285,33 @@ class Goodies extends API
 class UnclaimedBarcodeStatistics extends API
   @model: UnclaimedBarcodeStatistic
 
+  @byBusiness: (bid, options, callback)->
+    if Object.isString(bid)
+      bid = new ObjectId(bid)
+
+    if Object.isFunction options
+      callback = options
+      options = {}
+
+    $query = { "org.id": bid }
+
+    if options["data.tapIns.totalTapIns"]?
+      $query["data.tapIns.totalTapIns"] = options["data.tapIns.totalTapIns"]
+
+    if options["data.tapIns.lastVisited"]?
+      $query["data.tapIns.lastVisited"] = options["data.tapIns.lastVisited"]
+
+    if options["data.tapIns.firstVisited"]?
+      $query["data.tapIns.firstVisited"] = options["data.tapIns.firstVisited"]
+
+    options.skip  = options.skip  || 0
+    options.limit = options.limit || 25
+
+    @model.collection.find $query, options, (error, cursor)->
+      if options.count
+        return cursor.count callback
+      cursor.toArray callback
+
   @add: (data, callback)->
     obj = {
       org: {
@@ -6630,6 +6659,9 @@ class Statistics extends API
 
     if options["data.tapIns.lastVisited"]?
       $query["data.tapIns.lastVisited"] = options["data.tapIns.lastVisited"]
+
+    if options["data.tapIns.firstVisited"]?
+      $query["data.tapIns.firstVisited"] = options["data.tapIns.firstVisited"]
 
     options.skip  = options.skip  || 0
     options.limit = options.limit || 25

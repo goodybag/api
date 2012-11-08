@@ -1021,6 +1021,7 @@ RedemptionLog = new Schema {
 #tapIns:
   #totalTapIns
   #totalAmountPurchased
+  #firstVisit
   #lastVisited
   #totalDonated
   #charityCentsRaised [REMOVE]
@@ -1071,6 +1072,7 @@ Statistic.index {'org.type': 1, 'org.id':1, consumerId: 1, "transactions.ids": 1
 Statistic.index {'org.type': 1, 'org.id': 1, consumerId: 1, "data.tapIns.totalTapIns": 1}
 Statistic.index {'org.type': 1, 'org.id': 1, consumerId: 1, "data.tapIns.totalAmountPurchased": 1}
 Statistic.index {'org.type': 1, 'org.id': 1, consumerId: 1, "data.tapIns.lastVisited": 1}
+Statistic.index {'org.type': 1, 'org.id': 1, consumerId: 1, "data.tapIns.firstVisited": 1}
 Statistic.index {'org.type': 1, 'org.id': 1, consumerId: 1, "data.tapIns.totalDonated": 1}
 
 Statistic.index {'org.type': 1, 'org.id': 1, consumerId: 1, "data.polls.totalAnswered": 1}
@@ -1085,6 +1087,7 @@ Statistic.index {'org.type': 1, 'org.id': 1, consumerId: 1, "data.karmaPoints.us
 #tapIns:
   #totalTapIns
   #totalAmountPurchased
+  #firstVisited
   #lastVisited
   #totalDonated
 
@@ -1114,6 +1117,7 @@ UnclaimedBarcodeStatistic.index {"transactions.ids": 1}
 UnclaimedBarcodeStatistic.index {'org.type': 1, 'org.id':1, barcodeId: 1, "data.tapIns.totalTapIns": 1}
 UnclaimedBarcodeStatistic.index {'org.type': 1, 'org.id':1, barcodeId: 1, "data.tapIns.totalAmountPurchased": 1}
 UnclaimedBarcodeStatistic.index {'org.type': 1, 'org.id':1, barcodeId: 1, "data.tapIns.lastVisited": 1}
+UnclaimedBarcodeStatistic.index {'org.type': 1, 'org.id':1, barcodeId: 1, "data.tapIns.firstVisited": 1}
 UnclaimedBarcodeStatistic.index {'org.type': 1, 'org.id':1, barcodeId: 1, "data.tapIns.totalDonated": 1}
 
 UnclaimedBarcodeStatistic.index {'org.type': 1, 'org.id':1, consumerId: 1, "data.karmaPoints.earned": 1}
