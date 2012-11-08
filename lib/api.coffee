@@ -6951,7 +6951,7 @@ class CardRequests extends API
     if Object.isString id
       id = new ObjectId id
     $query = {'entity.id': id, 'dates.responded': {$exists: false}}
-    @model.findOne $query, callback
+    @model.findOne $query, {}, {sort:{"dates.requested": -1}}, callback
 
 
 ## EmailSubmissions ##
