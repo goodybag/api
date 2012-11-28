@@ -6251,13 +6251,13 @@ class Goodies extends API
         $query["consumerId"]                 = consumerId
         $query["org.type"]                   = choices.organizations.BUSINESS
         $query["org.id"]                     = businessId
-        $query["data.karmaPoints.remaining"] = {$gte: goody.karmaPointsRequired}
+        $query["data.karmaPoints.remaining"] = {$gte: parseInt(goody.karmaPointsRequired)}
 
         $inc     = {}
         $pushAll = {}
 
         $inc["data.karmaPoints.remaining"] = -1 * goody.karmaPointsRequired
-        $inc["data.karmaPoints.used"]      = goody.karmaPointsRequired
+        $inc["data.karmaPoints.used"]      = parseInt(goody.karmaPointsRequired)
 
         $pushAll = {
           "transactions.ids": [redemptionLogTransaction.id]
